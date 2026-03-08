@@ -4,11 +4,5 @@
     "serverId": "lmstudio-default",
     "name": "Local Model",
     "slug": "local-model"
-  },
-  {
-    "id": "ollama-llama3",
-    "serverId": "ollama-default",
-    "name": "Llama 3",
-    "slug": "llama3"
   }
 ]

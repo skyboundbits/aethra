@@ -1,0 +1,56 @@
+/**
+ * src/styles/system-prompt.css
+ * Styles for the system prompt editor modal.
+ */
+
+.system-prompt-modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.system-prompt-modal__copy {
+  font-size: var(--font-size-label);
+  color: var(--text-color-secondary);
+}
+
+.system-prompt-modal__textarea {
+  width: 100%;
+  min-height: 220px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.system-prompt-modal__textarea:focus {
+  outline: none;
+  border-color: var(--border-color-accent);
+}
+
+.system-prompt-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.system-prompt-modal__button {
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+}
+
+.system-prompt-modal__button--primary {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
+}
+
+.system-prompt-modal__button:disabled {
+  opacity: 0.65;
+}

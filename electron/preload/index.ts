@@ -13,7 +13,7 @@
 
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent }       from 'electron'
-import type { AppSettings, ChatMessage } from '../../src/types'
+import type { AppSettings, AvailableModel, ChatMessage, WindowControlsState } from '../../src/types'
 
 /** Handlers passed by the renderer to streamCompletion. */
 interface StreamHandlers {
@@ -80,5 +80,61 @@ contextBridge.exposeInMainWorld('api', {
    */
   saveSettings(settings: AppSettings): Promise<void> {
     return ipcRenderer.invoke('settings:set', settings) as Promise<void>
+  },
+
+  /**
+   * Request the current model catalog from a configured server profile.
+   *
+   * @param serverId - Server profile ID to query.
+   * @returns Promise resolving to discovered models for that server.
+   */
+  browseModels(serverId: string): Promise<AvailableModel[]> {
+    return ipcRenderer.invoke('models:browse', serverId) as Promise<AvailableModel[]>
+  },
+
+  /**
+   * Read the current window control state.
+   * @returns Promise resolving to the platform and maximize state.
+   */
+  getWindowState(): Promise<WindowControlsState> {
+    return ipcRenderer.invoke('window:get-state') as Promise<WindowControlsState>
+  },
+
+  /**
+   * Minimize the current BrowserWindow.
+   */
+  minimizeWindow(): Promise<void> {
+    return ipcRenderer.invoke('window:minimize') as Promise<void>
+  },
+
+  /**
+   * Toggle the current BrowserWindow maximized/restored state.
+   */
+  toggleMaximizeWindow(): Promise<void> {
+    return ipcRenderer.invoke('window:toggle-maximize') as Promise<void>
+  },
+
+  /**
+   * Close the current BrowserWindow.
+   */
+  closeWindow(): Promise<void> {
+    return ipcRenderer.invoke('window:close') as Promise<void>
+  },
+
+  /**
+   * Subscribe to title bar state changes pushed from the main process.
+   *
+   * @param listener - Called whenever maximize state changes.
+   * @returns Cleanup function that removes the IPC listener.
+   */
+  onWindowStateChange(listener: (state: WindowControlsState) => void): () => void {
+    function onState(_: IpcRendererEvent, state: WindowControlsState) {
+      listener(state)
+    }
+
+    ipcRenderer.on('window:state-changed', onState)
+    return () => {
+      ipcRenderer.off('window:state-changed', onState)
+    }
   },
 })

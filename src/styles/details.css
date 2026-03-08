@@ -41,6 +41,14 @@
   padding: 14px;
 }
 
+.details__card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
 .details__card-label {
   font-size: var(--font-size-caption);
   font-weight: 600;
@@ -54,4 +62,25 @@
   font-size: var(--font-size-label);
   color: var(--text-color-muted);
   font-style: italic;
+}
+
+.details__card-copy {
+  font-size: var(--font-size-label);
+  color: var(--text-color-secondary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.details__action-btn {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--panel-bg);
+  color: var(--text-color-primary);
+  transition: border-color var(--motion-base), background-color var(--motion-base);
+}
+
+.details__action-btn:hover {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-emphasis);
 }

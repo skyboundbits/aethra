@@ -23,17 +23,20 @@ import { ChatArea }     from './components/ChatArea'
 import { InputBar }     from './components/InputBar'
 import { DetailsPanel } from './components/DetailsPanel'
 import { SettingsModal } from './components/SettingsModal'
+import { TitleBar } from './components/TitleBar'
+import { SystemPromptModal } from './components/SystemPromptModal'
 
 import { streamCompletion } from './services/aiService'
 import { applyTheme, parseImportedTheme, upsertCustomTheme } from './services/themeService'
 
-import type { AppSettings, Session, Message, ChatMessage } from './types'
+import type { AppSettings, AvailableModel, Session, Message, ChatMessage, ModelPreset } from './types'
 
 const DEFAULT_SETTINGS: AppSettings = {
   servers: [],
   models: [],
   activeServerId: null,
   activeModelSlug: null,
+  systemPrompt: 'You are a roleplaying agent responding naturally to the user.',
   activeThemeId: 'default',
   customThemes: [],
 }
@@ -53,6 +56,18 @@ function uid(): string {
  */
 function toApiMessages(messages: Message[]): ChatMessage[] {
   return messages.map((m) => ({ role: m.role, content: m.content }))
+}
+
+/**
+ * Build a readable default session title from the first user message.
+ *
+ * @param input - Raw user input.
+ * @returns Trimmed single-line title.
+ */
+function buildSessionTitle(input: string): string {
+  const normalized = input.trim().replace(/\s+/g, ' ')
+  if (normalized.length === 0) return 'New Chat'
+  return normalized.slice(0, 40)
 }
 
 /**
@@ -83,11 +98,20 @@ export default function App() {
   /** True while the settings modal is open. */
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
+  /** True while the system prompt editor modal is open. */
+  const [isSystemPromptOpen, setIsSystemPromptOpen] = useState(false)
+
   /** Status message shown in the settings modal. */
   const [settingsStatusMessage, setSettingsStatusMessage] = useState<string | null>(null)
 
   /** Visual state of the settings modal status message. */
   const [settingsStatusKind, setSettingsStatusKind] = useState<'error' | 'success' | null>(null)
+
+  /** Models discovered live from the active server in the settings UI. */
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+
+  /** True while fetching the remote model catalog from the active server. */
+  const [isBrowsingModels, setIsBrowsingModels] = useState(false)
 
   /**
    * Load persisted settings on first render.
@@ -127,6 +151,27 @@ export default function App() {
     applyTheme(appSettings.activeThemeId, appSettings.customThemes)
   }, [appSettings.activeThemeId, appSettings.customThemes])
 
+  /**
+   * Seed the app with a starter session so chat works immediately.
+   */
+  useEffect(() => {
+    if (sessions.length > 0 || activeSessionId !== null) {
+      return
+    }
+
+    const now = Date.now()
+    const starterSession: Session = {
+      id: uid(),
+      title: 'New Chat',
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    setSessions([starterSession])
+    setActiveSessionId(starterSession.id)
+  }, [activeSessionId, sessions])
+
   /* ── Derived values ─────────────────────────────────────────────────── */
 
   /** The full session object for the active session (or null). */
@@ -134,6 +179,32 @@ export default function App() {
 
   /** Messages belonging to the active session. */
   const messages: Message[] = activeSession?.messages ?? []
+
+  /** The currently selected AI server from persisted settings. */
+  const activeServer =
+    appSettings.servers.find((server) => server.id === appSettings.activeServerId) ??
+    appSettings.servers[0] ??
+    null
+
+  /** Model presets available for the active server. */
+  const activeServerModels: ModelPreset[] = activeServer
+    ? appSettings.models.filter((model) => model.serverId === activeServer.id)
+    : []
+
+  /** The currently selected AI model from persisted settings. */
+  const activeModel =
+    activeServerModels.find((model) => model.slug === appSettings.activeModelSlug) ??
+    activeServerModels[0] ??
+    null
+
+  /**
+   * Keep the temporary discovered model list scoped to the current server.
+   */
+  useEffect(() => {
+    setAvailableModels((prev) =>
+      activeServer ? prev.filter((model) => model.serverId === activeServer.id) : [],
+    )
+  }, [activeServer?.id])
 
   /* ── Helpers ─────────────────────────────────────────────────────────── */
 
@@ -154,6 +225,30 @@ export default function App() {
         return { ...s, messages, updatedAt: Date.now() }
       }),
     )
+  }
+
+  /**
+   * Ensure there is an active session to receive messages.
+   *
+   * @returns Active session ID, creating a new session if necessary.
+   */
+  function ensureActiveSession(): string {
+    if (activeSessionId) {
+      return activeSessionId
+    }
+
+    const now = Date.now()
+    const newSession: Session = {
+      id: uid(),
+      title: 'New Chat',
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    setSessions((prev) => [newSession, ...prev])
+    setActiveSessionId(newSession.id)
+    return newSession.id
   }
 
   /* ── Handlers ───────────────────────────────────────────────────────── */
@@ -217,6 +312,20 @@ export default function App() {
   }
 
   /**
+   * Open the system prompt editor modal.
+   */
+  function handleOpenSystemPrompt(): void {
+    setIsSystemPromptOpen(true)
+  }
+
+  /**
+   * Close the system prompt editor modal.
+   */
+  function handleCloseSystemPrompt(): void {
+    setIsSystemPromptOpen(false)
+  }
+
+  /**
    * Select and persist the active app theme.
    *
    * @param themeId - Built-in or imported theme ID.
@@ -235,6 +344,181 @@ export default function App() {
       console.error('[Aethra] Could not save selected theme:', err)
       setSettingsStatusKind('error')
       setSettingsStatusMessage('Could not save theme selection.')
+    }
+  }
+
+  /**
+   * Persist the prompt prepended to every chat request.
+   *
+   * @param systemPrompt - Updated system prompt text.
+   */
+  async function handleSaveSystemPrompt(systemPrompt: string): Promise<void> {
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      systemPrompt,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setIsSystemPromptOpen(false)
+    } catch (err) {
+      console.error('[Aethra] Could not save system prompt:', err)
+    }
+  }
+
+  /**
+   * Select and persist the active AI server, falling back to that server's
+   * first available model if the current model does not belong to it.
+   *
+   * @param serverId - ID of the selected server profile.
+   */
+  async function handleServerSelect(serverId: string): Promise<void> {
+    const selectedServer = appSettings.servers.find((server) => server.id === serverId)
+    if (!selectedServer) {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not find the selected server.')
+      return
+    }
+
+    const serverModels = appSettings.models.filter((model) => model.serverId === selectedServer.id)
+    const nextModelSlug = serverModels.some((model) => model.slug === appSettings.activeModelSlug)
+      ? appSettings.activeModelSlug
+      : (serverModels[0]?.slug ?? null)
+
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      activeServerId: selectedServer.id,
+      activeModelSlug: nextModelSlug,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage('AI server updated.')
+    } catch (err) {
+      console.error('[Aethra] Could not save selected server:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save AI server selection.')
+    }
+  }
+
+  /**
+   * Select and persist the active AI model.
+   *
+   * @param modelSlug - Slug of the selected model preset.
+   */
+  async function handleModelSelect(modelSlug: string): Promise<void> {
+    const selectedModel = appSettings.models.find((model) => model.slug === modelSlug)
+    if (!selectedModel) {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not find the selected model.')
+      return
+    }
+
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      activeServerId: selectedModel.serverId,
+      activeModelSlug: selectedModel.slug,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage('AI model updated.')
+    } catch (err) {
+      console.error('[Aethra] Could not save selected model:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save AI model selection.')
+    }
+  }
+
+  /**
+   * Query the active server for its available models and persist the catalog
+   * into settings so it remains selectable on future launches.
+   */
+  async function handleBrowseModels(): Promise<void> {
+    if (!activeServer) {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Select a server before browsing models.')
+      return
+    }
+
+    setIsBrowsingModels(true)
+
+    try {
+      const discoveredModels = await window.api.browseModels(activeServer.id)
+      const persistedModels = discoveredModels.map((model) => ({
+        id: model.id,
+        serverId: model.serverId,
+        name: model.name,
+        slug: model.slug,
+      }))
+
+      const nextModels = [
+        ...appSettings.models.filter((model) => model.serverId !== activeServer.id),
+        ...persistedModels,
+      ]
+
+      const nextActiveModelSlug = discoveredModels.some((model) => model.slug === appSettings.activeModelSlug)
+        ? appSettings.activeModelSlug
+        : (discoveredModels[0]?.slug ?? null)
+
+      const nextSettings: AppSettings = {
+        ...appSettings,
+        models: nextModels,
+        activeServerId: activeServer.id,
+        activeModelSlug: nextActiveModelSlug,
+      }
+
+      setAvailableModels(discoveredModels)
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage(
+        discoveredModels.length > 0
+          ? `Loaded ${discoveredModels.length} model${discoveredModels.length === 1 ? '' : 's'} from ${activeServer.name}.`
+          : `No models were reported by ${activeServer.name}.`,
+      )
+    } catch (err) {
+      console.error('[Aethra] Could not browse models:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage(err instanceof Error ? err.message : 'Could not browse models.')
+    } finally {
+      setIsBrowsingModels(false)
+    }
+  }
+
+  /**
+   * Persist an updated base URL for the selected AI server profile.
+   *
+   * @param serverId - ID of the server profile to update.
+   * @param baseUrl  - New OpenAI-compatible base URL.
+   */
+  async function handleServerAddressSave(serverId: string, baseUrl: string): Promise<void> {
+    const trimmedBaseUrl = baseUrl.trim()
+    if (!trimmedBaseUrl) {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Server address cannot be empty.')
+      return
+    }
+
+    const nextServers = appSettings.servers.map((server) =>
+      server.id === serverId ? { ...server, baseUrl: trimmedBaseUrl } : server,
+    )
+
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      servers: nextServers,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage('Server address updated.')
+    } catch (err) {
+      console.error('[Aethra] Could not save server address:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save the server address.')
+      throw err
     }
   }
 
@@ -269,20 +553,35 @@ export default function App() {
    * chunk-by-chunk as the stream arrives.
    */
   function handleSend() {
-    if (!inputValue.trim() || !activeSessionId || isStreaming) return
+    if (!inputValue.trim() || isStreaming) return
 
-    const sessionId = activeSessionId
+    const trimmedInput = inputValue.trim()
+    const sessionId = ensureActiveSession()
+    const targetSession = sessions.find((session) => session.id === sessionId) ?? null
 
     const userMessage: Message = {
       id:        uid(),
       role:      'user',
-      content:   inputValue.trim(),
+      content:   trimmedInput,
       timestamp: Date.now(),
     }
 
     // Snapshot the message history *before* appending the user message so we
     // can build the API payload without relying on stale state.
-    const historySnapshot = toApiMessages([...messages, userMessage])
+    const historySnapshot = [
+      { role: 'system' as const, content: appSettings.systemPrompt },
+      ...toApiMessages([...(targetSession?.messages ?? []), userMessage]),
+    ]
+
+    if (targetSession && targetSession.messages.length === 0) {
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === sessionId
+            ? { ...session, title: buildSessionTitle(trimmedInput), updatedAt: Date.now() }
+            : session,
+        ),
+      )
+    }
 
     upsertMessage(sessionId, userMessage)
     setInputValue('')
@@ -326,6 +625,8 @@ export default function App() {
 
   return (
     <div className="app-root">
+      <TitleBar title="Aethra" />
+
       {/* Top navigation ribbon */}
       <RibbonBar activeTab={activeTab} onTabChange={handleTabChange} />
 
@@ -346,26 +647,58 @@ export default function App() {
             value={inputValue}
             onChange={setInputValue}
             onSend={handleSend}
-            disabled={activeSession === null || isStreaming}
+            disabled={isStreaming}
           />
         </main>
 
         {/* Right column: session details */}
-        <DetailsPanel activeSession={activeSession} />
+        <DetailsPanel
+          activeSession={activeSession}
+          activeServerName={activeServer?.name ?? null}
+          activeModelName={activeModel?.name ?? null}
+          systemPrompt={appSettings.systemPrompt}
+          onOpenSystemPrompt={handleOpenSystemPrompt}
+        />
       </div>
 
       {isSettingsOpen ? (
         <SettingsModal
+          servers={appSettings.servers}
+          models={appSettings.models}
+          activeServerId={activeServer?.id ?? null}
+          activeModelSlug={activeModel?.slug ?? null}
+          availableModels={availableModels}
+          isBrowsingModels={isBrowsingModels}
           activeThemeId={appSettings.activeThemeId}
           customThemes={appSettings.customThemes}
           statusMessage={settingsStatusMessage}
           statusKind={settingsStatusKind}
           onClose={handleCloseSettings}
+          onServerSelect={(serverId) => {
+            void handleServerSelect(serverId)
+          }}
+          onModelSelect={(modelSlug) => {
+            void handleModelSelect(modelSlug)
+          }}
+          onBrowseModels={() => {
+            void handleBrowseModels()
+          }}
+          onSaveServerAddress={(serverId, baseUrl) => handleServerAddressSave(serverId, baseUrl)}
           onThemeSelect={(themeId) => {
             void handleThemeSelect(themeId)
           }}
           onImportTheme={(file) => {
             void handleImportTheme(file)
+          }}
+        />
+      ) : null}
+
+      {isSystemPromptOpen ? (
+        <SystemPromptModal
+          value={appSettings.systemPrompt}
+          onClose={handleCloseSystemPrompt}
+          onSave={(systemPrompt) => {
+            void handleSaveSystemPrompt(systemPrompt)
           }}
         />
       ) : null}

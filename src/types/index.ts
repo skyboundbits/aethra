@@ -96,6 +96,16 @@ export interface ThemeDefinition {
 }
 
 /**
+ * Window chrome state mirrored from Electron into the renderer.
+ */
+export interface WindowControlsState {
+  /** Host operating system reported by the Electron main process. */
+  platform: 'darwin' | 'win32' | 'linux'
+  /** True when the window is currently maximized. */
+  isMaximized: boolean
+}
+
+/**
  * A configured AI server the user can connect to.
  * Stored in AppSettings and persisted to userData/settings.json.
  */
@@ -125,6 +135,20 @@ export interface ModelPreset {
 }
 
 /**
+ * A model discovered live from a configured AI server.
+ */
+export interface AvailableModel {
+  /** Stable ID from the upstream server model listing. */
+  id: string
+  /** ID of the ServerProfile the model belongs to. */
+  serverId: string
+  /** Human-readable display name. */
+  name: string
+  /** Model slug sent to the API. */
+  slug: string
+}
+
+/**
  * Persisted application settings.
  * Loaded from / saved to <userData>/settings.json by the main process.
  */
@@ -137,6 +161,8 @@ export interface AppSettings {
   activeServerId: string | null
   /** Model slug currently selected as default. */
   activeModelSlug: string | null
+  /** System prompt prepended to each chat request. */
+  systemPrompt: string
   /** Selected visual theme ID. Built-ins and custom themes share the same namespace. */
   activeThemeId: string
   /** Imported user theme definitions. */

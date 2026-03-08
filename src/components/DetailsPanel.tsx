@@ -12,6 +12,14 @@ import type { Session } from '../types'
 interface DetailsPanelProps {
   /** The currently active session, or null when none is selected. */
   activeSession: Session | null
+  /** Display name of the active AI server, or null if unavailable. */
+  activeServerName: string | null
+  /** Display name of the active AI model, or null if unavailable. */
+  activeModelName: string | null
+  /** Current system prompt preview text. */
+  systemPrompt: string
+  /** Open the system prompt editor modal. */
+  onOpenSystemPrompt: () => void
 }
 
 /**
@@ -19,7 +27,13 @@ interface DetailsPanelProps {
  * Renders the right-hand panel that will surface contextual information
  * about the active roleplay session (characters, scene, model config, etc.).
  */
-export function DetailsPanel({ activeSession }: DetailsPanelProps) {
+export function DetailsPanel({
+  activeSession,
+  activeServerName,
+  activeModelName,
+  systemPrompt,
+  onOpenSystemPrompt,
+}: DetailsPanelProps) {
   return (
     <aside className="panel panel--details">
       {/* ── Header ──────────────────────────────────────────────────── */}
@@ -49,7 +63,26 @@ export function DetailsPanel({ activeSession }: DetailsPanelProps) {
         <div className="details__card">
           <div className="details__card-label">Model</div>
           <div className="details__card-placeholder">
-            {import.meta.env.VITE_LLM_MODEL ?? 'Not configured'}
+            {activeModelName ?? 'Not configured'}
+          </div>
+        </div>
+
+        <div className="details__card">
+          <div className="details__card-label">Server</div>
+          <div className="details__card-placeholder">
+            {activeServerName ?? 'Not configured'}
+          </div>
+        </div>
+
+        <div className="details__card">
+          <div className="details__card-header">
+            <div className="details__card-label">System Prompt</div>
+            <button className="details__action-btn" onClick={onOpenSystemPrompt}>
+              Edit
+            </button>
+          </div>
+          <div className="details__card-copy">
+            {systemPrompt}
           </div>
         </div>
       </div>

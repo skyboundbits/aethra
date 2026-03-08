@@ -21,6 +21,8 @@ interface ModalProps {
   title: string
   /** Called when the user requests the modal to close. */
   onClose: () => void
+  /** Optional extra class name applied to the dialog card. */
+  className?: string
   /** Content rendered inside the scrollable body area. */
   children: React.ReactNode
 }
@@ -30,7 +32,7 @@ interface ModalProps {
  * Floating dialog card with a backdrop, title bar, close button, and
  * a scrollable content body.
  */
-export function Modal({ title, onClose, children }: ModalProps) {
+export function Modal({ title, onClose, className, children }: ModalProps) {
   /** Close on Escape key. */
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() },
@@ -49,7 +51,13 @@ export function Modal({ title, onClose, children }: ModalProps) {
 
   return createPortal(
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" onClick={handleCardClick}>
+      <div
+        className={className ? `modal ${className}` : 'modal'}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+        onClick={handleCardClick}
+      >
 
         {/* Title bar */}
         <div className="modal__titlebar">

@@ -4,11 +4,5 @@
     "name": "LM Studio",
     "baseUrl": "http://localhost:1234/v1",
     "apiKey": "lm-studio"
-  },
-  {
-    "id": "ollama-default",
-    "name": "Ollama",
-    "baseUrl": "http://localhost:11434/v1",
-    "apiKey": "ollama"
   }
 ]

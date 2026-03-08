@@ -46,6 +46,15 @@
   animation: modal-slide-in var(--motion-base) ease;
 }
 
+.modal--settings {
+  width: 920px;
+  height: 80vh;
+}
+
+.modal--system-prompt {
+  width: 720px;
+}
+
 @keyframes modal-slide-in {
   from { transform: translateY(8px); opacity: 0; }
   to   { transform: translateY(0);   opacity: 1; }
@@ -92,4 +101,15 @@
   padding: var(--panel-padding);
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
+}
+
+.modal--settings .modal__content {
+  overflow: hidden;
+}
+
+@media (max-width: 720px) {
+  .modal--settings {
+    height: calc(100vh - 32px);
+  }
 }

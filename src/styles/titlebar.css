@@ -1,0 +1,118 @@
+/**
+ * src/styles/titlebar.css
+ * Styles for the custom cross-platform Electron title bar.
+ */
+
+.title-bar {
+  display: flex;
+  align-items: stretch;
+  height: var(--titlebar-height);
+  min-height: var(--titlebar-height);
+  background-color: var(--panel-bg);
+  border-bottom: 1px solid var(--border-color);
+  user-select: none;
+}
+
+.title-bar--mac {
+  padding-left: var(--space-3);
+}
+
+.title-bar__drag-region {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  padding: 0 var(--space-4);
+}
+
+.title-bar__title {
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.title-bar__controls {
+  display: flex;
+  align-items: stretch;
+  -webkit-app-region: no-drag;
+}
+
+.title-bar__controls--mac {
+  gap: var(--space-2);
+  align-items: center;
+  padding-right: var(--space-3);
+}
+
+.title-bar__control {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.title-bar__control--windows {
+  width: 46px;
+  color: var(--text-color-secondary);
+  transition: background-color var(--motion-base), color var(--motion-base);
+}
+
+.title-bar__control--windows:hover {
+  background-color: var(--surface-bg-emphasis);
+  color: var(--text-color-primary);
+}
+
+.title-bar__control--windows-close:hover {
+  background-color: var(--status-border-error);
+  color: var(--text-color-on-accent);
+}
+
+.title-bar__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.title-bar__icon {
+  width: 18px;
+  height: 18px;
+}
+
+.title-bar__control--close,
+.title-bar__control--minimize,
+.title-bar__control--maximize {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-pill);
+}
+
+.title-bar__control--close {
+  background-color: var(--titlebar-mac-close, #ff5f57);
+}
+
+.title-bar__control--minimize {
+  background-color: var(--titlebar-mac-minimize, #febc2e);
+}
+
+.title-bar__control--maximize {
+  background-color: var(--titlebar-mac-maximize, #28c840);
+}
+
+@media (max-width: 720px) {
+  .title-bar__title {
+    font-size: var(--font-size-caption);
+  }
+
+  .title-bar__control--windows {
+    width: 42px;
+  }
+}

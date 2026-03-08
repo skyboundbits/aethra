@@ -5,7 +5,7 @@
  * Submits the message on Enter (Shift+Enter inserts a newline).
  */
 
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import '../styles/chat.css'
 
 /** Props accepted by the InputBar component. */
@@ -27,6 +27,22 @@ interface InputBarProps {
  */
 export function InputBar({ value, onChange, onSend, disabled = false }: InputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  /**
+   * Keep keyboard focus in the composer when it is interactive.
+   */
+  function focusTextarea(): void {
+    textareaRef.current?.focus()
+  }
+
+  /**
+   * Restore focus after the composer becomes interactive again.
+   */
+  useEffect(() => {
+    if (!disabled) {
+      focusTextarea()
+    }
+  }, [disabled])
 
   /**
    * Auto-resize the textarea to fit its content.
@@ -67,8 +83,11 @@ export function InputBar({ value, onChange, onSend, disabled = false }: InputBar
   function handleSend() {
     if (disabled || !value.trim()) return
     onSend()
-    // Reset textarea height after message is cleared by the parent
-    requestAnimationFrame(() => autoResize())
+    // Reset layout and retain keyboard focus after the parent clears the value.
+    requestAnimationFrame(() => {
+      autoResize()
+      focusTextarea()
+    })
   }
 
   const canSend = value.trim().length > 0 && !disabled
@@ -84,6 +103,7 @@ export function InputBar({ value, onChange, onSend, disabled = false }: InputBar
         placeholder="Write your message… (Enter to send, Shift+Enter for newline)"
         rows={1}
         disabled={disabled}
+        autoFocus
         aria-label="Message input"
       />
       <button

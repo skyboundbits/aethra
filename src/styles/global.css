@@ -41,6 +41,9 @@
   --text-color-brand: #5b7cf6;
   --status-color-error: #f0b8b8;
   --status-border-error: #b95a5a;
+  --titlebar-mac-close: #ff5f57;
+  --titlebar-mac-minimize: #febc2e;
+  --titlebar-mac-maximize: #28c840;
 
   --scrollbar-width: 6px;
   --scrollbar-thumb: #2a2f45;
@@ -60,6 +63,7 @@
   --motion-base: 0.15s;
   --motion-emphasis: 0.2s;
 
+  --titlebar-height: 40px;
   --ribbon-height: 128px;
   --sidebar-width: 260px;
   --details-width: 280px;
@@ -106,12 +110,201 @@
   --text-color-brand: #8d442b;
   --status-color-error: #9a3131;
   --status-border-error: #d28d8d;
+  --titlebar-mac-close: #ff5f57;
+  --titlebar-mac-minimize: #febc2e;
+  --titlebar-mac-maximize: #28c840;
 
   --scrollbar-thumb: #c9baa9;
   --scrollbar-thumb-hover: #ad9a87;
 
   --shadow-panel: 0 10px 30px rgba(71, 47, 28, 0.08);
   --shadow-modal: 0 24px 64px rgba(71, 47, 28, 0.18);
+}
+
+:root[data-theme='midnight-blue'] {
+  color-scheme: dark;
+
+  --app-bg: #08111e;
+  --panel-bg: #101b2d;
+  --surface-bg: #17253c;
+  --surface-bg-emphasis: #20324f;
+  --surface-bg-selected: #21385c;
+  --surface-bg-user-message: #183968;
+  --surface-bg-accent: #3f87ff;
+  --surface-bg-accent-hover: #69a4ff;
+  --surface-bg-overlay: rgba(3, 10, 20, 0.62);
+
+  --border-color: #29405f;
+  --border-color-accent: #5d99ff;
+
+  --text-color-primary: #edf5ff;
+  --text-color-secondary: #9cb5d6;
+  --text-color-muted: #6581a7;
+  --text-color-on-accent: #f7fbff;
+  --text-color-brand: #83b4ff;
+  --status-color-error: #ffb3bc;
+  --status-border-error: #d96a7b;
+
+  --scrollbar-thumb: #29405f;
+  --scrollbar-thumb-hover: #42658e;
+
+  --shadow-panel: 0 18px 48px rgba(4, 16, 34, 0.26);
+  --shadow-modal: 0 28px 72px rgba(2, 11, 24, 0.48);
+}
+
+:root[data-theme='ember-red'] {
+  color-scheme: dark;
+
+  --app-bg: #180b0d;
+  --panel-bg: #241114;
+  --surface-bg: #32171b;
+  --surface-bg-emphasis: #442025;
+  --surface-bg-selected: #53262d;
+  --surface-bg-user-message: #51232e;
+  --surface-bg-accent: #d7485a;
+  --surface-bg-accent-hover: #ef6678;
+  --surface-bg-overlay: rgba(21, 7, 9, 0.68);
+
+  --border-color: #5a2a31;
+  --border-color-accent: #ef6678;
+
+  --text-color-primary: #fff0f2;
+  --text-color-secondary: #d5a2aa;
+  --text-color-muted: #9b6870;
+  --text-color-on-accent: #fff7f8;
+  --text-color-brand: #ff8d98;
+  --status-color-error: #ffd3d8;
+  --status-border-error: #f08a96;
+
+  --scrollbar-thumb: #5a2a31;
+  --scrollbar-thumb-hover: #7d3944;
+
+  --shadow-panel: 0 18px 48px rgba(28, 8, 11, 0.28);
+  --shadow-modal: 0 28px 72px rgba(18, 6, 8, 0.52);
+}
+
+:root[data-theme='verdant-green'] {
+  color-scheme: dark;
+
+  --app-bg: #09130f;
+  --panel-bg: #101d18;
+  --surface-bg: #172821;
+  --surface-bg-emphasis: #20352c;
+  --surface-bg-selected: #254136;
+  --surface-bg-user-message: #1d3a31;
+  --surface-bg-accent: #42b883;
+  --surface-bg-accent-hover: #60cf9d;
+  --surface-bg-overlay: rgba(5, 12, 9, 0.64);
+
+  --border-color: #295041;
+  --border-color-accent: #60cf9d;
+
+  --text-color-primary: #edf9f2;
+  --text-color-secondary: #9fc6b1;
+  --text-color-muted: #6d9781;
+  --text-color-on-accent: #07170f;
+  --text-color-brand: #7fe0b2;
+  --status-color-error: #ffcccf;
+  --status-border-error: #db7d88;
+
+  --scrollbar-thumb: #295041;
+  --scrollbar-thumb-hover: #376d59;
+
+  --shadow-panel: 0 18px 48px rgba(6, 18, 13, 0.26);
+  --shadow-modal: 0 28px 72px rgba(4, 14, 10, 0.48);
+}
+
+:root[data-theme='amber-orange'] {
+  color-scheme: dark;
+
+  --app-bg: #15100a;
+  --panel-bg: #221810;
+  --surface-bg: #302117;
+  --surface-bg-emphasis: #402d1f;
+  --surface-bg-selected: #503826;
+  --surface-bg-user-message: #4b3118;
+  --surface-bg-accent: #e28a2f;
+  --surface-bg-accent-hover: #f0a44c;
+  --surface-bg-overlay: rgba(15, 9, 3, 0.66);
+
+  --border-color: #63432c;
+  --border-color-accent: #f0a44c;
+
+  --text-color-primary: #fff5e9;
+  --text-color-secondary: #d6b08b;
+  --text-color-muted: #a4805c;
+  --text-color-on-accent: #261507;
+  --text-color-brand: #ffbc71;
+  --status-color-error: #ffcfcb;
+  --status-border-error: #e49184;
+
+  --scrollbar-thumb: #63432c;
+  --scrollbar-thumb-hover: #8a5f3d;
+
+  --shadow-panel: 0 18px 48px rgba(23, 12, 2, 0.28);
+  --shadow-modal: 0 28px 72px rgba(15, 8, 2, 0.5);
+}
+
+:root[data-theme='graphite'] {
+  color-scheme: dark;
+
+  --app-bg: #101112;
+  --panel-bg: #17191b;
+  --surface-bg: #202326;
+  --surface-bg-emphasis: #2a2e33;
+  --surface-bg-selected: #31363c;
+  --surface-bg-user-message: #24303f;
+  --surface-bg-accent: #8da2b8;
+  --surface-bg-accent-hover: #aab9c9;
+  --surface-bg-overlay: rgba(7, 8, 9, 0.68);
+
+  --border-color: #353b42;
+  --border-color-accent: #aab9c9;
+
+  --text-color-primary: #f2f4f6;
+  --text-color-secondary: #a4aeb9;
+  --text-color-muted: #737d89;
+  --text-color-on-accent: #131518;
+  --text-color-brand: #c4d0dc;
+  --status-color-error: #ffd0d0;
+  --status-border-error: #d77e7e;
+
+  --scrollbar-thumb: #3a4048;
+  --scrollbar-thumb-hover: #525963;
+
+  --shadow-panel: 0 18px 48px rgba(6, 7, 8, 0.28);
+  --shadow-modal: 0 28px 72px rgba(4, 5, 6, 0.54);
+}
+
+:root[data-theme='linen'] {
+  color-scheme: light;
+
+  --app-bg: #f4f0e8;
+  --panel-bg: #fffdf8;
+  --surface-bg: #f6f1e7;
+  --surface-bg-emphasis: #ece4d7;
+  --surface-bg-selected: #e7dccd;
+  --surface-bg-user-message: #dfe7f2;
+  --surface-bg-accent: #4f7a9d;
+  --surface-bg-accent-hover: #3d6586;
+  --surface-bg-overlay: rgba(58, 45, 30, 0.18);
+
+  --border-color: #d4c7b6;
+  --border-color-accent: #4f7a9d;
+
+  --text-color-primary: #2d261f;
+  --text-color-secondary: #6d6153;
+  --text-color-muted: #938575;
+  --text-color-on-accent: #f8fbff;
+  --text-color-brand: #31526d;
+  --status-color-error: #9d3737;
+  --status-border-error: #d9a3a3;
+
+  --scrollbar-thumb: #c3b29d;
+  --scrollbar-thumb-hover: #a8957e;
+
+  --shadow-panel: 0 12px 30px rgba(70, 54, 35, 0.08);
+  --shadow-modal: 0 24px 64px rgba(70, 54, 35, 0.16);
 }
 
 /* ─── Base ───────────────────────────────────────────────────────────────── */
@@ -166,4 +359,11 @@ textarea,
 input {
   font: inherit;
   color: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--border-color-accent);
+  outline-offset: 2px;
 }
