@@ -44,6 +44,7 @@
   --scrollbar-thumb: #2a2f45;
 
   /* Layout */
+  --ribbon-height:    128px;
   --sidebar-width:    260px;
   --details-width:    280px;
   --column-gap:       16px;

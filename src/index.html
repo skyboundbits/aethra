@@ -1,8 +1,10 @@
 <!doctype html>
 <!--
-  index.html
-  Root HTML shell for the Aethra application.
-  Vite uses this as the entry point and injects the bundled scripts automatically.
+  src/index.html
+  Root HTML shell for the Aethra renderer process.
+  electron-vite uses this as the renderer entry point and injects
+  the bundled scripts automatically. The root is src/, so paths
+  are relative to that directory.
 -->
 <html lang="en">
   <head>
@@ -14,6 +16,6 @@
   <body>
     <!-- React mounts into this div -->
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/main.tsx"></script>
   </body>
 </html>
