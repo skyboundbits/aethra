@@ -14,14 +14,18 @@
  */
 
 import { app, BrowserWindow, ipcMain, screen, shell } from 'electron'
-import { join }                                from 'path'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { basename, join }                    from 'path'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
 
 import type {
   AppSettings,
   AvailableModel,
+  Campaign,
+  CampaignFileHandle,
+  CampaignSummary,
   ServerProfile,
   ModelPreset,
+  Session,
   ChatMessage,
   ThemeDefinition,
   WindowControlsState,
@@ -71,6 +75,27 @@ interface WindowBounds {
 }
 
 /**
+ * Lightweight message shape used to validate campaign files from disk.
+ */
+interface PartialMessageRecord {
+  id?: unknown
+  role?: unknown
+  content?: unknown
+  timestamp?: unknown
+}
+
+/**
+ * Lightweight session shape used to validate campaign files from disk.
+ */
+interface PartialSessionRecord {
+  id?: unknown
+  title?: unknown
+  messages?: unknown
+  createdAt?: unknown
+  updatedAt?: unknown
+}
+
+/**
  * Build the renderer-facing window control state for a BrowserWindow.
  *
  * @param win - BrowserWindow instance to describe.
@@ -112,6 +137,252 @@ function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSet
     activeThemeId: typeof raw?.activeThemeId === 'string' ? raw.activeThemeId : 'default',
     customThemes: Array.isArray(raw?.customThemes) ? raw.customThemes as ThemeDefinition[] : [],
   }
+}
+
+/**
+ * Generate a lightweight unique identifier.
+ *
+ * @returns Timestamp-plus-random ID string.
+ */
+function uid(): string {
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+}
+
+/**
+ * Test whether a value is a plain object.
+ *
+ * @param value - Unknown input candidate.
+ * @returns True when the value can be treated as a record.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Normalize a raw message loaded from disk into a safe Message shape.
+ *
+ * @param raw - Parsed JSON candidate.
+ * @param fallbackTimestamp - Timestamp to use when one is missing.
+ * @returns Normalized message.
+ */
+function normalizeMessage(raw: PartialMessageRecord, fallbackTimestamp: number) {
+  const timestamp = isFiniteNumber(raw.timestamp) ? raw.timestamp : fallbackTimestamp
+  const role = raw.role === 'assistant' || raw.role === 'system' || raw.role === 'user'
+    ? raw.role
+    : 'user'
+
+  return {
+    id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : uid(),
+    role,
+    content: typeof raw.content === 'string' ? raw.content : '',
+    timestamp,
+  }
+}
+
+/**
+ * Normalize a raw session loaded from disk into a safe Session shape.
+ *
+ * @param raw - Parsed JSON candidate.
+ * @param fallbackTimestamp - Timestamp to use when metadata is missing.
+ * @returns Normalized session.
+ */
+function normalizeSession(raw: PartialSessionRecord, fallbackTimestamp: number): Session {
+  const createdAt = isFiniteNumber(raw.createdAt) ? raw.createdAt : fallbackTimestamp
+  const updatedAt = isFiniteNumber(raw.updatedAt) ? raw.updatedAt : createdAt
+  const messages = Array.isArray(raw.messages)
+    ? raw.messages
+      .filter(isRecord)
+      .map((message, index) =>
+        normalizeMessage(message as PartialMessageRecord, createdAt + index),
+      )
+    : []
+
+  return {
+    id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : uid(),
+    title: typeof raw.title === 'string' && raw.title.trim().length > 0 ? raw.title.trim() : 'New Chat',
+    messages,
+    createdAt,
+    updatedAt,
+  }
+}
+
+/**
+ * Create a brand-new empty campaign object.
+ *
+ * @param name - Human-readable campaign name.
+ * @returns Newly initialized campaign.
+ */
+function createEmptyCampaign(name: string): Campaign {
+  const now = Date.now()
+
+  return {
+    id: uid(),
+    name,
+    description: '',
+    sessions: [],
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+/**
+ * Normalize a raw campaign file into the current Campaign shape.
+ *
+ * @param raw - Parsed JSON candidate.
+ * @param fallbackName - Name inferred from the file name when missing.
+ * @returns Fully populated campaign.
+ */
+function normalizeCampaign(raw: unknown, fallbackName: string): Campaign {
+  if (!isRecord(raw)) {
+    throw new Error('Campaign file must contain a JSON object.')
+  }
+
+  const createdAt = isFiniteNumber(raw.createdAt) ? raw.createdAt : Date.now()
+  const sessions = Array.isArray(raw.sessions)
+    ? raw.sessions
+      .filter(isRecord)
+      .map((session, index) =>
+        normalizeSession(session as PartialSessionRecord, createdAt + index),
+      )
+    : []
+
+  const updatedAt = isFiniteNumber(raw.updatedAt) ? raw.updatedAt : createdAt
+
+  return {
+    id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : uid(),
+    name: typeof raw.name === 'string' && raw.name.trim().length > 0 ? raw.name.trim() : fallbackName,
+    description: typeof raw.description === 'string' ? raw.description.trim() : '',
+    sessions,
+    createdAt,
+    updatedAt,
+  }
+}
+
+/**
+ * Return the absolute path to the managed campaigns root folder.
+ *
+ * @returns Full path to the campaigns directory inside userData.
+ */
+function campaignsRootPath(): string {
+  return join(app.getPath('userData'), 'campaigns')
+}
+
+/**
+ * Ensure the managed campaigns root directory exists.
+ *
+ * @returns Absolute campaigns root path.
+ */
+function ensureCampaignsRoot(): string {
+  const root = campaignsRootPath()
+  if (!existsSync(root)) {
+    mkdirSync(root, { recursive: true })
+  }
+
+  return root
+}
+
+/**
+ * Return the absolute path to a campaign's JSON file inside its folder.
+ *
+ * @param folderPath - Absolute campaign folder path.
+ * @returns Full path to campaign.json.
+ */
+function campaignFilePath(folderPath: string): string {
+  return join(folderPath, 'campaign.json')
+}
+
+/**
+ * Convert a campaign name into a filesystem-safe folder slug.
+ *
+ * @param name - Human-readable campaign name.
+ * @returns Sanitized folder name candidate.
+ */
+function slugifyCampaignFolder(name: string): string {
+  const slug = name
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return slug.length > 0 ? slug : 'New Campaign'
+}
+
+/**
+ * Pick a unique campaign folder path, appending numeric suffixes when needed.
+ *
+ * @param baseName - Human-readable campaign name.
+ * @returns Absolute path to a unique campaign folder.
+ */
+function allocateCampaignFolder(baseName: string): string {
+  const root = ensureCampaignsRoot()
+  const slug = slugifyCampaignFolder(baseName)
+  let candidate = join(root, slug)
+  let index = 1
+
+  while (existsSync(candidate)) {
+    candidate = join(root, `${slug} (${index})`)
+    index += 1
+  }
+
+  return candidate
+}
+
+/**
+ * Persist a campaign file to disk inside its folder.
+ *
+ * @param folderPath - Absolute path to the target campaign folder.
+ * @param campaign - Campaign payload to save.
+ */
+function saveCampaign(folderPath: string, campaign: Campaign): void {
+  if (!existsSync(folderPath)) {
+    mkdirSync(folderPath, { recursive: true })
+  }
+
+  writeFileSync(campaignFilePath(folderPath), JSON.stringify(campaign, null, 2), 'utf-8')
+}
+
+/**
+ * Load and normalize a campaign file from disk.
+ *
+ * @param folderPath - Absolute path to a campaign folder.
+ * @returns Campaign file handle containing path and parsed content.
+ */
+function loadCampaignFile(folderPath: string): CampaignFileHandle {
+  const fallbackName = basename(folderPath)
+  const rawText = readFileSync(campaignFilePath(folderPath), 'utf-8')
+  const campaign = normalizeCampaign(JSON.parse(rawText) as unknown, fallbackName)
+
+  return { path: folderPath, campaign }
+}
+
+/**
+ * List all stored campaigns for the launcher.
+ *
+ * @returns Campaign summaries sorted by most recently updated first.
+ */
+function listStoredCampaigns(): CampaignSummary[] {
+  const root = ensureCampaignsRoot()
+
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(root, entry.name))
+    .filter((folderPath) => existsSync(campaignFilePath(folderPath)) && statSync(folderPath).isDirectory())
+    .flatMap((folderPath) => {
+      try {
+        const { campaign } = loadCampaignFile(folderPath)
+        return [{
+          id: campaign.id,
+          name: campaign.name,
+          description: campaign.description,
+          path: folderPath,
+          updatedAt: campaign.updatedAt,
+          sessionCount: campaign.sessions.length,
+        }]
+      } catch {
+        return []
+      }
+    })
+    .sort((first, second) => second.updatedAt - first.updatedAt)
 }
 
 /**
@@ -442,6 +713,42 @@ ipcMain.handle('models:browse', async (_event, serverId: string): Promise<Availa
   }
 
   return browseServerModels(server)
+})
+
+/**
+ * Campaigns: create a new managed campaign folder and initial JSON file.
+ */
+ipcMain.handle('campaign:create', async (_event, name: string, description: string): Promise<CampaignFileHandle> => {
+  const campaignName = name.trim().length > 0 ? name.trim() : 'New Campaign'
+  const folderPath = allocateCampaignFolder(campaignName)
+  const campaign: Campaign = {
+    ...createEmptyCampaign(campaignName),
+    description: description.trim(),
+  }
+
+  saveCampaign(folderPath, campaign)
+  return { path: folderPath, campaign }
+})
+
+/**
+ * Campaigns: list stored campaigns for the launcher.
+ */
+ipcMain.handle('campaign:list', (): CampaignSummary[] => {
+  return listStoredCampaigns()
+})
+
+/**
+ * Campaigns: open an existing managed campaign by folder path.
+ */
+ipcMain.handle('campaign:open', async (_event, path: string): Promise<CampaignFileHandle> => {
+  return loadCampaignFile(path)
+})
+
+/**
+ * Campaigns: save the current campaign to its JSON file.
+ */
+ipcMain.handle('campaign:save', (_event, path: string, campaign: Campaign): void => {
+  saveCampaign(path, campaign)
 })
 
 /** Window controls: read state */

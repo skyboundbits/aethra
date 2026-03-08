@@ -9,6 +9,8 @@ import type { Session } from '../types'
 
 /** Props accepted by the Sidebar component. */
 interface SidebarProps {
+  /** Display name of the currently loaded campaign. */
+  campaignName: string
   /** All available sessions. */
   sessions: Session[]
   /** ID of the currently active session, or null if none selected. */
@@ -25,6 +27,7 @@ interface SidebarProps {
  * scrollable list of session items.
  */
 export function Sidebar({
+  campaignName,
   sessions,
   activeSessionId,
   onSelectSession,
@@ -34,7 +37,10 @@ export function Sidebar({
     <aside className="panel panel--sidebar">
       {/* ── Header ──────────────────────────────────────────────────── */}
       <div className="sidebar__header">
-        <span className="sidebar__title">Sessions</span>
+        <div className="sidebar__heading">
+          <span className="sidebar__eyebrow">Campaign</span>
+          <span className="sidebar__title">{campaignName}</span>
+        </div>
         <button
           className="sidebar__new-btn"
           onClick={onNewSession}

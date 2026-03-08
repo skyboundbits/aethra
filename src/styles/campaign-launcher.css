@@ -1,0 +1,181 @@
+/**
+ * src/styles/campaign-launcher.css
+ * Styles for the startup campaign create/open screen.
+ */
+
+.campaign-launcher {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(24px, 5vw, 64px);
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--surface-bg-accent) 14%, transparent), transparent 42%),
+    linear-gradient(180deg, transparent, color-mix(in srgb, var(--panel-bg) 70%, transparent));
+}
+
+.campaign-launcher__panel {
+  width: min(560px, 100%);
+  padding: clamp(24px, 4vw, 40px);
+  border: 1px solid var(--border-color);
+  border-radius: calc(var(--radius-lg) * 1.5);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel-bg) 96%, white 4%), var(--panel-bg));
+  box-shadow: var(--shadow-panel);
+}
+
+.campaign-launcher__eyebrow {
+  margin-bottom: var(--space-2);
+  color: var(--text-color-brand);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.campaign-launcher__title {
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 1.1;
+}
+
+.campaign-launcher__copy {
+  margin-top: var(--space-3);
+  max-width: 44ch;
+  color: var(--text-color-secondary);
+}
+
+.campaign-launcher__actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+.campaign-launcher__button {
+  min-width: 152px;
+  padding: 12px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  transition:
+    background-color var(--motion-base),
+    border-color var(--motion-base),
+    color var(--motion-base);
+}
+
+.campaign-launcher__button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.campaign-launcher__button--primary {
+  background-color: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
+}
+
+.campaign-launcher__button--primary:hover:not(:disabled) {
+  background-color: var(--surface-bg-accent-hover);
+}
+
+.campaign-launcher__button--secondary {
+  background-color: var(--surface-bg);
+  border-color: var(--border-color);
+}
+
+.campaign-launcher__button--secondary:hover:not(:disabled) {
+  background-color: var(--surface-bg-emphasis);
+  border-color: var(--border-color-accent);
+}
+
+.campaign-launcher__hint {
+  margin-top: var(--space-4);
+  color: var(--text-color-muted);
+}
+
+.campaign-launcher__status {
+  margin-top: var(--space-3);
+  color: var(--status-color-error);
+}
+
+.campaign-launcher__library {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-color);
+}
+
+.campaign-launcher__library-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.campaign-launcher__library-title {
+  font-size: 16px;
+}
+
+.campaign-launcher__library-count {
+  color: var(--text-color-muted);
+  font-size: var(--font-size-caption);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.campaign-launcher__empty {
+  margin-top: var(--space-3);
+  color: var(--text-color-muted);
+}
+
+.campaign-launcher__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.campaign-launcher__campaign {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  text-align: left;
+  transition:
+    border-color var(--motion-base),
+    background-color var(--motion-base);
+}
+
+.campaign-launcher__campaign:hover:not(:disabled) {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-emphasis);
+}
+
+.campaign-launcher__campaign-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color-primary);
+}
+
+.campaign-launcher__campaign-description {
+  color: var(--text-color-secondary);
+}
+
+.campaign-launcher__campaign-meta {
+  color: var(--text-color-muted);
+  font-size: var(--font-size-caption);
+}
+
+@media (max-width: 640px) {
+  .campaign-launcher__actions {
+    flex-direction: column;
+  }
+
+  .campaign-launcher__button {
+    width: 100%;
+  }
+}

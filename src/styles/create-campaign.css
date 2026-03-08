@@ -1,0 +1,68 @@
+/**
+ * src/styles/create-campaign.css
+ * Styles for the create campaign modal form.
+ */
+
+.modal--create-campaign {
+  width: 560px;
+}
+
+.create-campaign {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.create-campaign__intro {
+  color: var(--text-color-secondary);
+}
+
+.create-campaign__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.create-campaign__label {
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  color: var(--text-color-primary);
+}
+
+.create-campaign__input,
+.create-campaign__textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+}
+
+.create-campaign__textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.create-campaign__error {
+  color: var(--status-color-error);
+}
+
+.create-campaign__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.create-campaign__button {
+  padding: 10px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+}
+
+.create-campaign__button--primary {
+  border-color: transparent;
+  background-color: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
+}

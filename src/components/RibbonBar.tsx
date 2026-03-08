@@ -4,6 +4,7 @@
  * Houses primary nav controls: application branding and top-level page tabs.
  */
 
+import { BookOpenTextIcon, MountainSnowIcon, SettingsIcon, SwordsIcon, UsersRoundIcon } from './icons'
 import '../styles/ribbon.css'
 
 /** A single navigation tab entry. */
@@ -12,13 +13,16 @@ interface NavTab {
   id: string
   /** Label shown in the ribbon. */
   label: string
+  /** Optional icon shown before the label. */
+  icon?: React.ReactNode
 }
 
 const NAV_TABS: NavTab[] = [
-  { id: 'chat',      label: 'Chat'      },
-  { id: 'personas',  label: 'Personas'  },
-  { id: 'world',     label: 'World'     },
-  { id: 'settings',  label: 'Settings'  },
+  { id: 'campaign',  label: 'Campaign', icon: <SwordsIcon /> },
+  { id: 'characters', label: 'Characters', icon: <UsersRoundIcon /> },
+  { id: 'lore-book', label: 'Lore Book', icon: <BookOpenTextIcon /> },
+  { id: 'scenes', label: 'Scenes', icon: <MountainSnowIcon /> },
+  { id: 'settings',  label: 'Settings', icon: <SettingsIcon /> },
 ]
 
 interface RibbonBarProps {
@@ -50,7 +54,8 @@ export function RibbonBar({ activeTab, onTabChange }: RibbonBarProps) {
             onClick={() => onTabChange(tab.id)}
             aria-current={activeTab === tab.id ? 'page' : undefined}
           >
-            {tab.label}
+            {tab.icon ? <span className="ribbon-nav__tab-icon" aria-hidden="true">{tab.icon}</span> : null}
+            <span>{tab.label}</span>
           </button>
         ))}
       </nav>

@@ -18,7 +18,7 @@ import '../styles/modal.css'
 
 interface ModalProps {
   /** Heading text shown in the title bar. */
-  title: string
+  title: React.ReactNode
   /** Called when the user requests the modal to close. */
   onClose: () => void
   /** Optional extra class name applied to the dialog card. */

@@ -1,0 +1,108 @@
+/**
+ * src/components/CreateCampaignModal.tsx
+ * Modal dialog for creating a new campaign with a name and description.
+ */
+
+import { useState } from 'react'
+import { Modal } from './Modal'
+import '../styles/create-campaign.css'
+
+/** Props accepted by the CreateCampaignModal component. */
+interface CreateCampaignModalProps {
+  /** True while the create request is being saved. */
+  isBusy: boolean
+  /** Called when the user closes the dialog without creating a campaign. */
+  onClose: () => void
+  /** Called when the user submits the campaign form. */
+  onSubmit: (name: string, description: string) => void
+}
+
+/**
+ * CreateCampaignModal
+ * Collects the required metadata for a new stored campaign folder.
+ */
+export function CreateCampaignModal({
+  isBusy,
+  onClose,
+  onSubmit,
+}: CreateCampaignModalProps) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  /**
+   * Validate and submit the campaign creation form.
+   *
+   * @param event - Form submission event.
+   */
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>): void {
+    event.preventDefault()
+
+    const trimmedName = name.trim()
+    const trimmedDescription = description.trim()
+
+    if (!trimmedName) {
+      setErrorMessage('Campaign name is required.')
+      return
+    }
+
+    setErrorMessage(null)
+    onSubmit(trimmedName, trimmedDescription)
+  }
+
+  return (
+    <Modal title="New Campaign" onClose={onClose} className="modal--create-campaign">
+      <form className="create-campaign" onSubmit={handleSubmit}>
+        <p className="create-campaign__intro">
+          Aethra will create a dedicated folder for this campaign in the app data directory.
+        </p>
+
+        <label className="create-campaign__field" htmlFor="campaign-name">
+          <span className="create-campaign__label">Name</span>
+          <input
+            id="campaign-name"
+            className="create-campaign__input"
+            type="text"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="The Ember Court"
+            autoFocus
+            disabled={isBusy}
+          />
+        </label>
+
+        <label className="create-campaign__field" htmlFor="campaign-description">
+          <span className="create-campaign__label">Description</span>
+          <textarea
+            id="campaign-description"
+            className="create-campaign__textarea"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Political intrigue in a decaying imperial capital."
+            rows={5}
+            disabled={isBusy}
+          />
+        </label>
+
+        {errorMessage ? (
+          <p className="create-campaign__error" role="alert">
+            {errorMessage}
+          </p>
+        ) : null}
+
+        <div className="create-campaign__actions">
+          <button type="button" className="create-campaign__button" onClick={onClose} disabled={isBusy}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="create-campaign__button create-campaign__button--primary"
+            disabled={isBusy}
+          >
+            {isBusy ? 'Creating...' : 'Create Campaign'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}

@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Modal } from './Modal'
+import { PaletteIcon, SettingsIcon, SparklesIcon } from './icons'
 import { BUILT_IN_THEMES } from '../services/themeService'
 import '../styles/settings.css'
 
@@ -160,7 +161,16 @@ export function SettingsModal({
   }
 
   return (
-    <Modal title="Settings" onClose={onClose} className="modal--settings">
+    <Modal
+      title={(
+        <>
+          <SettingsIcon className="modal__title-icon" aria-hidden="true" />
+          <span>Settings</span>
+        </>
+      )}
+      onClose={onClose}
+      className="modal--settings"
+    >
       <div className="settings-modal">
         <div className="settings-modal__body">
           <nav className="settings-modal__nav" aria-label="Settings sections">
@@ -168,6 +178,7 @@ export function SettingsModal({
               id="interface"
               label="Interface"
               description="Themes and appearance"
+              icon={<PaletteIcon />}
               activeSection={activeSection}
               onSelect={handleSectionSelect}
             />
@@ -175,6 +186,7 @@ export function SettingsModal({
               id="ai"
               label="AI"
               description="Local server and model"
+              icon={<SparklesIcon />}
               activeSection={activeSection}
               onSelect={handleSectionSelect}
             />
@@ -417,6 +429,8 @@ interface SettingsSectionTabProps {
   label: string
   /** Supporting copy shown under the heading. */
   description: string
+  /** Optional icon shown before the label. */
+  icon?: React.ReactNode
   /** Currently active section. */
   activeSection: SettingsSectionId
   /** Called when the tab is selected. */
@@ -431,6 +445,7 @@ function SettingsSectionTab({
   id,
   label,
   description,
+  icon,
   activeSection,
   onSelect,
 }: SettingsSectionTabProps) {
@@ -447,7 +462,10 @@ function SettingsSectionTab({
       className={`settings-modal__nav-item${activeSection === id ? ' settings-modal__nav-item--active' : ''}`}
       onClick={handleClick}
     >
-      <span className="settings-modal__nav-label">{label}</span>
+      <span className="settings-modal__nav-label-row">
+        {icon ? <span className="settings-modal__nav-icon" aria-hidden="true">{icon}</span> : null}
+        <span className="settings-modal__nav-label">{label}</span>
+      </span>
       <span className="settings-modal__nav-description">{description}</span>
     </button>
   )

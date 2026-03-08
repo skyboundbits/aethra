@@ -13,7 +13,7 @@
  *   RibbonBar (top) | Sidebar | ChatArea + InputBar | DetailsPanel
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './styles/global.css'
 import './styles/layout.css'
 
@@ -25,11 +25,22 @@ import { DetailsPanel } from './components/DetailsPanel'
 import { SettingsModal } from './components/SettingsModal'
 import { TitleBar } from './components/TitleBar'
 import { SystemPromptModal } from './components/SystemPromptModal'
+import { CampaignLauncher } from './components/CampaignLauncher'
+import { CreateCampaignModal } from './components/CreateCampaignModal'
 
 import { streamCompletion } from './services/aiService'
 import { applyTheme, parseImportedTheme, upsertCustomTheme } from './services/themeService'
 
-import type { AppSettings, AvailableModel, Session, Message, ChatMessage, ModelPreset } from './types'
+import type {
+  AppSettings,
+  AvailableModel,
+  Campaign,
+  CampaignSummary,
+  Message,
+  ChatMessage,
+  ModelPreset,
+  Session,
+} from './types'
 
 const DEFAULT_SETTINGS: AppSettings = {
   servers: [],
@@ -77,8 +88,11 @@ function buildSessionTitle(input: string): string {
 export default function App() {
   /* ── State ──────────────────────────────────────────────────────────── */
 
-  /** All roleplay sessions available in the sidebar. */
-  const [sessions, setSessions] = useState<Session[]>([])
+  /** Active campaign currently open in the workspace. */
+  const [campaign, setCampaign] = useState<Campaign | null>(null)
+
+  /** Absolute path of the active campaign folder. */
+  const [campaignPath, setCampaignPath] = useState<string | null>(null)
 
   /** ID of the session currently displayed in the chat area. */
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
@@ -90,7 +104,7 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false)
 
   /** Currently active ribbon navigation tab. */
-  const [activeTab, setActiveTab] = useState('chat')
+  const [activeTab, setActiveTab] = useState('campaign')
 
   /** Persisted app settings loaded from Electron. */
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
@@ -112,6 +126,21 @@ export default function App() {
 
   /** True while fetching the remote model catalog from the active server. */
   const [isBrowsingModels, setIsBrowsingModels] = useState(false)
+
+  /** True while a campaign file operation is in progress. */
+  const [isCampaignBusy, setIsCampaignBusy] = useState(false)
+
+  /** Status message shown in the campaign launcher. */
+  const [campaignStatusMessage, setCampaignStatusMessage] = useState<string | null>(null)
+
+  /** Campaign summaries available to open from the launcher. */
+  const [availableCampaigns, setAvailableCampaigns] = useState<CampaignSummary[]>([])
+
+  /** True while the create campaign modal is open. */
+  const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false)
+
+  /** Last serialized campaign that was successfully saved to disk. */
+  const lastSavedCampaignRef = useRef<string | null>(null)
 
   /**
    * Load persisted settings on first render.
@@ -152,27 +181,16 @@ export default function App() {
   }, [appSettings.activeThemeId, appSettings.customThemes])
 
   /**
-   * Seed the app with a starter session so chat works immediately.
+   * Load the stored campaign catalog for the launcher on first render.
    */
   useEffect(() => {
-    if (sessions.length > 0 || activeSessionId !== null) {
-      return
-    }
-
-    const now = Date.now()
-    const starterSession: Session = {
-      id: uid(),
-      title: 'New Chat',
-      messages: [],
-      createdAt: now,
-      updatedAt: now,
-    }
-
-    setSessions([starterSession])
-    setActiveSessionId(starterSession.id)
-  }, [activeSessionId, sessions])
+    void refreshCampaigns()
+  }, [])
 
   /* ── Derived values ─────────────────────────────────────────────────── */
+
+  /** All roleplay sessions available in the sidebar. */
+  const sessions = campaign?.sessions ?? []
 
   /** The full session object for the active session (or null). */
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null
@@ -206,7 +224,86 @@ export default function App() {
     )
   }, [activeServer?.id])
 
+  /**
+   * Keep the active session selection valid whenever the campaign changes.
+   */
+  useEffect(() => {
+    if (!campaign) {
+      if (activeSessionId !== null) {
+        setActiveSessionId(null)
+      }
+      return
+    }
+
+    if (campaign.sessions.length === 0) {
+      if (activeSessionId !== null) {
+        setActiveSessionId(null)
+      }
+      return
+    }
+
+    const hasActiveSession = campaign.sessions.some((session) => session.id === activeSessionId)
+    if (!hasActiveSession) {
+      setActiveSessionId(campaign.sessions[0].id)
+    }
+  }, [activeSessionId, campaign])
+
+  /**
+   * Autosave the active campaign whenever its contents change after load.
+   */
+  useEffect(() => {
+    if (!campaign || !campaignPath) {
+      return
+    }
+
+    const serialized = JSON.stringify(campaign)
+    if (lastSavedCampaignRef.current === serialized) {
+      return
+    }
+
+    void window.api.saveCampaign(campaignPath, campaign)
+      .then(() => {
+        lastSavedCampaignRef.current = serialized
+      })
+      .catch((err) => {
+        console.error('[Aethra] Could not save campaign:', err)
+        setCampaignStatusMessage('Could not save the active campaign.')
+      })
+  }, [campaign, campaignPath])
+
   /* ── Helpers ─────────────────────────────────────────────────────────── */
+
+  /**
+   * Replace the current campaign with an updated copy and refresh metadata.
+   *
+   * @param updater - Receives the previous campaign and returns the next one.
+   */
+  function updateCampaign(updater: (prev: Campaign) => Campaign): void {
+    setCampaign((prev) => {
+      if (!prev) {
+        return prev
+      }
+
+      const nextCampaign = updater(prev)
+      return {
+        ...nextCampaign,
+        updatedAt: Date.now(),
+      }
+    })
+  }
+
+  /**
+   * Refresh the stored campaign catalog shown in the launcher.
+   */
+  async function refreshCampaigns(): Promise<void> {
+    try {
+      const campaigns = await window.api.listCampaigns()
+      setAvailableCampaigns(campaigns)
+    } catch (err) {
+      console.error('[Aethra] Could not list campaigns:', err)
+      setCampaignStatusMessage('Could not load saved campaigns.')
+    }
+  }
 
   /**
    * Append or update a message inside a specific session.
@@ -214,9 +311,10 @@ export default function App() {
    * @param sessionId - Target session.
    * @param msg       - Message to upsert.
    */
-  function upsertMessage(sessionId: string, msg: Message) {
-    setSessions((prev) =>
-      prev.map((s) => {
+  function upsertMessage(sessionId: string, msg: Message): void {
+    updateCampaign((prev) => ({
+      ...prev,
+      sessions: prev.sessions.map((s) => {
         if (s.id !== sessionId) return s
         const exists = s.messages.some((m) => m.id === msg.id)
         const messages = exists
@@ -224,7 +322,7 @@ export default function App() {
           : [...s.messages, msg]
         return { ...s, messages, updatedAt: Date.now() }
       }),
-    )
+    }))
   }
 
   /**
@@ -246,7 +344,10 @@ export default function App() {
       updatedAt: now,
     }
 
-    setSessions((prev) => [newSession, ...prev])
+    updateCampaign((prev) => ({
+      ...prev,
+      sessions: [newSession, ...prev.sessions],
+    }))
     setActiveSessionId(newSession.id)
     return newSession.id
   }
@@ -256,7 +357,7 @@ export default function App() {
   /**
    * Create a new empty session, add it to the list, and make it active.
    */
-  function handleNewSession() {
+  function handleNewSession(): void {
     const now = Date.now()
     const newSession: Session = {
       id:        uid(),
@@ -265,7 +366,10 @@ export default function App() {
       createdAt: now,
       updatedAt: now,
     }
-    setSessions((prev) => [newSession, ...prev])
+    updateCampaign((prev) => ({
+      ...prev,
+      sessions: [newSession, ...prev.sessions],
+    }))
     setActiveSessionId(newSession.id)
   }
 
@@ -275,6 +379,64 @@ export default function App() {
    */
   function handleSelectSession(id: string) {
     setActiveSessionId(id)
+  }
+
+  /**
+   * Open the create campaign dialog.
+   */
+  function handleCreateCampaign(): void {
+    setCampaignStatusMessage(null)
+    setIsCreateCampaignOpen(true)
+  }
+
+  /**
+   * Create a new campaign from modal input and load it into the workspace.
+   *
+   * @param name - Campaign name entered by the user.
+   * @param description - Campaign description entered by the user.
+   */
+  async function handleCreateCampaignSubmit(name: string, description: string): Promise<void> {
+    setIsCampaignBusy(true)
+    setCampaignStatusMessage(null)
+
+    try {
+      const created = await window.api.createCampaign(name, description)
+      setCampaign(created.campaign)
+      setCampaignPath(created.path)
+      setActiveSessionId(created.campaign.sessions[0]?.id ?? null)
+      lastSavedCampaignRef.current = JSON.stringify(created.campaign)
+      setIsCreateCampaignOpen(false)
+      await refreshCampaigns()
+    } catch (err) {
+      console.error('[Aethra] Could not create campaign:', err)
+      setCampaignStatusMessage(err instanceof Error ? err.message : 'Could not create campaign.')
+    } finally {
+      setIsCampaignBusy(false)
+    }
+  }
+
+  /**
+   * Open an existing stored campaign and load it into the workspace.
+   *
+   * @param path - Absolute campaign folder path selected in the launcher.
+   */
+  async function handleOpenCampaign(path: string): Promise<void> {
+    setIsCampaignBusy(true)
+    setCampaignStatusMessage(null)
+
+    try {
+      const opened = await window.api.openCampaign(path)
+      setCampaign(opened.campaign)
+      setCampaignPath(opened.path)
+      setActiveSessionId(opened.campaign.sessions[0]?.id ?? null)
+      lastSavedCampaignRef.current = JSON.stringify(opened.campaign)
+      await refreshCampaigns()
+    } catch (err) {
+      console.error('[Aethra] Could not open campaign:', err)
+      setCampaignStatusMessage(err instanceof Error ? err.message : 'Could not open campaign.')
+    } finally {
+      setIsCampaignBusy(false)
+    }
   }
 
   /**
@@ -553,11 +715,11 @@ export default function App() {
    * chunk-by-chunk as the stream arrives.
    */
   function handleSend() {
-    if (!inputValue.trim() || isStreaming) return
+    if (!campaign || !inputValue.trim() || isStreaming) return
 
     const trimmedInput = inputValue.trim()
     const sessionId = ensureActiveSession()
-    const targetSession = sessions.find((session) => session.id === sessionId) ?? null
+    const targetSession = campaign?.sessions.find((session) => session.id === sessionId) ?? null
 
     const userMessage: Message = {
       id:        uid(),
@@ -574,13 +736,14 @@ export default function App() {
     ]
 
     if (targetSession && targetSession.messages.length === 0) {
-      setSessions((prev) =>
-        prev.map((session) =>
+      updateCampaign((prev) => ({
+        ...prev,
+        sessions: prev.sessions.map((session) =>
           session.id === sessionId
             ? { ...session, title: buildSessionTitle(trimmedInput), updatedAt: Date.now() }
             : session,
         ),
-      )
+      }))
     }
 
     upsertMessage(sessionId, userMessage)
@@ -630,36 +793,48 @@ export default function App() {
       {/* Top navigation ribbon */}
       <RibbonBar activeTab={activeTab} onTabChange={handleTabChange} />
 
-      {/* Three-column panel layout */}
-      <div className="app-layout">
-        {/* Left column: session navigator */}
-        <Sidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          onSelectSession={handleSelectSession}
-          onNewSession={handleNewSession}
-        />
-
-        {/* Centre column: chat feed + composer */}
-        <main className="panel panel--chat">
-          <ChatArea messages={messages} />
-          <InputBar
-            value={inputValue}
-            onChange={setInputValue}
-            onSend={handleSend}
-            disabled={isStreaming}
+      {campaign ? (
+        <div className="app-layout">
+          {/* Left column: session navigator */}
+          <Sidebar
+            campaignName={campaign.name}
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSelectSession={handleSelectSession}
+            onNewSession={handleNewSession}
           />
-        </main>
 
-        {/* Right column: session details */}
-        <DetailsPanel
-          activeSession={activeSession}
-          activeServerName={activeServer?.name ?? null}
-          activeModelName={activeModel?.name ?? null}
-          systemPrompt={appSettings.systemPrompt}
-          onOpenSystemPrompt={handleOpenSystemPrompt}
+          {/* Centre column: chat feed + composer */}
+          <main className="panel panel--chat">
+            <ChatArea messages={messages} />
+            <InputBar
+              value={inputValue}
+              onChange={setInputValue}
+              onSend={handleSend}
+              disabled={isStreaming}
+            />
+          </main>
+
+          {/* Right column: session details */}
+          <DetailsPanel
+            activeSession={activeSession}
+            activeServerName={activeServer?.name ?? null}
+            activeModelName={activeModel?.name ?? null}
+            systemPrompt={appSettings.systemPrompt}
+            onOpenSystemPrompt={handleOpenSystemPrompt}
+          />
+        </div>
+      ) : (
+        <CampaignLauncher
+          campaigns={availableCampaigns}
+          isBusy={isCampaignBusy}
+          statusMessage={campaignStatusMessage}
+          onCreateCampaign={handleCreateCampaign}
+          onOpenCampaign={(path) => {
+            void handleOpenCampaign(path)
+          }}
         />
-      </div>
+      )}
 
       {isSettingsOpen ? (
         <SettingsModal
@@ -699,6 +874,18 @@ export default function App() {
           onClose={handleCloseSystemPrompt}
           onSave={(systemPrompt) => {
             void handleSaveSystemPrompt(systemPrompt)
+          }}
+        />
+      ) : null}
+
+      {isCreateCampaignOpen ? (
+        <CreateCampaignModal
+          isBusy={isCampaignBusy}
+          onClose={() => {
+            setIsCreateCampaignOpen(false)
+          }}
+          onSubmit={(name, description) => {
+            void handleCreateCampaignSubmit(name, description)
           }}
         />
       ) : null}

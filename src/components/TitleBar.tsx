@@ -86,6 +86,10 @@ export function TitleBar({ title }: TitleBarProps) {
 
   return (
     <header className={`title-bar${isMac ? ' title-bar--mac' : ''}`}>
+      <div className="title-bar__drag-region">
+        <span className={`title-bar__title${isMac ? '' : ' title-bar__title--glass'}`}>{title}</span>
+      </div>
+
       {isMac ? (
         <div className="title-bar__controls title-bar__controls--mac">
           <button
@@ -108,10 +112,6 @@ export function TitleBar({ title }: TitleBarProps) {
           />
         </div>
       ) : null}
-
-      <div className="title-bar__drag-region">
-        <span className="title-bar__title">{title}</span>
-      </div>
 
       {!isMac ? (
         <div className="title-bar__controls">

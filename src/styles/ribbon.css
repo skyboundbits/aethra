@@ -1,7 +1,7 @@
 /**
  * src/styles/ribbon.css
  * Styles for the top navigation ribbon bar.
- * Height is controlled by the --ribbon-height CSS variable (default 128px).
+ * Height is controlled by the --ribbon-height CSS variable (default 64px).
  */
 
 /* ─── Ribbon container ───────────────────────────────────────────────────── */
@@ -10,9 +10,9 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 32px;
+  gap: 16px;
   height: var(--ribbon-height);
-  padding: 0 24px;
+  padding: 0 16px;
   background-color: var(--panel-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -26,8 +26,8 @@
 .ribbon-brand {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-width: 120px;
+  gap: 2px;
+  min-width: 96px;
 }
 
 .ribbon-brand__name {
@@ -39,7 +39,7 @@
 }
 
 .ribbon-brand__tagline {
-  font-size: var(--font-size-caption);
+  font-size: 10px;
   color: var(--text-color-muted);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -56,12 +56,26 @@
 }
 
 .ribbon-nav__tab {
-  padding: 10px 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
   border-radius: var(--radius-md);
   font-size: var(--font-size-body);
   font-weight: 500;
   color: var(--text-color-secondary);
   transition: background-color var(--motion-base) ease, color var(--motion-base) ease;
+}
+
+.ribbon-nav__tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ribbon-nav__tab-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .ribbon-nav__tab:hover {
@@ -82,6 +96,6 @@
   flex-direction: row;
   align-items: center;
   gap: 8px;
-  min-width: 120px;
+  min-width: 96px;
   justify-content: flex-end;
 }

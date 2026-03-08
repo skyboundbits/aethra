@@ -64,7 +64,7 @@
   --motion-emphasis: 0.2s;
 
   --titlebar-height: 40px;
-  --ribbon-height: 128px;
+  --ribbon-height: 64px;
   --sidebar-width: 260px;
   --details-width: 280px;
   --column-gap: 16px;
@@ -82,7 +82,7 @@
   --font-size-label: 13px;
   --font-size-caption: 11px;
   --font-size-title: 18px;
-  --font-size-brand: 22px;
+  --font-size-brand: 18px;
   --line-height-base: 1.6;
   --line-height-tight: 1.5;
 }

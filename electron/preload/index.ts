@@ -13,7 +13,15 @@
 
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent }       from 'electron'
-import type { AppSettings, AvailableModel, ChatMessage, WindowControlsState } from '../../src/types'
+import type {
+  AppSettings,
+  AvailableModel,
+  Campaign,
+  CampaignFileHandle,
+  CampaignSummary,
+  ChatMessage,
+  WindowControlsState,
+} from '../../src/types'
 
 /** Handlers passed by the renderer to streamCompletion. */
 interface StreamHandlers {
@@ -90,6 +98,46 @@ contextBridge.exposeInMainWorld('api', {
    */
   browseModels(serverId: string): Promise<AvailableModel[]> {
     return ipcRenderer.invoke('models:browse', serverId) as Promise<AvailableModel[]>
+  },
+
+  /**
+   * Create a new stored campaign folder in the app data directory.
+   *
+   * @param name - Human-readable campaign name.
+   * @param description - Short campaign description.
+   * @returns Promise resolving to the created campaign and folder path.
+   */
+  createCampaign(name: string, description: string): Promise<CampaignFileHandle> {
+    return ipcRenderer.invoke('campaign:create', name, description) as Promise<CampaignFileHandle>
+  },
+
+  /**
+   * Load the list of saved campaigns from the app-managed campaigns directory.
+   *
+   * @returns Promise resolving to campaign summaries for the launcher.
+   */
+  listCampaigns(): Promise<CampaignSummary[]> {
+    return ipcRenderer.invoke('campaign:list') as Promise<CampaignSummary[]>
+  },
+
+  /**
+   * Open an existing stored campaign by folder path.
+   *
+   * @param path - Absolute path to the campaign folder.
+   * @returns Promise resolving to the loaded campaign and folder path.
+   */
+  openCampaign(path: string): Promise<CampaignFileHandle> {
+    return ipcRenderer.invoke('campaign:open', path) as Promise<CampaignFileHandle>
+  },
+
+  /**
+   * Save the current campaign JSON to disk.
+   *
+   * @param path - Absolute path to the target file.
+   * @param campaign - Campaign payload to write.
+   */
+  saveCampaign(path: string, campaign: Campaign): Promise<void> {
+    return ipcRenderer.invoke('campaign:save', path, campaign) as Promise<void>
   },
 
   /**

@@ -4,40 +4,70 @@
  */
 
 .title-bar {
+  position: relative;
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  justify-content: flex-end;
   height: var(--titlebar-height);
   min-height: var(--titlebar-height);
   background-color: var(--panel-bg);
   border-bottom: 1px solid var(--border-color);
   user-select: none;
+  overflow: hidden;
 }
 
 .title-bar--mac {
+  justify-content: flex-start;
   padding-left: var(--space-3);
+  padding-right: var(--space-3);
 }
 
 .title-bar__drag-region {
   -webkit-app-region: drag;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  min-width: 0;
-  padding: 0 var(--space-4);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 156px;
+  pointer-events: none;
+}
+
+.title-bar--mac .title-bar__drag-region {
+  padding: 0 88px;
 }
 
 .title-bar__title {
+  display: block;
+  max-width: 100%;
   color: var(--text-color-secondary);
-  font-size: var(--font-size-label);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
+
+.title-bar__title--glass {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, white 78%, var(--surface-bg-accent) 22%),
+      color-mix(in srgb, var(--text-color-primary) 58%, var(--surface-bg-accent) 42%),
+      color-mix(in srgb, var(--surface-bg-emphasis) 16%, white 84%)
+    );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: none;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.2));
 }
 
 .title-bar__controls {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: stretch;
   -webkit-app-region: no-drag;
@@ -108,8 +138,20 @@
 }
 
 @media (max-width: 720px) {
+  .title-bar__drag-region {
+    padding: 0 132px;
+  }
+
+  .title-bar--mac .title-bar__drag-region {
+    padding: 0 72px;
+  }
+
+  .title-bar__title-shell {
+    padding: 5px 12px;
+  }
+
   .title-bar__title {
-    font-size: var(--font-size-caption);
+    font-size: 13px;
   }
 
   .title-bar__control--windows {

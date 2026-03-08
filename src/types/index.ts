@@ -42,6 +42,52 @@ export interface Session {
 }
 
 /**
+ * A persisted campaign file containing multiple sessions.
+ */
+export interface Campaign {
+  /** Unique identifier for the campaign. */
+  id: string
+  /** Human-readable campaign name. */
+  name: string
+  /** Short descriptive summary of the campaign. */
+  description: string
+  /** Ordered list of sessions that belong to the campaign. */
+  sessions: Session[]
+  /** Unix timestamp (ms) when the campaign was created. */
+  createdAt: number
+  /** Unix timestamp (ms) of the most recent campaign update. */
+  updatedAt: number
+}
+
+/**
+ * Stored campaign plus its containing folder path.
+ */
+export interface CampaignFileHandle {
+  /** Absolute filesystem path of the campaign folder. */
+  path: string
+  /** Parsed campaign content loaded from that file. */
+  campaign: Campaign
+}
+
+/**
+ * Lightweight campaign metadata shown in the launcher.
+ */
+export interface CampaignSummary {
+  /** Unique campaign identifier. */
+  id: string
+  /** Display name shown in the campaign picker. */
+  name: string
+  /** Short descriptive summary shown in the campaign picker. */
+  description: string
+  /** Absolute filesystem path of the stored campaign folder. */
+  path: string
+  /** Unix timestamp (ms) of the most recent campaign update. */
+  updatedAt: number
+  /** Total sessions currently stored in the campaign. */
+  sessionCount: number
+}
+
+/**
  * A single message in the format expected by OpenAI-compatible chat APIs.
  * Used when building the payload sent to the AI server.
  */

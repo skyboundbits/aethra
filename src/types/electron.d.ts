@@ -7,7 +7,15 @@
  * called from Node.js contexts (main process / preload internals).
  */
 
-import type { AppSettings, AvailableModel, ChatMessage, WindowControlsState } from './index'
+import type {
+  AppSettings,
+  AvailableModel,
+  Campaign,
+  CampaignFileHandle,
+  CampaignSummary,
+  ChatMessage,
+  WindowControlsState,
+} from './index'
 
 /** Callbacks passed to window.api.streamCompletion. */
 interface StreamHandlers {
@@ -55,6 +63,34 @@ declare global {
        * @returns Promise resolving to discovered models for that server.
        */
       browseModels: (serverId: string) => Promise<AvailableModel[]>
+
+      /**
+       * Create a new campaign folder and initial campaign.json payload.
+       * @param name - Human-readable campaign name.
+       * @param description - Short campaign description.
+       * @returns Promise resolving to the saved campaign and folder path.
+       */
+      createCampaign: (name: string, description: string) => Promise<CampaignFileHandle>
+
+      /**
+       * Load the list of saved campaigns from the app-managed campaigns directory.
+       * @returns Promise resolving to campaign summaries for the launcher.
+       */
+      listCampaigns: () => Promise<CampaignSummary[]>
+
+      /**
+       * Open a stored campaign by its folder path.
+       * @param path - Absolute filesystem path of the campaign folder.
+       * @returns Promise resolving to the loaded campaign and path.
+       */
+      openCampaign: (path: string) => Promise<CampaignFileHandle>
+
+      /**
+       * Persist the current campaign to its JSON file.
+       * @param path - Absolute path to the target campaign JSON file.
+       * @param campaign - Full campaign payload to save.
+       */
+      saveCampaign: (path: string, campaign: Campaign) => Promise<void>
 
       /**
        * Read the current platform and maximize state for the focused window.
