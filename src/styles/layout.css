@@ -1,0 +1,54 @@
+/**
+ * src/styles/layout.css
+ * Layout styles for the three-column floating panel structure.
+ *
+ * Structure:
+ *   .app-layout          – full-viewport flex row container
+ *     .panel--sidebar    – left column: session list
+ *     .panel--chat       – centre column: chat area + input bar
+ *     .panel--details    – right column: character / scene details
+ */
+
+/* ─── Outer container ────────────────────────────────────────────────────── */
+
+.app-layout {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: var(--column-gap);
+  height: 100%;
+  padding: var(--column-gap);
+  overflow: hidden;
+}
+
+/* ─── Shared panel base ──────────────────────────────────────────────────── */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--column-radius);
+  overflow: hidden;          /* children must manage their own scroll */
+}
+
+/* ─── Sidebar (left) ─────────────────────────────────────────────────────── */
+
+.panel--sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+}
+
+/* ─── Chat panel (centre) ────────────────────────────────────────────────── */
+
+.panel--chat {
+  flex: 1;                   /* fills remaining space between the two side panels */
+  min-width: 0;              /* prevents flex blowout on long messages */
+}
+
+/* ─── Details panel (right) ──────────────────────────────────────────────── */
+
+.panel--details {
+  width: var(--details-width);
+  flex-shrink: 0;
+}

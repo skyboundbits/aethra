@@ -1,0 +1,111 @@
+/**
+ * src/styles/global.css
+ * Global CSS reset and base styles for the Aethra application.
+ * All custom properties (CSS variables) used throughout the app are defined
+ * in the :root block so they can be easily themed later.
+ */
+
+/* ─── Reset ─────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ─── Design tokens ──────────────────────────────────────────────────────── */
+
+:root {
+  /* Background layers */
+  --color-bg-base:    #0d0f14;   /* outermost page background */
+  --color-bg-panel:   #13161e;   /* floating column panels */
+  --color-bg-surface: #1b1f2b;   /* message bubbles, inputs */
+  --color-bg-hover:   #22273a;   /* hover state on list items */
+
+  /* Borders */
+  --color-border:     #2a2f45;
+
+  /* Text */
+  --color-text-primary:   #e2e6f0;
+  --color-text-secondary: #7a82a0;
+  --color-text-muted:     #4a5068;
+
+  /* Accent */
+  --color-accent:       #5b7cf6;
+  --color-accent-hover: #7b96ff;
+
+  /* User bubble */
+  --color-user-bubble: #1e2d5a;
+
+  /* Scrollbar */
+  --scrollbar-width: 6px;
+  --scrollbar-thumb: #2a2f45;
+
+  /* Layout */
+  --sidebar-width:    260px;
+  --details-width:    280px;
+  --column-gap:       16px;
+  --column-radius:    12px;
+  --panel-padding:    16px;
+
+  /* Typography */
+  --font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-size-base: 14px;
+  --line-height-base: 1.6;
+}
+
+/* ─── Base ───────────────────────────────────────────────────────────────── */
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Scrollbar styling (webkit) ─────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: var(--scrollbar-width);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* ─── Utility ────────────────────────────────────────────────────────────── */
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+}
+
+textarea,
+input {
+  font: inherit;
+  color: inherit;
+}

@@ -1,0 +1,166 @@
+/**
+ * src/styles/chat.css
+ * Styles for the ChatArea component (centre panel) and individual message bubbles.
+ *
+ * Structure within .panel--chat:
+ *   .chat-area       – scrollable message feed (flex: 1)
+ *   .input-bar       – fixed-height composer at the bottom
+ */
+
+/* ─── Message feed ───────────────────────────────────────────────────────── */
+
+.chat-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px var(--panel-padding);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ─── Empty / welcome state ──────────────────────────────────────────────── */
+
+.chat-area__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.chat-area__empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.chat-area__empty-sub {
+  font-size: 13px;
+}
+
+/* ─── Message wrapper ────────────────────────────────────────────────────── */
+
+.message {
+  display: flex;
+  flex-direction: column;
+  max-width: 80%;
+  gap: 4px;
+}
+
+/* User messages are right-aligned */
+.message--user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+/* Assistant messages are left-aligned */
+.message--assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+/* System messages are centred */
+.message--system {
+  align-self: center;
+  align-items: center;
+  max-width: 60%;
+}
+
+/* ─── Bubble ─────────────────────────────────────────────────────────────── */
+
+.message__bubble {
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.message--user .message__bubble {
+  background-color: var(--color-user-bubble);
+  border-bottom-right-radius: 4px;
+}
+
+.message--assistant .message__bubble {
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-bottom-left-radius: 4px;
+}
+
+.message--system .message__bubble {
+  background-color: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* ─── Timestamp ──────────────────────────────────────────────────────────── */
+
+.message__time {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding: 0 4px;
+}
+
+/* ─── Input bar ──────────────────────────────────────────────────────────── */
+
+.input-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: var(--panel-padding);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.input-bar__textarea {
+  flex: 1;
+  resize: none;
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  min-height: 44px;
+  max-height: 200px;
+  overflow-y: auto;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input-bar__textarea:focus {
+  border-color: var(--color-accent);
+}
+
+.input-bar__textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+.input-bar__send-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background-color: var(--color-accent);
+  color: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s, opacity 0.15s;
+}
+
+.input-bar__send-btn:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+.input-bar__send-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
