@@ -1,0 +1,150 @@
+/**
+ * src/styles/settings.css
+ * Styles for the settings modal theme selector and import controls.
+ */
+
+.settings-modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.settings-modal__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.settings-modal__heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.settings-modal__heading {
+  font-size: var(--font-size-title);
+  color: var(--text-color-primary);
+}
+
+.settings-modal__subheading {
+  margin-top: var(--space-1);
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-label);
+}
+
+.settings-modal__import-btn {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
+  transition: background-color var(--motion-base);
+}
+
+.settings-modal__import-btn:hover {
+  background-color: var(--surface-bg-accent-hover);
+}
+
+.settings-modal__file-input {
+  display: none;
+}
+
+.settings-modal__status {
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-label);
+}
+
+.settings-modal__status--success {
+  border-color: var(--border-color-accent);
+  color: var(--text-color-primary);
+}
+
+.settings-modal__status--error {
+  border-color: var(--status-border-error);
+  color: var(--status-color-error);
+}
+
+.settings-modal__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.settings-modal__group-title {
+  font-size: var(--font-size-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-color-muted);
+}
+
+.settings-modal__theme-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-modal__option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  cursor: pointer;
+  transition: border-color var(--motion-base), background-color var(--motion-base);
+}
+
+.settings-modal__option:hover {
+  background-color: var(--surface-bg-emphasis);
+}
+
+.settings-modal__option--active {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-selected);
+}
+
+.settings-modal__option-input {
+  margin-top: 2px;
+}
+
+.settings-modal__option-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.settings-modal__option-name {
+  font-size: var(--font-size-body);
+  color: var(--text-color-primary);
+  font-weight: 600;
+}
+
+.settings-modal__option-description {
+  font-size: var(--font-size-label);
+  color: var(--text-color-secondary);
+}
+
+.settings-modal__empty {
+  padding: 12px 14px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-color-muted);
+  font-size: var(--font-size-label);
+}
+
+@media (max-width: 720px) {
+  .settings-modal__heading-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-modal__import-btn {
+    width: 100%;
+  }
+}

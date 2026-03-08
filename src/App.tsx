@@ -13,7 +13,7 @@
  *   RibbonBar (top) | Sidebar | ChatArea + InputBar | DetailsPanel
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './styles/global.css'
 import './styles/layout.css'
 
@@ -22,10 +22,21 @@ import { Sidebar }      from './components/Sidebar'
 import { ChatArea }     from './components/ChatArea'
 import { InputBar }     from './components/InputBar'
 import { DetailsPanel } from './components/DetailsPanel'
+import { SettingsModal } from './components/SettingsModal'
 
 import { streamCompletion } from './services/aiService'
+import { applyTheme, parseImportedTheme, upsertCustomTheme } from './services/themeService'
 
-import type { Session, Message, ChatMessage } from './types'
+import type { AppSettings, Session, Message, ChatMessage } from './types'
+
+const DEFAULT_SETTINGS: AppSettings = {
+  servers: [],
+  models: [],
+  activeServerId: null,
+  activeModelSlug: null,
+  activeThemeId: 'default',
+  customThemes: [],
+}
 
 /**
  * Generate a lightweight unique ID.
@@ -65,6 +76,56 @@ export default function App() {
 
   /** Currently active ribbon navigation tab. */
   const [activeTab, setActiveTab] = useState('chat')
+
+  /** Persisted app settings loaded from Electron. */
+  const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
+
+  /** True while the settings modal is open. */
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+
+  /** Status message shown in the settings modal. */
+  const [settingsStatusMessage, setSettingsStatusMessage] = useState<string | null>(null)
+
+  /** Visual state of the settings modal status message. */
+  const [settingsStatusKind, setSettingsStatusKind] = useState<'error' | 'success' | null>(null)
+
+  /**
+   * Load persisted settings on first render.
+   */
+  useEffect(() => {
+    let cancelled = false
+
+    /**
+     * Read settings from the main process and seed local state.
+     */
+    async function loadSettings(): Promise<void> {
+      try {
+        const settings = await window.api.getSettings()
+        if (!cancelled) {
+          setAppSettings(settings)
+        }
+      } catch (err) {
+        console.error('[Aethra] Could not load app settings:', err)
+        if (!cancelled) {
+          setSettingsStatusKind('error')
+          setSettingsStatusMessage('Could not load settings. Using in-memory defaults.')
+        }
+      }
+    }
+
+    loadSettings()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  /**
+   * Apply the currently active theme whenever theme settings change.
+   */
+  useEffect(() => {
+    applyTheme(appSettings.activeThemeId, appSettings.customThemes)
+  }, [appSettings.activeThemeId, appSettings.customThemes])
 
   /* ── Derived values ─────────────────────────────────────────────────── */
 
@@ -119,6 +180,87 @@ export default function App() {
    */
   function handleSelectSession(id: string) {
     setActiveSessionId(id)
+  }
+
+  /**
+   * Persist settings to the main process and keep local state in sync.
+   *
+   * @param nextSettings - Fully updated app settings object.
+   */
+  async function persistSettings(nextSettings: AppSettings): Promise<void> {
+    setAppSettings(nextSettings)
+    await window.api.saveSettings(nextSettings)
+  }
+
+  /**
+   * Handle top-level ribbon tab changes.
+   * Opens the settings modal instead of navigating away from the chat layout.
+   *
+   * @param tabId - Selected tab identifier.
+   */
+  function handleTabChange(tabId: string): void {
+    if (tabId === 'settings') {
+      setSettingsStatusKind(null)
+      setSettingsStatusMessage(null)
+      setIsSettingsOpen(true)
+      return
+    }
+
+    setActiveTab(tabId)
+  }
+
+  /**
+   * Close the settings modal.
+   */
+  function handleCloseSettings(): void {
+    setIsSettingsOpen(false)
+  }
+
+  /**
+   * Select and persist the active app theme.
+   *
+   * @param themeId - Built-in or imported theme ID.
+   */
+  async function handleThemeSelect(themeId: string): Promise<void> {
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      activeThemeId: themeId,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage('Theme updated.')
+    } catch (err) {
+      console.error('[Aethra] Could not save selected theme:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save theme selection.')
+    }
+  }
+
+  /**
+   * Import a user-downloaded theme JSON file, save it, and make it active.
+   *
+   * @param file - Uploaded theme file chosen in the settings modal.
+   */
+  async function handleImportTheme(file: File): Promise<void> {
+    try {
+      const rawText = await file.text()
+      const parsed = parseImportedTheme(JSON.parse(rawText) as unknown)
+      const nextSettings: AppSettings = {
+        ...appSettings,
+        customThemes: upsertCustomTheme(appSettings.customThemes, parsed),
+        activeThemeId: parsed.id,
+      }
+
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage(`Imported "${parsed.name}" and applied it.`)
+    } catch (err) {
+      console.error('[Aethra] Theme import failed:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage(err instanceof Error ? err.message : 'Theme import failed.')
+    }
   }
 
   /**
@@ -185,7 +327,7 @@ export default function App() {
   return (
     <div className="app-root">
       {/* Top navigation ribbon */}
-      <RibbonBar activeTab={activeTab} onTabChange={setActiveTab} />
+      <RibbonBar activeTab={activeTab} onTabChange={handleTabChange} />
 
       {/* Three-column panel layout */}
       <div className="app-layout">
@@ -211,6 +353,22 @@ export default function App() {
         {/* Right column: session details */}
         <DetailsPanel activeSession={activeSession} />
       </div>
+
+      {isSettingsOpen ? (
+        <SettingsModal
+          activeThemeId={appSettings.activeThemeId}
+          customThemes={appSettings.customThemes}
+          statusMessage={settingsStatusMessage}
+          statusKind={settingsStatusKind}
+          onClose={handleCloseSettings}
+          onThemeSelect={(themeId) => {
+            void handleThemeSelect(themeId)
+          }}
+          onImportTheme={(file) => {
+            void handleImportTheme(file)
+          }}
+        />
+      ) : null}
     </div>
   )
 }

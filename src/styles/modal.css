@@ -20,9 +20,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
-  animation: modal-fade-in 0.15s ease;
+  background-color: var(--surface-bg-overlay);
+  backdrop-filter: blur(var(--backdrop-blur));
+  animation: modal-fade-in var(--motion-base) ease;
 }
 
 @keyframes modal-fade-in {
@@ -34,16 +34,16 @@
 
 .modal {
   position: relative;
-  background-color: var(--color-bg-panel);
-  border: 1px solid var(--color-border);
-  border-radius: var(--column-radius);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  background-color: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
   width: 480px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
-  animation: modal-slide-in 0.15s ease;
+  animation: modal-slide-in var(--motion-base) ease;
 }
 
 @keyframes modal-slide-in {
@@ -58,32 +58,32 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px var(--panel-padding);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
 .modal__title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--text-color-primary);
 }
 
 .modal__close {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-text-secondary);
+  color: var(--text-color-secondary);
   font-size: 18px;
   line-height: 1;
-  transition: background-color 0.12s, color 0.12s;
+  transition: background-color var(--motion-fast), color var(--motion-fast);
 }
 
 .modal__close:hover {
-  background-color: var(--color-bg-hover);
-  color: var(--color-text-primary);
+  background-color: var(--surface-bg-emphasis);
+  color: var(--text-color-primary);
 }
 
 /* ─── Scrollable content ─────────────────────────────────────────────────── */

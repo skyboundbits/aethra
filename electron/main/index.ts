@@ -17,13 +17,30 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join }                                from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 
-import type { AppSettings, ServerProfile, ModelPreset, ChatMessage } from '../../src/types'
+import type { AppSettings, ServerProfile, ModelPreset, ChatMessage, ThemeDefinition } from '../../src/types'
 
 import defaultServersRaw from './defaults/servers.json'
 import defaultModelsRaw  from './defaults/models.json'
 
 const defaultServers = defaultServersRaw as ServerProfile[]
 const defaultModels  = defaultModelsRaw  as ModelPreset[]
+
+/**
+ * Normalize settings loaded from disk so newer required fields always exist.
+ *
+ * @param raw - Parsed settings candidate from disk.
+ * @returns A fully populated AppSettings object.
+ */
+function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSettings {
+  return {
+    servers: Array.isArray(raw?.servers) ? raw.servers : defaultServers,
+    models: Array.isArray(raw?.models) ? raw.models : defaultModels,
+    activeServerId: raw?.activeServerId ?? defaultServers[0]?.id ?? null,
+    activeModelSlug: raw?.activeModelSlug ?? defaultModels[0]?.slug ?? null,
+    activeThemeId: typeof raw?.activeThemeId === 'string' ? raw.activeThemeId : 'default',
+    customThemes: Array.isArray(raw?.customThemes) ? raw.customThemes as ThemeDefinition[] : [],
+  }
+}
 
 /* ── Settings helpers ──────────────────────────────────────────────────── */
 
@@ -40,17 +57,12 @@ function loadSettings(): AppSettings {
   const path = settingsPath()
   if (existsSync(path)) {
     try {
-      return JSON.parse(readFileSync(path, 'utf-8')) as AppSettings
+      return normalizeSettings(JSON.parse(readFileSync(path, 'utf-8')) as Partial<AppSettings>)
     } catch {
       // Corrupted — fall through to defaults
     }
   }
-  return {
-    servers:         defaultServers,
-    models:          defaultModels,
-    activeServerId:  defaultServers[0]?.id ?? null,
-    activeModelSlug: defaultModels[0]?.slug ?? null,
-  }
+  return normalizeSettings(undefined)
 }
 
 /**

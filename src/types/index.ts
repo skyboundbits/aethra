@@ -54,6 +54,47 @@ export interface ChatMessage {
 
 /* ── Settings ─────────────────────────────────────────────────────────── */
 
+/** Supported visual modes for themes. */
+export type ThemeMode = 'dark' | 'light'
+
+/** Public theme token names allowed in built-in or imported theme files. */
+export type ThemeTokenName =
+  | 'app-bg'
+  | 'panel-bg'
+  | 'surface-bg'
+  | 'surface-bg-emphasis'
+  | 'surface-bg-selected'
+  | 'surface-bg-user-message'
+  | 'surface-bg-accent'
+  | 'surface-bg-accent-hover'
+  | 'surface-bg-overlay'
+  | 'border-color'
+  | 'border-color-accent'
+  | 'text-color-primary'
+  | 'text-color-secondary'
+  | 'text-color-muted'
+  | 'text-color-on-accent'
+  | 'text-color-brand'
+  | 'scrollbar-thumb'
+  | 'scrollbar-thumb-hover'
+  | 'shadow-panel'
+  | 'shadow-modal'
+
+/**
+ * A downloadable/importable theme definition.
+ * Tokens are partial so custom themes can override only the values they need.
+ */
+export interface ThemeDefinition {
+  /** Unique identifier used in persisted settings and theme selection. */
+  id: string
+  /** Human-readable theme name shown in the settings modal. */
+  name: string
+  /** Declares whether the theme is primarily light or dark. */
+  mode: ThemeMode
+  /** Token override map applied to the semantic CSS variable layer. */
+  tokens: Partial<Record<ThemeTokenName, string>>
+}
+
 /**
  * A configured AI server the user can connect to.
  * Stored in AppSettings and persisted to userData/settings.json.
@@ -96,4 +137,8 @@ export interface AppSettings {
   activeServerId: string | null
   /** Model slug currently selected as default. */
   activeModelSlug: string | null
+  /** Selected visual theme ID. Built-ins and custom themes share the same namespace. */
+  activeThemeId: string
+  /** Imported user theme definitions. */
+  customThemes: ThemeDefinition[]
 }

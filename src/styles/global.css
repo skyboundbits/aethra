@@ -1,8 +1,8 @@
 /**
  * src/styles/global.css
  * Global CSS reset and base styles for the Aethra application.
- * All custom properties (CSS variables) used throughout the app are defined
- * in the :root block so they can be easily themed later.
+ * Semantic theme tokens live in :root and can be overridden by setting
+ * document.documentElement.dataset.theme to a named theme value.
  */
 
 /* ─── Reset ─────────────────────────────────────────────────────────────── */
@@ -18,43 +18,100 @@
 /* ─── Design tokens ──────────────────────────────────────────────────────── */
 
 :root {
-  /* Background layers */
-  --color-bg-base:    #0d0f14;   /* outermost page background */
-  --color-bg-panel:   #13161e;   /* floating column panels */
-  --color-bg-surface: #1b1f2b;   /* message bubbles, inputs */
-  --color-bg-hover:   #22273a;   /* hover state on list items */
+  color-scheme: dark;
 
-  /* Borders */
-  --color-border:     #2a2f45;
+  /* Theme: default */
+  --app-bg: #0d0f14;
+  --panel-bg: #13161e;
+  --surface-bg: #1b1f2b;
+  --surface-bg-emphasis: #22273a;
+  --surface-bg-selected: #22273a;
+  --surface-bg-user-message: #1e2d5a;
+  --surface-bg-accent: #5b7cf6;
+  --surface-bg-accent-hover: #7b96ff;
+  --surface-bg-overlay: rgba(0, 0, 0, 0.55);
 
-  /* Text */
-  --color-text-primary:   #e2e6f0;
-  --color-text-secondary: #7a82a0;
-  --color-text-muted:     #4a5068;
+  --border-color: #2a2f45;
+  --border-color-accent: #5b7cf6;
 
-  /* Accent */
-  --color-accent:       #5b7cf6;
-  --color-accent-hover: #7b96ff;
+  --text-color-primary: #e2e6f0;
+  --text-color-secondary: #7a82a0;
+  --text-color-muted: #4a5068;
+  --text-color-on-accent: #ffffff;
+  --text-color-brand: #5b7cf6;
+  --status-color-error: #f0b8b8;
+  --status-border-error: #b95a5a;
 
-  /* User bubble */
-  --color-user-bubble: #1e2d5a;
-
-  /* Scrollbar */
   --scrollbar-width: 6px;
   --scrollbar-thumb: #2a2f45;
+  --scrollbar-thumb-hover: #4a5068;
 
-  /* Layout */
-  --ribbon-height:    128px;
-  --sidebar-width:    260px;
-  --details-width:    280px;
-  --column-gap:       16px;
-  --column-radius:    12px;
-  --panel-padding:    16px;
+  --shadow-panel: none;
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6);
+  --backdrop-blur: 4px;
 
-  /* Typography */
-  --font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-size-base: 14px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  --motion-fast: 0.12s;
+  --motion-base: 0.15s;
+  --motion-emphasis: 0.2s;
+
+  --ribbon-height: 128px;
+  --sidebar-width: 260px;
+  --details-width: 280px;
+  --column-gap: 16px;
+  --panel-padding: 16px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  --font-family-base: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-size-body: 14px;
+  --font-size-label: 13px;
+  --font-size-caption: 11px;
+  --font-size-title: 18px;
+  --font-size-brand: 22px;
   --line-height-base: 1.6;
+  --line-height-tight: 1.5;
+}
+
+:root[data-theme='dawn'] {
+  color-scheme: light;
+
+  --app-bg: #efe9df;
+  --panel-bg: #fbf7f2;
+  --surface-bg: #f2ebe2;
+  --surface-bg-emphasis: #e8dfd4;
+  --surface-bg-selected: #e5ddd3;
+  --surface-bg-user-message: #c9d8f7;
+  --surface-bg-accent: #b65a3a;
+  --surface-bg-accent-hover: #9e4f33;
+  --surface-bg-overlay: rgba(53, 35, 24, 0.24);
+
+  --border-color: #d4c6b7;
+  --border-color-accent: #b65a3a;
+
+  --text-color-primary: #2c241d;
+  --text-color-secondary: #6e5a4a;
+  --text-color-muted: #8c7767;
+  --text-color-on-accent: #fff8f2;
+  --text-color-brand: #8d442b;
+  --status-color-error: #9a3131;
+  --status-border-error: #d28d8d;
+
+  --scrollbar-thumb: #c9baa9;
+  --scrollbar-thumb-hover: #ad9a87;
+
+  --shadow-panel: 0 10px 30px rgba(71, 47, 28, 0.08);
+  --shadow-modal: 0 24px 64px rgba(71, 47, 28, 0.18);
 }
 
 /* ─── Base ───────────────────────────────────────────────────────────────── */
@@ -68,10 +125,10 @@ body,
 }
 
 body {
-  background-color: var(--color-bg-base);
-  color: var(--color-text-primary);
-  font-family: var(--font-family);
-  font-size: var(--font-size-base);
+  background-color: var(--app-bg);
+  color: var(--text-color-primary);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-body);
   line-height: var(--line-height-base);
   -webkit-font-smoothing: antialiased;
 }
@@ -88,11 +145,11 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* ─── Utility ────────────────────────────────────────────────────────────── */
