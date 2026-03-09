@@ -4,7 +4,7 @@
  * Houses primary nav controls: application branding and top-level page tabs.
  */
 
-import { BookOpenTextIcon, BugIcon, MountainSnowIcon, SettingsIcon, SparklesIcon, SwordsIcon, UsersRoundIcon } from './icons'
+import { BookOpenTextIcon, BugIcon, MountainSnowIcon, SettingsIcon, SlidersHorizontalIcon, SparklesIcon, SwordsIcon, UsersRoundIcon } from './icons'
 import '../styles/ribbon.css'
 
 /** A single navigation tab entry. */
@@ -36,6 +36,10 @@ interface RibbonBarProps {
   canLoadModel: boolean
   /** Called when the user opens the AI debug log. */
   onOpenAiDebug: () => void
+  /** Called when the user opens the runtime model parameters modal. */
+  onOpenModelParameters: () => void
+  /** Whether runtime model parameters can be edited. */
+  canEditModelParameters: boolean
 }
 
 /**
@@ -48,6 +52,8 @@ export function RibbonBar({
   onOpenModelLoader,
   canLoadModel,
   onOpenAiDebug,
+  onOpenModelParameters,
+  canEditModelParameters,
 }: RibbonBarProps) {
   return (
     <header className="ribbon-bar">
@@ -74,6 +80,16 @@ export function RibbonBar({
 
       {/* Right-side slot (reserved for future actions) */}
       <div className="ribbon-actions">
+        <button
+          type="button"
+          className="ribbon-nav__tab"
+          onClick={onOpenModelParameters}
+          disabled={!canEditModelParameters}
+          title={canEditModelParameters ? 'Adjust runtime sampling settings for the active model' : 'Select a model before changing runtime parameters'}
+        >
+          <span className="ribbon-nav__tab-icon" aria-hidden="true"><SlidersHorizontalIcon /></span>
+          <span>Model Params</span>
+        </button>
         <button
           type="button"
           className="ribbon-nav__tab"

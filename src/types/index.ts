@@ -115,12 +115,28 @@ export interface CharacterProfile {
   speakingStyle: string
   /** Current objectives, motivations, or priorities. */
   goals: string
+  /** Uploaded avatar image stored as a data URL, if one has been chosen. */
+  avatarImageData: string | null
+  /** Manual circle crop state used to frame the avatar in chat. */
+  avatarCrop: CharacterAvatarCrop
   /** Which participant controls this character in play. */
   controlledBy: 'ai' | 'user'
   /** Unix timestamp (ms) when the character was created. */
   createdAt: number
   /** Unix timestamp (ms) when the character was last updated. */
   updatedAt: number
+}
+
+/**
+ * Manual image framing state for a circular avatar crop.
+ */
+export interface CharacterAvatarCrop {
+  /** Horizontal image offset within the crop viewport, in pixels. */
+  x: number
+  /** Vertical image offset within the crop viewport, in pixels. */
+  y: number
+  /** Rendered image scale multiplier. */
+  scale: number
 }
 
 /**
@@ -249,6 +265,14 @@ export interface ModelPreset {
   contextWindowTokens?: number
   /** Optional sampling temperature used for chat completions. */
   temperature?: number
+  /** Optional nucleus sampling value used for chat completions. */
+  topP?: number
+  /** Optional maximum number of tokens to generate per completion. */
+  maxOutputTokens?: number
+  /** Optional presence penalty used for chat completions. */
+  presencePenalty?: number
+  /** Optional frequency penalty used for chat completions. */
+  frequencyPenalty?: number
 }
 
 /**
@@ -265,6 +289,16 @@ export interface AvailableModel {
   slug: string
   /** Optional approximate context window size for UI budgeting. */
   contextWindowTokens?: number
+  /** Optional sampling temperature reported by the server. */
+  temperature?: number
+  /** Optional nucleus sampling value reported by the server. */
+  topP?: number
+  /** Optional maximum number of tokens to generate per completion. */
+  maxOutputTokens?: number
+  /** Optional presence penalty reported by the server. */
+  presencePenalty?: number
+  /** Optional frequency penalty reported by the server. */
+  frequencyPenalty?: number
 }
 
 /**

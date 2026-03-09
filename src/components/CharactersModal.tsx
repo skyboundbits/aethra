@@ -3,7 +3,8 @@
  * Modal dialog for browsing and editing campaign characters.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { Modal } from './Modal'
 import { UsersRoundIcon } from './icons'
 import '../styles/characters.css'
@@ -55,6 +56,19 @@ export function CharactersModal({
 }: CharactersModalProps) {
   const activeCharacter = characters.find((character) => character.id === activeCharacterId) ?? null
   const [draft, setDraft] = useState<CharacterProfile | null>(activeCharacter)
+  const [isDraggingAvatar, setIsDraggingAvatar] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const avatarDragStateRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null)
+
+  /**
+   * Clamp avatar zoom to a safe range for the preview and chat bubble.
+   *
+   * @param scale - Requested zoom level.
+   * @returns Sanitized zoom value.
+   */
+  function clampAvatarScale(scale: number): number {
+    return Math.min(3, Math.max(1, Number(scale.toFixed(2))))
+  }
 
   /**
    * Update one field on the active character draft.
@@ -88,7 +102,136 @@ export function CharactersModal({
    */
   useEffect(() => {
     setDraft(activeCharacter)
+    avatarDragStateRef.current = null
+    setIsDraggingAvatar(false)
   }, [activeCharacter])
+
+  /**
+   * Stop any active avatar drag interaction when the component unmounts.
+   */
+  useEffect(() => () => {
+    avatarDragStateRef.current = null
+  }, [])
+
+  /**
+   * Load an uploaded image file into the character draft as a data URL.
+   *
+   * @param file - Chosen image file.
+   */
+  function handleAvatarFile(file: File): void {
+    if (!file.type.startsWith('image/')) {
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : null
+      if (!result) {
+        return
+      }
+
+      setDraft((currentDraft) => (
+        currentDraft
+          ? {
+            ...currentDraft,
+            avatarImageData: result,
+            avatarCrop: { x: 0, y: 0, scale: 1 },
+          }
+          : currentDraft
+      ))
+    }
+    reader.readAsDataURL(file)
+  }
+
+  /**
+   * Begin dragging the avatar image within the circular crop frame.
+   *
+   * @param event - Pointer event originating from the crop surface.
+   */
+  function handleAvatarPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (!draft?.avatarImageData) {
+      return
+    }
+
+    avatarDragStateRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: draft.avatarCrop.x,
+      originY: draft.avatarCrop.y,
+    }
+    setIsDraggingAvatar(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  /**
+   * Update the avatar crop offset as the pointer moves.
+   *
+   * @param event - Pointer move event from the crop surface.
+   */
+  function handleAvatarPointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (!draft || !avatarDragStateRef.current) {
+      return
+    }
+
+    const dragState = avatarDragStateRef.current
+    updateDraftField('avatarCrop', {
+      ...draft.avatarCrop,
+      x: dragState.originX + (event.clientX - dragState.startX),
+      y: dragState.originY + (event.clientY - dragState.startY),
+    })
+  }
+
+  /**
+   * End the active avatar drag interaction.
+   *
+   * @param event - Pointer event from the crop surface.
+   */
+  function handleAvatarPointerUp(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+
+    avatarDragStateRef.current = null
+    setIsDraggingAvatar(false)
+  }
+
+  /**
+   * Remove the current avatar image and reset its crop state.
+   */
+  function handleAvatarRemove(): void {
+    setDraft((currentDraft) => (
+      currentDraft
+        ? {
+          ...currentDraft,
+          avatarImageData: null,
+          avatarCrop: { x: 0, y: 0, scale: 1 },
+        }
+        : currentDraft
+    ))
+
+    if (avatarInputRef.current) {
+      avatarInputRef.current.value = ''
+    }
+  }
+
+  /**
+   * Adjust avatar zoom with the mouse wheel while hovering the crop area.
+   *
+   * @param event - Wheel event emitted by the crop surface.
+   */
+  function handleAvatarWheel(event: ReactWheelEvent<HTMLDivElement>): void {
+    if (!draft?.avatarImageData) {
+      return
+    }
+
+    event.preventDefault()
+
+    const direction = event.deltaY < 0 ? 0.08 : -0.08
+    updateDraftField('avatarCrop', {
+      ...draft.avatarCrop,
+      scale: clampAvatarScale(draft.avatarCrop.scale + direction),
+    })
+  }
 
   /**
    * Save the current draft and keep the modal open.
@@ -104,6 +247,14 @@ export function CharactersModal({
       role: draft.role.trim(),
     })
   }
+
+  const avatarPreviewStyle = draft?.avatarImageData
+    ? {
+      backgroundImage: `url("${draft.avatarImageData}")`,
+      backgroundPosition: `${draft.avatarCrop.x}px ${draft.avatarCrop.y}px`,
+      backgroundSize: `${draft.avatarCrop.scale * 100}%`,
+    }
+    : undefined
 
   return (
     <Modal
@@ -165,6 +316,79 @@ export function CharactersModal({
                       ? <>Stored in <code>characters/{draft.folderName}</code></>
                       : <>Folder will be created in <code>characters/</code> when you save.</>}
                   </p>
+                </div>
+
+                <div className="characters-modal__field">
+                  <label className="characters-modal__label" htmlFor="character-avatar-upload">
+                    Avatar
+                  </label>
+                  <div className="characters-modal__avatar-editor">
+                    <div
+                      className={`characters-modal__avatar-cropper${draft.avatarImageData ? ' characters-modal__avatar-cropper--ready' : ''}${isDraggingAvatar ? ' characters-modal__avatar-cropper--dragging' : ''}`}
+                      onPointerDown={handleAvatarPointerDown}
+                      onPointerMove={handleAvatarPointerMove}
+                      onPointerUp={handleAvatarPointerUp}
+                      onPointerCancel={handleAvatarPointerUp}
+                      onWheel={handleAvatarWheel}
+                    >
+                      <div className="characters-modal__avatar-viewport">
+                        {draft.avatarImageData ? (
+                          <div className="characters-modal__avatar-preview" style={avatarPreviewStyle} />
+                        ) : (
+                          <div className="characters-modal__avatar-empty">
+                            Upload an image, then drag it to frame the chat avatar.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="characters-modal__avatar-controls">
+                      <input
+                        ref={avatarInputRef}
+                        id="character-avatar-upload"
+                        className="characters-modal__avatar-upload"
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0]
+                          if (file) {
+                            handleAvatarFile(file)
+                          }
+                        }}
+                      />
+                      <label className="characters-modal__footer-btn" htmlFor="character-avatar-upload">
+                        Upload Image
+                      </label>
+                      <label className="characters-modal__label" htmlFor="character-avatar-zoom">
+                        Zoom
+                      </label>
+                      <input
+                        id="character-avatar-zoom"
+                        className="characters-modal__avatar-slider"
+                        type="range"
+                        min="1"
+                        max="3"
+                        step="0.01"
+                        value={draft.avatarCrop.scale}
+                        onChange={(event) => updateDraftField('avatarCrop', {
+                          ...draft.avatarCrop,
+                          scale: clampAvatarScale(Number(event.target.value)),
+                        })}
+                        disabled={!draft.avatarImageData}
+                      />
+                      <button
+                        type="button"
+                        className="characters-modal__footer-btn"
+                        onClick={handleAvatarRemove}
+                        disabled={!draft.avatarImageData}
+                      >
+                        Remove Image
+                      </button>
+                      <p className="characters-modal__avatar-help">
+                        Drag inside the circle to position the face. Use the mouse wheel or zoom slider to scale it. The same crop is used in chat.
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="characters-modal__field">

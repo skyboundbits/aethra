@@ -1,0 +1,112 @@
+/**
+ * src/styles/model-parameters.css
+ * Styles for the runtime model parameters modal.
+ */
+
+.modal--model-parameters {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.model-parameters {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.model-parameters__intro,
+.model-parameters__empty,
+.model-parameters__hint,
+.model-parameters__field-hint {
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-body);
+  line-height: 1.5;
+}
+
+.model-parameters__status {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+}
+
+.model-parameters__status--error {
+  border-color: rgba(210, 72, 90, 0.45);
+}
+
+.model-parameters__status--success {
+  border-color: rgba(66, 184, 131, 0.45);
+}
+
+.model-parameters__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.model-parameters__field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-parameters__label {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.model-parameters__input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+}
+
+.model-parameters__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.model-parameters__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.model-parameters__button {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+}
+
+.model-parameters__button--primary {
+  background-color: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
+}
+
+.model-parameters__button--primary:hover {
+  background-color: var(--surface-bg-accent-hover);
+}
+
+@media (max-width: 720px) {
+  .model-parameters__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .model-parameters__footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .model-parameters__actions {
+    justify-content: flex-end;
+  }
+}

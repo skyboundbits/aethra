@@ -13,7 +13,7 @@
  *   RibbonBar (top) | Sidebar | ChatArea + InputBar | DetailsPanel
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './styles/global.css'
 import './styles/layout.css'
 
@@ -29,6 +29,7 @@ import { CreateCampaignModal } from './components/CreateCampaignModal'
 import { CharactersModal } from './components/CharactersModal'
 import { AiDebugModal } from './components/AiDebugModal'
 import { ModelLoaderModal } from './components/ModelLoaderModal'
+import { ModelParametersModal } from './components/ModelParametersModal'
 import { Modal } from './components/Modal'
 
 import { streamCompletion } from './services/aiService'
@@ -69,6 +70,7 @@ function uid(): string {
 }
 
 const AWAITING_PLAYER_ACTION_MARKER = '[System] Awaiting player action...'
+const MAX_UNTAGGED_ASSISTANT_ATTEMPTS = 3
 
 /**
  * Determine whether a message content string is the non-display placeholder
@@ -124,12 +126,15 @@ Never write dialogue, actions, thoughts, feelings, or decisions for PLAYER-contr
 
 Never describe what you are doing, never explain the scene, and never reveal internal reasoning, intent, analysis, or commentary.
 
+Always use the pronouns for the characters as specified in their profiles.
+
 Output only in-world roleplay content as one or more lines in this exact format:
 [Name] content
 
 Name must be either:
 - The exact name of an AI-controlled character
 - Scene (only for environmental narration)
+- Must ALWAYS be present at the start of each line, even if the character is currently silent or the line is purely descriptive.
 
 Usage rules:
 
@@ -144,6 +149,8 @@ Use [Scene] ONLY when describing:
 - Weather
 - Sounds
 - Non-character events
+
+You can use these more than once per response if needed, but never omit the marker or use any other format.
 
 Most lines should use character names. Only use [Scene] when the environment itself changes or needs description.
 
@@ -165,7 +172,17 @@ Invalid examples:
 User: Hello
 Assistant: Welcome
 [Character] Hello
-[PlayerName] "I should leave."`
+[PlayerName] "I should leave."
+
+Output restrictions:
+- Plain ASCII text only
+- No emojis
+- No emoticons
+- No decorative symbols
+- No repeated punctuation
+- No ellipses
+- No trailing symbols at the end of lines
+- Each line must end cleanly`
 }
 
   const campaignContext: ChatMessage = {
@@ -315,6 +332,17 @@ function splitStreamedAssistantBubbles(
 }
 
 /**
+ * Determine whether a streamed assistant reply contains at least one
+ * non-player speaker tag that can be rendered as a named bubble.
+ *
+ * @param bubbles - Parsed streamed assistant bubble payloads.
+ * @returns True when a valid character tag is present.
+ */
+function hasNamedAssistantBubble(bubbles: StreamedAssistantBubble[]): boolean {
+  return bubbles.some((bubble) => typeof bubble.characterName === 'string' && bubble.characterName.trim().length > 0)
+}
+
+/**
  * App
  * Top-level component that wires together all panels and manages state.
  */
@@ -402,12 +430,20 @@ export default function App() {
   const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false)
   /** True while the model loader modal is open. */
   const [isModelLoaderOpen, setIsModelLoaderOpen] = useState(false)
+  /** True while the runtime model parameters modal is open. */
+  const [isModelParametersOpen, setIsModelParametersOpen] = useState(false)
   /** True while a remote model load request is in flight. */
   const [isModelLoading, setIsModelLoading] = useState(false)
+  /** True while runtime model parameters are being saved. */
+  const [isModelParametersSaving, setIsModelParametersSaving] = useState(false)
   /** Status message shown in the model loader modal. */
   const [modelLoaderStatusMessage, setModelLoaderStatusMessage] = useState<string | null>(null)
   /** Visual state of the model loader status message. */
   const [modelLoaderStatusKind, setModelLoaderStatusKind] = useState<'error' | 'success' | null>(null)
+  /** Status message shown in the model parameters modal. */
+  const [modelParametersStatusMessage, setModelParametersStatusMessage] = useState<string | null>(null)
+  /** Visual state of the model parameters status message. */
+  const [modelParametersStatusKind, setModelParametersStatusKind] = useState<'error' | 'success' | null>(null)
   const [isAiDebugOpen, setIsAiDebugOpen] = useState(false)
   const [aiDebugEntries, setAiDebugEntries] = useState<AiDebugEntry[]>([])
 
@@ -509,11 +545,23 @@ export default function App() {
     activeServerModels[0] ??
     null
 
+  /** True when runtime parameters can be edited for the active model preset. */
+  const canEditModelParameters = activeModel !== null
+
+  /** Stable system-context payload for the active campaign. */
+  const systemContextMessages = useMemo(
+    () => (campaign ? buildSystemContext(campaign, characters) : []),
+    [campaign, characters],
+  )
+
+  /** Stable chat-history payload for the active session. */
+  const apiMessages = useMemo(() => toApiMessages(messages), [messages])
+
   /** Approximate tokens used by the current outbound prompt. */
-  const estimatedPromptTokens = estimateTokenCount([
-    ...(campaign ? buildSystemContext(campaign, characters) : []),
-    ...toApiMessages(messages),
-  ])
+  const estimatedPromptTokens = useMemo(
+    () => estimateTokenCount([...systemContextMessages, ...apiMessages]),
+    [apiMessages, systemContextMessages],
+  )
 
   /** Tokens shown in the UI, preferring full request usage from the last completed response. */
   const usedTokens = lastTokenUsage?.totalTokens ?? estimatedPromptTokens
@@ -743,6 +791,9 @@ export default function App() {
         const streamedMessages = bubbles.map((bubble, index) => ({
           id: messageIds[index],
           role: 'assistant' as const,
+          characterId: bubble.characterName
+            ? characters.find((character) => character.name === bubble.characterName)?.id
+            : undefined,
           characterName: bubble.characterName,
           content: bubble.content,
           timestamp,
@@ -756,7 +807,6 @@ export default function App() {
         }),
       }))
 
-      setComposerFocusRequestKey((prev) => prev + 1)
     }
 
   /**
@@ -1052,6 +1102,15 @@ export default function App() {
   }
 
   /**
+   * Open the runtime model parameters modal for the active model preset.
+   */
+  function handleOpenModelParameters(): void {
+    setModelParametersStatusKind(null)
+    setModelParametersStatusMessage(null)
+    setIsModelParametersOpen(true)
+  }
+
+  /**
    * Close the AI debug modal.
    */
   function handleCloseAiDebug(): void {
@@ -1063,6 +1122,13 @@ export default function App() {
    */
   function handleCloseModelLoader(): void {
     setIsModelLoaderOpen(false)
+  }
+
+  /**
+   * Close the runtime model parameters modal.
+   */
+  function handleCloseModelParameters(): void {
+    setIsModelParametersOpen(false)
   }
 
   /**
@@ -1272,6 +1338,11 @@ export default function App() {
           name: model.name,
           slug: model.slug,
           contextWindowTokens: model.contextWindowTokens ?? existingModel?.contextWindowTokens,
+          temperature: model.temperature ?? existingModel?.temperature,
+          topP: model.topP ?? existingModel?.topP,
+          maxOutputTokens: model.maxOutputTokens ?? existingModel?.maxOutputTokens,
+          presencePenalty: model.presencePenalty ?? existingModel?.presencePenalty,
+          frequencyPenalty: model.frequencyPenalty ?? existingModel?.frequencyPenalty,
         }
       })
 
@@ -1375,6 +1446,111 @@ export default function App() {
       setSettingsStatusKind('error')
       setSettingsStatusMessage('Could not save the context budget.')
       throw err
+    }
+  }
+
+  /**
+   * Persist runtime chat parameters for the selected model preset.
+   *
+   * @param modelSlug - Selected model slug to update.
+   * @param values - Runtime parameter overrides to persist.
+   */
+  async function handleSaveModelParameters(
+    modelSlug: string,
+    values: {
+      temperature: number | null
+      topP: number | null
+      maxOutputTokens: number | null
+      presencePenalty: number | null
+      frequencyPenalty: number | null
+    },
+  ): Promise<void> {
+    if (!activeServer) {
+      setModelParametersStatusKind('error')
+      setModelParametersStatusMessage('Select an AI server before editing runtime parameters.')
+      return
+    }
+
+    const selectedModel = activeServerModels.find((model) => model.slug === modelSlug)
+    if (!selectedModel) {
+      setModelParametersStatusKind('error')
+      setModelParametersStatusMessage('Select a model before saving runtime parameters.')
+      return
+    }
+
+    const normalizeRange = (
+      value: number | null,
+      minimum: number,
+      maximum: number,
+      label: string,
+    ): number | null => {
+      if (value === null) {
+        return null
+      }
+
+      if (!Number.isFinite(value) || value < minimum || value > maximum) {
+        throw new Error(`${label} must be between ${minimum} and ${maximum}.`)
+      }
+
+      return Number(value.toFixed(2))
+    }
+
+    const normalizeInteger = (value: number | null, minimum: number, label: string): number | null => {
+      if (value === null) {
+        return null
+      }
+
+      if (!Number.isFinite(value) || value < minimum) {
+        throw new Error(`${label} must be at least ${minimum}.`)
+      }
+
+      return Math.floor(value)
+    }
+
+    try {
+      setIsModelParametersSaving(true)
+      const normalizedTemperature = normalizeRange(values.temperature, 0, 5, 'Temperature')
+      const normalizedTopP = normalizeRange(values.topP, 0, 1, 'Top P')
+      const normalizedMaxOutputTokens = normalizeInteger(values.maxOutputTokens, 1, 'Max output tokens')
+      const normalizedPresencePenalty = normalizeRange(values.presencePenalty, -2, 2, 'Presence penalty')
+      const normalizedFrequencyPenalty = normalizeRange(values.frequencyPenalty, -2, 2, 'Frequency penalty')
+
+      const nextModels = appSettings.models.map((model) =>
+        model.serverId === selectedModel.serverId && model.slug === selectedModel.slug
+          ? {
+            ...model,
+            temperature: normalizedTemperature ?? undefined,
+            topP: normalizedTopP ?? undefined,
+            maxOutputTokens: normalizedMaxOutputTokens ?? undefined,
+            presencePenalty: normalizedPresencePenalty ?? undefined,
+            frequencyPenalty: normalizedFrequencyPenalty ?? undefined,
+          }
+          : model,
+      )
+      const nextSettings: AppSettings = {
+        ...appSettings,
+        models: nextModels,
+      }
+
+      await persistSettings(nextSettings)
+      await appendAiDebugEntry('info', 'ai.model.parameters.updated', {
+        serverId: selectedModel.serverId,
+        modelId: selectedModel.id,
+        modelSlug: selectedModel.slug,
+        temperature: normalizedTemperature,
+        topP: normalizedTopP,
+        maxOutputTokens: normalizedMaxOutputTokens,
+        presencePenalty: normalizedPresencePenalty,
+        frequencyPenalty: normalizedFrequencyPenalty,
+      })
+      setModelParametersStatusKind('success')
+      setModelParametersStatusMessage('Runtime parameters updated.')
+    } catch (err) {
+      console.error('[Aethra] Could not save model parameters:', err)
+      setModelParametersStatusKind('error')
+      setModelParametersStatusMessage(err instanceof Error ? err.message : 'Could not save runtime parameters.')
+    } finally {
+      setIsModelParametersSaving(false)
     }
   }
 
@@ -1545,6 +1721,8 @@ export default function App() {
         personality: '',
         speakingStyle: '',
         goals: '',
+        avatarImageData: null,
+        avatarCrop: { x: 0, y: 0, scale: 1 },
         controlledBy: 'ai',
         createdAt: now,
         updatedAt: now,
@@ -1659,6 +1837,7 @@ export default function App() {
     // Accumulate streamed text outside React state to avoid excessive re-renders,
     // then push the full string on each chunk.
     let accumulated = ''
+    let pendingAnimationFrameId: number | null = null
     const playerControlledNames = new Set(
       characters
         .filter((character) => character.controlledBy === 'user')
@@ -1666,33 +1845,86 @@ export default function App() {
         .filter((name) => name.length > 0),
     )
 
-    streamCompletion(
-      historySnapshot,
-      /* onToken */ (chunk) => {
-        accumulated += chunk
-        const segments = splitStreamedAssistantBubbles(accumulated, playerControlledNames)
+    /**
+     * Push the latest parsed assistant bubbles into state at most once per frame.
+     */
+    function flushStreamedAssistantMessages(): void {
+      pendingAnimationFrameId = null
 
-        while (assistantIds.length < segments.length) {
-          assistantIds.push(uid())
-        }
+      const segments = splitStreamedAssistantBubbles(accumulated, playerControlledNames)
 
-        syncStreamedAssistantMessages(sessionId, assistantIds, segments, assistantTimestamp)
-      },
-      /* onUsage */ (usage) => {
-        setLastTokenUsage(usage)
-      },
-      /* onDone */ () => {
-        setIsStreaming(false)
-      },
-      /* onError */ (err) => {
-        console.error('[Aethra] AI stream error:', err)
-        upsertMessage(sessionId, {
-          ...assistantMessage,
-          content: '⚠️ Could not reach the selected AI server. Check that it is running and the server address is correct.',
-        })
-        setIsStreaming(false)
-      },
-    )
+      while (assistantIds.length < segments.length) {
+        assistantIds.push(uid())
+      }
+
+      syncStreamedAssistantMessages(sessionId, assistantIds, segments, assistantTimestamp)
+    }
+
+    /**
+     * Schedule the streamed assistant UI update for the next animation frame.
+     */
+    function scheduleStreamedAssistantSync(): void {
+      if (pendingAnimationFrameId !== null) {
+        return
+      }
+
+      pendingAnimationFrameId = requestAnimationFrame(() => {
+        flushStreamedAssistantMessages()
+      })
+    }
+
+    /**
+     * Stream one assistant attempt. Replies without a leading character tag
+     * are discarded and retried up to the configured limit.
+     *
+     * @param attemptNumber - 1-based attempt counter for malformed replies.
+     */
+    function streamAssistantAttempt(attemptNumber: number): void {
+      accumulated = ''
+
+      streamCompletion(
+        historySnapshot,
+        /* onToken */ (chunk) => {
+          accumulated += chunk
+          scheduleStreamedAssistantSync()
+        },
+        /* onUsage */ (usage) => {
+          setLastTokenUsage(usage)
+        },
+        /* onDone */ () => {
+          if (pendingAnimationFrameId !== null) {
+            cancelAnimationFrame(pendingAnimationFrameId)
+          }
+          flushStreamedAssistantMessages()
+
+          const finalSegments = splitStreamedAssistantBubbles(accumulated, playerControlledNames)
+          const hasNamedBubble = hasNamedAssistantBubble(finalSegments)
+
+          if (!hasNamedBubble && attemptNumber < MAX_UNTAGGED_ASSISTANT_ATTEMPTS) {
+            syncStreamedAssistantMessages(sessionId, assistantIds, [{ content: '' }], assistantTimestamp)
+            streamAssistantAttempt(attemptNumber + 1)
+            return
+          }
+
+          setIsStreaming(false)
+        },
+        /* onError */ (err) => {
+          if (pendingAnimationFrameId !== null) {
+            cancelAnimationFrame(pendingAnimationFrameId)
+            pendingAnimationFrameId = null
+          }
+
+          console.error('[Aethra] AI stream error:', err)
+          upsertMessage(sessionId, {
+            ...assistantMessage,
+            content: '⚠️ Could not reach the selected AI server. Check that it is running and the server address is correct.',
+          })
+          setIsStreaming(false)
+        },
+      )
+    }
+
+    streamAssistantAttempt(1)
   }
 
   /* ── Render ─────────────────────────────────────────────────────────── */
@@ -1708,6 +1940,8 @@ export default function App() {
           onOpenModelLoader={handleOpenModelLoader}
           canLoadModel={canLoadModel}
           onOpenAiDebug={handleOpenAiDebug}
+          onOpenModelParameters={handleOpenModelParameters}
+          canEditModelParameters={canEditModelParameters}
         />
       ) : null}
 
@@ -1734,6 +1968,7 @@ export default function App() {
           <main className="panel panel--chat">
             <ChatArea
               messages={messages}
+              characters={characters}
               textSize={appSettings.chatTextSize}
               onDeleteMessage={handleDeleteMessage}
               isBusy={isStreaming}
@@ -1825,6 +2060,17 @@ export default function App() {
           isBusy={isModelLoading}
           onClose={handleCloseModelLoader}
           onLoadModel={(modelSlug, contextWindowTokens, temperature) => handleLoadModel(modelSlug, contextWindowTokens, temperature)}
+        />
+      ) : null}
+
+      {isModelParametersOpen ? (
+        <ModelParametersModal
+          model={activeModel}
+          statusMessage={modelParametersStatusMessage}
+          statusKind={modelParametersStatusKind}
+          isBusy={isModelParametersSaving}
+          onClose={handleCloseModelParameters}
+          onSaveParameters={(modelSlug, values) => handleSaveModelParameters(modelSlug, values)}
         />
       ) : null}
 

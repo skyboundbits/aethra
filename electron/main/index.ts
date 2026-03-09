@@ -138,6 +138,8 @@ interface PartialCharacterRecord {
   controlledBy?: unknown
   gender?: unknown
   pronouns?: unknown
+  avatarImageData?: unknown
+  avatarCrop?: unknown
   createdAt?: unknown
   updatedAt?: unknown
 }
@@ -200,6 +202,184 @@ function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSet
     activeThemeId: typeof raw?.activeThemeId === 'string' ? raw.activeThemeId : 'default',
     customThemes: Array.isArray(raw?.customThemes) ? raw.customThemes as ThemeDefinition[] : [],
   }
+}
+
+/**
+ * Build a filesystem-safe key for a model profile file.
+ *
+ * @param serverId - Owning server profile id.
+ * @param modelSlug - Model slug within that server.
+ * @returns Stable filename stem for the model profile.
+ */
+function buildModelProfileKey(serverId: string, modelSlug: string): string {
+  return `${serverId}__${modelSlug}`
+    .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, '-')
+    .replace(/\s+/g, '-')
+    .toLowerCase()
+}
+
+/**
+ * Return the absolute path to the persisted model profile directory.
+ *
+ * @returns Full path to the userData models directory.
+ */
+function modelProfilesPath(): string {
+  return join(app.getPath('userData'), 'models')
+}
+
+/**
+ * Ensure the persisted model profile directory exists.
+ *
+ * @returns Absolute models directory path.
+ */
+function ensureModelProfilesPath(): string {
+  const dir = modelProfilesPath()
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  return dir
+}
+
+/**
+ * Return the absolute path to a single model profile JSON file.
+ *
+ * @param serverId - Owning server profile id.
+ * @param modelSlug - Model slug within that server.
+ * @returns Full path to the model profile JSON.
+ */
+function modelProfilePath(serverId: string, modelSlug: string): string {
+  return join(ensureModelProfilesPath(), `${buildModelProfileKey(serverId, modelSlug)}.json`)
+}
+
+/**
+ * Read a stored model profile override from disk, if present.
+ *
+ * @param serverId - Owning server profile id.
+ * @param modelSlug - Model slug within that server.
+ * @returns Parsed model profile override, or null when unavailable.
+ */
+function loadModelProfile(serverId: string, modelSlug: string): Partial<ModelPreset> | null {
+  const path = modelProfilePath(serverId, modelSlug)
+  if (!existsSync(path)) {
+    return null
+  }
+
+  try {
+    const raw = JSON.parse(readFileSync(path, 'utf-8')) as Partial<ModelPreset>
+    return raw
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Build fallback runtime parameters for a model when the server does not
+ * report explicit defaults.
+ *
+ * @param model - Base model preset.
+ * @returns Model preset with concrete runtime defaults filled in.
+ */
+function applyDefaultModelProfile(model: ModelPreset): ModelPreset {
+  const fallbackMaxOutputTokens =
+    typeof model.contextWindowTokens === 'number' && model.contextWindowTokens > 0
+      ? Math.max(1, Math.min(512, Math.floor(model.contextWindowTokens / 4)))
+      : 512
+
+  return {
+    ...model,
+    temperature:
+      typeof model.temperature === 'number' && Number.isFinite(model.temperature) && model.temperature >= 0
+        ? model.temperature
+        : 0.7,
+    topP:
+      typeof model.topP === 'number' && Number.isFinite(model.topP) && model.topP >= 0 && model.topP <= 1
+        ? model.topP
+        : 1,
+    maxOutputTokens:
+      typeof model.maxOutputTokens === 'number' && Number.isFinite(model.maxOutputTokens) && model.maxOutputTokens > 0
+        ? Math.floor(model.maxOutputTokens)
+        : fallbackMaxOutputTokens,
+    presencePenalty:
+      typeof model.presencePenalty === 'number' &&
+      Number.isFinite(model.presencePenalty) &&
+      model.presencePenalty >= -2 &&
+      model.presencePenalty <= 2
+        ? model.presencePenalty
+        : 0,
+    frequencyPenalty:
+      typeof model.frequencyPenalty === 'number' &&
+      Number.isFinite(model.frequencyPenalty) &&
+      model.frequencyPenalty >= -2 &&
+      model.frequencyPenalty <= 2
+        ? model.frequencyPenalty
+        : 0,
+  }
+}
+
+/**
+ * Merge a stored model profile override into a model preset.
+ *
+ * @param model - Base model preset.
+ * @returns Model preset with any saved override fields applied.
+ */
+function applyStoredModelProfile(model: ModelPreset): ModelPreset {
+  const stored = loadModelProfile(model.serverId, model.slug)
+  if (!stored) {
+    return applyDefaultModelProfile(model)
+  }
+
+  return applyDefaultModelProfile({
+    ...model,
+    contextWindowTokens:
+      typeof stored.contextWindowTokens === 'number' && stored.contextWindowTokens > 0
+        ? stored.contextWindowTokens
+        : model.contextWindowTokens,
+    temperature:
+      typeof stored.temperature === 'number' && Number.isFinite(stored.temperature) && stored.temperature >= 0
+        ? stored.temperature
+        : model.temperature,
+    topP:
+      typeof stored.topP === 'number' && Number.isFinite(stored.topP) && stored.topP >= 0 && stored.topP <= 1
+        ? stored.topP
+        : model.topP,
+    maxOutputTokens:
+      typeof stored.maxOutputTokens === 'number' && Number.isFinite(stored.maxOutputTokens) && stored.maxOutputTokens > 0
+        ? Math.floor(stored.maxOutputTokens)
+        : model.maxOutputTokens,
+    presencePenalty:
+      typeof stored.presencePenalty === 'number' &&
+      Number.isFinite(stored.presencePenalty) &&
+      stored.presencePenalty >= -2 &&
+      stored.presencePenalty <= 2
+        ? stored.presencePenalty
+        : model.presencePenalty,
+    frequencyPenalty:
+      typeof stored.frequencyPenalty === 'number' &&
+      Number.isFinite(stored.frequencyPenalty) &&
+      stored.frequencyPenalty >= -2 &&
+      stored.frequencyPenalty <= 2
+        ? stored.frequencyPenalty
+        : model.frequencyPenalty,
+  })
+}
+
+/**
+ * Persist a model preset snapshot to the dedicated per-model JSON store.
+ *
+ * @param model - Model preset to persist.
+ */
+function saveModelProfile(model: ModelPreset): void {
+  const dir = ensureModelProfilesPath()
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  writeFileSync(
+    modelProfilePath(model.serverId, model.slug),
+    JSON.stringify(model, null, 2),
+    'utf-8',
+  )
 }
 
 /**
@@ -638,6 +818,12 @@ function normalizeCharacter(raw: unknown, folderName: string): CharacterProfile 
         : gender === 'female'
           ? 'she/her'
           : 'they/them'
+  const safeAvatarCrop = isRecord(safeRaw.avatarCrop) ? safeRaw.avatarCrop : {}
+  const avatarCrop = {
+    x: isFiniteNumber(safeAvatarCrop.x) ? safeAvatarCrop.x : 0,
+    y: isFiniteNumber(safeAvatarCrop.y) ? safeAvatarCrop.y : 0,
+    scale: isFiniteNumber(safeAvatarCrop.scale) && safeAvatarCrop.scale > 0 ? safeAvatarCrop.scale : 1,
+  }
 
   return {
     id: typeof safeRaw.id === 'string' && safeRaw.id.length > 0 ? safeRaw.id : uid(),
@@ -652,6 +838,10 @@ function normalizeCharacter(raw: unknown, folderName: string): CharacterProfile 
     personality: typeof safeRaw.personality === 'string' ? safeRaw.personality : '',
     speakingStyle: typeof safeRaw.speakingStyle === 'string' ? safeRaw.speakingStyle : '',
     goals: typeof safeRaw.goals === 'string' ? safeRaw.goals : '',
+    avatarImageData: typeof safeRaw.avatarImageData === 'string' && safeRaw.avatarImageData.length > 0
+      ? safeRaw.avatarImageData
+      : null,
+    avatarCrop,
     controlledBy: safeRaw.controlledBy === 'user' || safeRaw.controlledBy === 'ai'
       ? safeRaw.controlledBy
       : 'ai',
@@ -692,6 +882,16 @@ function saveCharacter(folderPath: string, character: CharacterProfile): Charact
       description: character.description,
       personality: character.personality,
       speakingStyle: character.speakingStyle,
+      avatarImageData: typeof character.avatarImageData === 'string' && character.avatarImageData.length > 0
+        ? character.avatarImageData
+        : null,
+      avatarCrop: {
+        x: Number.isFinite(character.avatarCrop.x) ? character.avatarCrop.x : 0,
+        y: Number.isFinite(character.avatarCrop.y) ? character.avatarCrop.y : 0,
+        scale: Number.isFinite(character.avatarCrop.scale) && character.avatarCrop.scale > 0
+          ? character.avatarCrop.scale
+          : 1,
+      },
     goals: character.goals,
     controlledBy: character.controlledBy,
     updatedAt: now,
@@ -750,6 +950,8 @@ function createStoredCharacter(folderPath: string, name: string): CharacterProfi
     personality: '',
     speakingStyle: '',
     goals: '',
+    avatarImageData: null,
+    avatarCrop: { x: 0, y: 0, scale: 1 },
     controlledBy: 'ai',
     createdAt: now,
     updatedAt: now,
@@ -1077,12 +1279,20 @@ function loadSettings(): AppSettings {
   const path = settingsPath()
   if (existsSync(path)) {
     try {
-      return normalizeSettings(JSON.parse(readFileSync(path, 'utf-8')) as Partial<AppSettings>)
+      const normalized = normalizeSettings(JSON.parse(readFileSync(path, 'utf-8')) as Partial<AppSettings>)
+      return {
+        ...normalized,
+        models: normalized.models.map((model) => applyStoredModelProfile(model)),
+      }
     } catch {
       // Corrupted — fall through to defaults
     }
   }
-  return normalizeSettings(undefined)
+  const normalized = normalizeSettings(undefined)
+  return {
+    ...normalized,
+    models: normalized.models.map((model) => applyStoredModelProfile(model)),
+  }
 }
 
 /**
@@ -1093,6 +1303,9 @@ function saveSettings(settings: AppSettings): void {
   const dir = app.getPath('userData')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   writeFileSync(settingsPath(), JSON.stringify(settings, null, 2), 'utf-8')
+  settings.models.forEach((model) => {
+    saveModelProfile(model)
+  })
 }
 
 /**
@@ -1211,6 +1424,9 @@ async function* streamChat(
   messages: ChatMessage[],
   contextWindowTokens: number | null,
   temperature: number | null,
+  topP: number | null,
+  presencePenalty: number | null,
+  frequencyPenalty: number | null,
   maxTokens: number | null,
   logger?: (direction: AiDebugEntry['direction'], label: string, payload: unknown) => void,
 ): AsyncGenerator<{ chunk?: string, usage?: TokenUsage }> {
@@ -1227,6 +1443,28 @@ async function* streamChat(
 
   if (typeof temperature === 'number' && Number.isFinite(temperature) && temperature >= 0) {
     requestBody.temperature = temperature
+  }
+
+  if (typeof topP === 'number' && Number.isFinite(topP) && topP >= 0 && topP <= 1) {
+    requestBody.top_p = topP
+  }
+
+  if (
+    typeof presencePenalty === 'number' &&
+    Number.isFinite(presencePenalty) &&
+    presencePenalty >= -2 &&
+    presencePenalty <= 2
+  ) {
+    requestBody.presence_penalty = presencePenalty
+  }
+
+  if (
+    typeof frequencyPenalty === 'number' &&
+    Number.isFinite(frequencyPenalty) &&
+    frequencyPenalty >= -2 &&
+    frequencyPenalty <= 2
+  ) {
+    requestBody.frequency_penalty = frequencyPenalty
   }
 
   if (isTextGenerationWebUiServer(server)) {
@@ -1361,6 +1599,9 @@ async function* streamLmStudioChat(
   apiKey:   string,
   model:    string,
   messages: ChatMessage[],
+  temperature: number | null,
+  topP: number | null,
+  maxTokens: number | null,
   logger?: (direction: AiDebugEntry['direction'], label: string, payload: unknown) => void,
 ): AsyncGenerator<{ chunk?: string, usage?: TokenUsage }> {
   const flattenedTranscript = messages
@@ -1378,6 +1619,15 @@ async function* streamLmStudioChat(
     model,
     input,
     stream: true,
+    ...(typeof temperature === 'number' && Number.isFinite(temperature) && temperature >= 0
+      ? { temperature }
+      : {}),
+    ...(typeof topP === 'number' && Number.isFinite(topP) && topP >= 0 && topP <= 1
+      ? { top_p: topP }
+      : {}),
+    ...(typeof maxTokens === 'number' && Number.isFinite(maxTokens) && maxTokens > 0
+      ? { max_tokens: Math.floor(maxTokens) }
+      : {}),
   }
 
   logger?.('request', 'lmstudio.chat.request', {
@@ -1508,6 +1758,9 @@ async function* streamServerChat(
   messages: ChatMessage[],
   contextWindowTokens: number | null,
   temperature: number | null,
+  topP: number | null,
+  presencePenalty: number | null,
+  frequencyPenalty: number | null,
   maxTokens: number | null,
   logger?: (direction: AiDebugEntry['direction'], label: string, payload: unknown) => void,
 ): AsyncGenerator<{ chunk?: string, usage?: TokenUsage }> {
@@ -1517,7 +1770,7 @@ async function* streamServerChat(
         serverId: server.id,
         baseUrl: server.baseUrl,
       })
-      yield* streamLmStudioChat(server.baseUrl, server.apiKey, model, messages, logger)
+      yield* streamLmStudioChat(server.baseUrl, server.apiKey, model, messages, temperature, topP, maxTokens, logger)
       return
     } catch (error) {
       logger?.('error', 'lmstudio.transport.fallback', {
@@ -1532,9 +1785,25 @@ async function* streamServerChat(
     baseUrl: server.baseUrl,
     contextWindowTokens,
     temperature,
+    topP,
+    presencePenalty,
+    frequencyPenalty,
     maxTokens,
   })
-  yield* streamChat(server, server.baseUrl, server.apiKey, model, messages, contextWindowTokens, temperature, maxTokens, logger)
+  yield* streamChat(
+    server,
+    server.baseUrl,
+    server.apiKey,
+    model,
+    messages,
+    contextWindowTokens,
+    temperature,
+    topP,
+    presencePenalty,
+    frequencyPenalty,
+    maxTokens,
+    logger,
+  )
 }
 
 /**
@@ -1584,7 +1853,7 @@ async function browseServerModels(server: ServerProfile): Promise<AvailableModel
   if (!Array.isArray(json) && Array.isArray(json.model_names)) {
     return json.model_names
       .filter((modelName): modelName is string => typeof modelName === 'string' && modelName.length > 0)
-      .map((modelName) => ({
+      .map((modelName) => applyStoredModelProfile({
         id: `${server.id}:${modelName}`,
         serverId: server.id,
         name: modelName,
@@ -1596,7 +1865,7 @@ async function browseServerModels(server: ServerProfile): Promise<AvailableModel
 
   return rawModels
     .filter((model): model is Record<string, unknown> & { id: string } => typeof model.id === 'string' && model.id.length > 0)
-    .map((model) => ({
+    .map((model) => applyStoredModelProfile({
       id: `${server.id}:${model.id}`,
       serverId: server.id,
       name: model.id,
@@ -1609,6 +1878,14 @@ async function browseServerModels(server: ServerProfile): Promise<AvailableModel
         : typeof model.maxContextLength === 'number' ? model.maxContextLength
         : typeof model.contextLength === 'number' ? model.contextLength
         : undefined,
+      temperature:
+        typeof model.temperature === 'number' && Number.isFinite(model.temperature) && model.temperature >= 0
+          ? model.temperature
+          : undefined,
+      topP:
+        typeof model.top_p === 'number' && Number.isFinite(model.top_p) && model.top_p >= 0 && model.top_p <= 1
+          ? model.top_p
+          : undefined,
     }))
 }
 
@@ -1669,7 +1946,11 @@ ipcMain.handle('models:browse', async (_event, serverId: string): Promise<Availa
     throw new Error('Selected server could not be found.')
   }
 
-  return browseServerModels(server)
+  const models = await browseServerModels(server)
+  models.forEach((model) => {
+    saveModelProfile(model)
+  })
+  return models
 })
 
 /**
@@ -1838,9 +2119,33 @@ ipcMain.on('ai:stream', async (event, payload: {
     typeof activeModel?.temperature === 'number' && Number.isFinite(activeModel.temperature) && activeModel.temperature >= 0
       ? activeModel.temperature
       : null
+  const topP =
+    typeof activeModel?.topP === 'number' && Number.isFinite(activeModel.topP) && activeModel.topP >= 0 && activeModel.topP <= 1
+      ? activeModel.topP
+      : null
+  const presencePenalty =
+    typeof activeModel?.presencePenalty === 'number' &&
+    Number.isFinite(activeModel.presencePenalty) &&
+    activeModel.presencePenalty >= -2 &&
+    activeModel.presencePenalty <= 2
+      ? activeModel.presencePenalty
+      : null
+  const frequencyPenalty =
+    typeof activeModel?.frequencyPenalty === 'number' &&
+    Number.isFinite(activeModel.frequencyPenalty) &&
+    activeModel.frequencyPenalty >= -2 &&
+    activeModel.frequencyPenalty <= 2
+      ? activeModel.frequencyPenalty
+      : null
+  const configuredMaxOutputTokens =
+    typeof activeModel?.maxOutputTokens === 'number' &&
+    Number.isFinite(activeModel.maxOutputTokens) &&
+    activeModel.maxOutputTokens > 0
+      ? Math.floor(activeModel.maxOutputTokens)
+      : null
   const maxTokens = contextWindowTokens === null
-    ? null
-    : Math.max(1, Math.min(512, contextWindowTokens - promptEstimate))
+    ? configuredMaxOutputTokens
+    : Math.max(1, Math.min(configuredMaxOutputTokens ?? 512, contextWindowTokens - promptEstimate))
 
   const debug = (direction: AiDebugEntry['direction'], label: string, details: unknown) => {
     recordAiDebugEntry(event.sender, direction, label, {
@@ -1857,11 +2162,26 @@ ipcMain.on('ai:stream', async (event, payload: {
     promptEstimate,
     contextWindowTokens,
     temperature,
+    topP,
+    presencePenalty,
+    frequencyPenalty,
+    configuredMaxOutputTokens,
     maxTokens,
   })
 
   try {
-    for await (const item of streamServerChat(server, slug, messages, contextWindowTokens, temperature, maxTokens, debug)) {
+    for await (const item of streamServerChat(
+      server,
+      slug,
+      messages,
+      contextWindowTokens,
+      temperature,
+      topP,
+      presencePenalty,
+      frequencyPenalty,
+      maxTokens,
+      debug,
+    )) {
       if (event.sender.isDestroyed()) return
 
       if (item.chunk) {
