@@ -4,5 +4,11 @@
     "name": "LM Studio",
     "baseUrl": "http://localhost:1234/v1",
     "apiKey": "lm-studio"
+  },
+  {
+    "id": "textgen-webui-default",
+    "name": "text-generation-webui",
+    "baseUrl": "http://localhost:5000/v1",
+    "apiKey": "text-generation-webui"
   }
 ]

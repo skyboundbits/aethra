@@ -7,7 +7,7 @@
  * directly — this keeps Node-only concerns (fetch, fs) in the main process.
  */
 
-import type { ChatMessage } from '../types'
+import type { ChatMessage, TokenUsage } from '../types'
 
 export type { ChatMessage }
 
@@ -18,12 +18,14 @@ export type { ChatMessage }
  *
  * @param messages  - Full conversation history in chat format.
  * @param onToken   - Called once per streamed text chunk.
+ * @param onUsage   - Called if the server reports exact token usage.
  * @param onDone    - Called when the stream ends successfully.
  * @param onError   - Called if the request fails.
  */
 export function streamCompletion(
   messages: ChatMessage[],
   onToken:  (chunk: string) => void,
+  onUsage:  ((usage: TokenUsage) => void) | null,
   onDone:   () => void,
   onError:  (err: unknown) => void,
 ): void {
@@ -33,6 +35,7 @@ export function streamCompletion(
     null, // use activeModelSlug from persisted settings
     {
       onToken,
+      onUsage: onUsage ?? undefined,
       onDone,
       onError: (err: string) => onError(new Error(err)),
     },

@@ -70,6 +70,7 @@
   z-index: 1;
   display: flex;
   align-items: stretch;
+  height: 100%;
   -webkit-app-region: no-drag;
 }
 
@@ -89,6 +90,7 @@
 
 .title-bar__control--windows {
   width: 46px;
+  height: 100%;
   color: var(--text-color-secondary);
   transition: background-color var(--motion-base), color var(--motion-base);
 }

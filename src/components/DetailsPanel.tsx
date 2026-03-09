@@ -16,10 +16,6 @@ interface DetailsPanelProps {
   activeServerName: string | null
   /** Display name of the active AI model, or null if unavailable. */
   activeModelName: string | null
-  /** Current system prompt preview text. */
-  systemPrompt: string
-  /** Open the system prompt editor modal. */
-  onOpenSystemPrompt: () => void
 }
 
 /**
@@ -31,8 +27,6 @@ export function DetailsPanel({
   activeSession,
   activeServerName,
   activeModelName,
-  systemPrompt,
-  onOpenSystemPrompt,
 }: DetailsPanelProps) {
   return (
     <aside className="panel panel--details">
@@ -71,18 +65,6 @@ export function DetailsPanel({
           <div className="details__card-label">Server</div>
           <div className="details__card-placeholder">
             {activeServerName ?? 'Not configured'}
-          </div>
-        </div>
-
-        <div className="details__card">
-          <div className="details__card-header">
-            <div className="details__card-label">System Prompt</div>
-            <button className="details__action-btn" onClick={onOpenSystemPrompt}>
-              Edit
-            </button>
-          </div>
-          <div className="details__card-copy">
-            {systemPrompt}
           </div>
         </div>
       </div>

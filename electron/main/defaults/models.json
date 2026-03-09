@@ -3,6 +3,14 @@
     "id": "lmstudio-local",
     "serverId": "lmstudio-default",
     "name": "Local Model",
-    "slug": "local-model"
+    "slug": "local-model",
+    "contextWindowTokens": 8192
+  },
+  {
+    "id": "textgen-webui-local",
+    "serverId": "textgen-webui-default",
+    "name": "Loaded Model",
+    "slug": "text-generation-webui",
+    "contextWindowTokens": 4096
   }
 ]

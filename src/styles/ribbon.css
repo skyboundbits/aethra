@@ -67,6 +67,11 @@
   transition: background-color var(--motion-base) ease, color var(--motion-base) ease;
 }
 
+.ribbon-nav__tab:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .ribbon-nav__tab-icon {
   display: inline-flex;
   align-items: center;
@@ -81,6 +86,11 @@
 .ribbon-nav__tab:hover {
   background-color: var(--surface-bg-emphasis);
   color: var(--text-color-primary);
+}
+
+.ribbon-nav__tab:disabled:hover {
+  background-color: transparent;
+  color: var(--text-color-secondary);
 }
 
 .ribbon-nav__tab--active {

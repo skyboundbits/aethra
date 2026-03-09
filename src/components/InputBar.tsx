@@ -7,15 +7,24 @@
 
 import { useEffect, useRef } from 'react'
 import '../styles/chat.css'
+import type { CharacterProfile } from '../types'
 
 /** Props accepted by the InputBar component. */
 interface InputBarProps {
   /** Current value of the text input. */
   value: string
+  /** Characters available to write as in the active campaign. */
+  characters: CharacterProfile[]
+  /** Currently selected composer character ID, or null for no character. */
+  selectedCharacterId: string | null
   /** Called whenever the textarea content changes. */
   onChange: (value: string) => void
+  /** Called when the selected composer character changes. */
+  onSelectCharacter: (characterId: string | null) => void
   /** Called when the user submits a message. */
   onSend: () => void
+  /** Changes when the parent wants to restore focus to the composer. */
+  focusRequestKey?: number
   /** Disables the input while the AI is generating a response. */
   disabled?: boolean
 }
@@ -25,7 +34,16 @@ interface InputBarProps {
  * Renders the message composer at the bottom of the chat panel.
  * Auto-resizes the textarea up to its CSS max-height, then scrolls.
  */
-export function InputBar({ value, onChange, onSend, disabled = false }: InputBarProps) {
+export function InputBar({
+  value,
+  characters,
+  selectedCharacterId,
+  onChange,
+  onSelectCharacter,
+  onSend,
+  focusRequestKey = 0,
+  disabled = false,
+}: InputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   /**
@@ -43,6 +61,17 @@ export function InputBar({ value, onChange, onSend, disabled = false }: InputBar
       focusTextarea()
     }
   }, [disabled])
+
+  /**
+   * Restore focus when parent actions like message deletion dismiss a modal prompt.
+   */
+  useEffect(() => {
+    if (!disabled) {
+      requestAnimationFrame(() => {
+        focusTextarea()
+      })
+    }
+  }, [disabled, focusRequestKey])
 
   /**
    * Auto-resize the textarea to fit its content.
@@ -94,13 +123,30 @@ export function InputBar({ value, onChange, onSend, disabled = false }: InputBar
 
   return (
     <div className="input-bar">
+      <label className="input-bar__character-picker">
+        <span className="input-bar__character-label">Writing as</span>
+        <select
+          className="input-bar__character-select"
+          value={selectedCharacterId ?? ''}
+          onChange={(event) => onSelectCharacter(event.target.value || null)}
+          disabled={disabled}
+          aria-label="Select character speaker"
+        >
+          <option value="">Narrator</option>
+          {characters.map((character) => (
+            <option key={character.id} value={character.id}>
+              {character.name}
+            </option>
+          ))}
+        </select>
+      </label>
       <textarea
         ref={textareaRef}
         className="input-bar__textarea"
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        placeholder="Write your message… (Enter to send, Shift+Enter for newline)"
+        placeholder="Write your message... (Enter to send, Shift+Enter for newline)"
         rows={1}
         disabled={disabled}
         autoFocus

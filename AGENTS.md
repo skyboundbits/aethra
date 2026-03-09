@@ -24,7 +24,7 @@
 ## 1. Project Overview
 
 **Aethra** is a browser-based roleplay application that pairs a clean chat-style UI
-with an external LLM backend (e.g. [LM Studio](https://lmstudio.ai/)).
+with an external LLM backend (e.g. [LM Studio](https://lmstudio.ai/) or text-generation-webui).
 Users create and manage multiple roleplay *sessions*, each containing a full message
 history that is sent as context with every AI request.
 
@@ -38,7 +38,7 @@ history that is sent as context with every AI request.
 | Build tool  | Vite 6                                |
 | Language    | TypeScript 5 (strict mode)            |
 | Styling     | Custom CSS (CSS variables, no framework) |
-| LLM API     | OpenAI-compatible REST (LM Studio, Ollama, etc.) |
+| LLM API     | OpenAI-compatible REST (LM Studio, text-generation-webui, Ollama, etc.) |
 
 ---
 

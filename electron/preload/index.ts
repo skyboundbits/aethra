@@ -15,17 +15,21 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent }       from 'electron'
 import type {
   AppSettings,
+  AiDebugEntry,
   AvailableModel,
   Campaign,
   CampaignFileHandle,
   CampaignSummary,
+  CharacterProfile,
   ChatMessage,
+  TokenUsage,
   WindowControlsState,
 } from '../../src/types'
 
 /** Handlers passed by the renderer to streamCompletion. */
 interface StreamHandlers {
   onToken: (chunk: string) => void
+  onUsage?: (usage: TokenUsage) => void
   onDone:  () => void
   onError: (err: string) => void
 }
@@ -52,6 +56,9 @@ contextBridge.exposeInMainWorld('api', {
     function onChunk(_: IpcRendererEvent, reqId: string, chunk: string) {
       if (reqId === id) handlers.onToken(chunk)
     }
+    function onUsage(_: IpcRendererEvent, reqId: string, usage: TokenUsage) {
+      if (reqId === id) handlers.onUsage?.(usage)
+    }
     function onDone(_: IpcRendererEvent, reqId: string) {
       if (reqId !== id) return
       cleanup()
@@ -64,11 +71,13 @@ contextBridge.exposeInMainWorld('api', {
     }
     function cleanup() {
       ipcRenderer.off('ai:chunk', onChunk)
+      ipcRenderer.off('ai:usage', onUsage)
       ipcRenderer.off('ai:done',  onDone)
       ipcRenderer.off('ai:error', onError)
     }
 
     ipcRenderer.on('ai:chunk', onChunk)
+    ipcRenderer.on('ai:usage', onUsage)
     ipcRenderer.on('ai:done',  onDone)
     ipcRenderer.on('ai:error', onError)
     ipcRenderer.send('ai:stream', { id, messages, serverId, modelSlug })
@@ -98,6 +107,58 @@ contextBridge.exposeInMainWorld('api', {
    */
   browseModels(serverId: string): Promise<AvailableModel[]> {
     return ipcRenderer.invoke('models:browse', serverId) as Promise<AvailableModel[]>
+  },
+
+  /**
+   * Request that a configured server loads the selected model.
+   *
+   * @param serverId - Server profile ID to control.
+   * @param modelName - Exact upstream model name to load.
+   * @param contextWindowTokens - Requested context window size in tokens.
+   */
+  loadModel(serverId: string, modelName: string, contextWindowTokens: number): Promise<void> {
+    return ipcRenderer.invoke('models:load', serverId, modelName, contextWindowTokens) as Promise<void>
+  },
+
+  /**
+   * Read the in-memory AI debug log from the main process.
+   * @returns Promise resolving to the most recent AI debug entries.
+   */
+  getAiDebugLog(): Promise<AiDebugEntry[]> {
+    return ipcRenderer.invoke('ai:debug:get') as Promise<AiDebugEntry[]>
+  },
+
+  /**
+   * Clear the in-memory AI debug log.
+   */
+  clearAiDebugLog(): Promise<void> {
+    return ipcRenderer.invoke('ai:debug:clear') as Promise<void>
+  },
+
+  /**
+   * Append a renderer-originated AI debug entry to the shared log.
+   *
+   * @param entry - Entry fields excluding the generated id.
+   */
+  appendAiDebugEntry(entry: Omit<AiDebugEntry, 'id'>): Promise<void> {
+    return ipcRenderer.invoke('ai:debug:append', entry) as Promise<void>
+  },
+
+  /**
+   * Subscribe to new AI debug log entries.
+   *
+   * @param listener - Called whenever a new AI debug event is recorded.
+   * @returns Cleanup function that removes the IPC listener.
+   */
+  onAiDebugEntry(listener: (entry: AiDebugEntry) => void): () => void {
+    function onEntry(_: IpcRendererEvent, entry: AiDebugEntry) {
+      listener(entry)
+    }
+
+    ipcRenderer.on('ai:debug:entry', onEntry)
+    return () => {
+      ipcRenderer.off('ai:debug:entry', onEntry)
+    }
   },
 
   /**
@@ -138,6 +199,38 @@ contextBridge.exposeInMainWorld('api', {
    */
   saveCampaign(path: string, campaign: Campaign): Promise<void> {
     return ipcRenderer.invoke('campaign:save', path, campaign) as Promise<void>
+  },
+
+  /**
+   * Load all stored characters for a campaign.
+   *
+   * @param campaignPath - Absolute path to the active campaign folder.
+   * @returns Promise resolving to stored character profiles.
+   */
+  listCharacters(campaignPath: string): Promise<CharacterProfile[]> {
+    return ipcRenderer.invoke('characters:list', campaignPath) as Promise<CharacterProfile[]>
+  },
+
+  /**
+   * Create a new character folder within the active campaign.
+   *
+   * @param campaignPath - Absolute path to the active campaign folder.
+   * @param name - Human-readable character name.
+   * @returns Promise resolving to the created character profile.
+   */
+  createCharacter(campaignPath: string, name: string): Promise<CharacterProfile> {
+    return ipcRenderer.invoke('characters:create', campaignPath, name) as Promise<CharacterProfile>
+  },
+
+  /**
+   * Persist a character profile inside the active campaign.
+   *
+   * @param campaignPath - Absolute path to the active campaign folder.
+   * @param character - Character profile to write.
+   * @returns Promise resolving to the saved character profile.
+   */
+  saveCharacter(campaignPath: string, character: CharacterProfile): Promise<CharacterProfile> {
+    return ipcRenderer.invoke('characters:save', campaignPath, character) as Promise<CharacterProfile>
   },
 
   /**

@@ -1,0 +1,94 @@
+/**
+ * src/styles/ai-debug.css
+ * Styles for the AI debug log modal.
+ */
+
+.modal--ai-debug {
+  width: min(1100px, calc(100vw - 48px));
+  max-width: 1100px;
+}
+
+.ai-debug {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+}
+
+.ai-debug__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ai-debug__hint {
+  margin: 0;
+  color: var(--text-color-secondary);
+}
+
+.ai-debug__clear-btn {
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-bg);
+  color: var(--text-color-primary);
+}
+
+.ai-debug__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  overflow: auto;
+}
+
+.ai-debug__empty {
+  margin: 0;
+  color: var(--text-color-muted);
+}
+
+.ai-debug__entry {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-bg);
+  overflow: hidden;
+}
+
+.ai-debug__entry--request {
+  border-color: var(--border-color-accent);
+}
+
+.ai-debug__entry--error {
+  border-color: #b94b5c;
+}
+
+.ai-debug__entry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 14px;
+  background: var(--surface-bg-emphasis);
+}
+
+.ai-debug__entry-label {
+  font-weight: 600;
+  color: var(--text-color-primary);
+}
+
+.ai-debug__entry-meta {
+  color: var(--text-color-muted);
+  font-size: var(--font-size-caption);
+}
+
+.ai-debug__payload {
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-color-primary);
+  background: color-mix(in srgb, var(--panel-bg) 82%, black 18%);
+}

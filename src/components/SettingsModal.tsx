@@ -10,7 +10,7 @@ import { PaletteIcon, SettingsIcon, SparklesIcon } from './icons'
 import { BUILT_IN_THEMES } from '../services/themeService'
 import '../styles/settings.css'
 
-import type { AvailableModel, ModelPreset, ServerProfile, ThemeDefinition } from '../types'
+import type { AvailableModel, ChatTextSize, ModelPreset, ServerProfile, ThemeDefinition } from '../types'
 
 type SettingsSectionId = 'interface' | 'ai'
 
@@ -52,6 +52,8 @@ interface SettingsModalProps {
   isBrowsingModels: boolean
   /** Currently active theme ID. */
   activeThemeId: string
+  /** Currently active chat bubble text size preset. */
+  chatTextSize: ChatTextSize
   /** Imported custom themes available to select. */
   customThemes: ThemeDefinition[]
   /** Optional status text shown after save/import attempts. */
@@ -64,12 +66,16 @@ interface SettingsModalProps {
   onServerSelect: (serverId: string) => void
   /** Called when the user selects a model preset. */
   onModelSelect: (modelSlug: string) => void
+  /** Called when the user saves a context budget override for a model. */
+  onSaveModelContext: (modelSlug: string, contextWindowTokens: number | null) => Promise<void>
   /** Called when the user refreshes the model list for the active server. */
   onBrowseModels: () => void
   /** Called when the user saves a manually edited server address. */
   onSaveServerAddress: (serverId: string, baseUrl: string) => Promise<void>
   /** Called when the user selects a theme. */
   onThemeSelect: (themeId: string) => void
+  /** Called when the user selects a chat text size preset. */
+  onChatTextSizeSelect: (textSize: ChatTextSize) => void
   /** Called when the user imports a theme JSON file. */
   onImportTheme: (file: File) => void
 }
@@ -86,26 +92,31 @@ export function SettingsModal({
   availableModels,
   isBrowsingModels,
   activeThemeId,
+  chatTextSize,
   customThemes,
   statusMessage,
   statusKind,
   onClose,
   onServerSelect,
   onModelSelect,
+  onSaveModelContext,
   onBrowseModels,
   onSaveServerAddress,
   onThemeSelect,
+  onChatTextSizeSelect,
   onImportTheme,
 }: SettingsModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('interface')
   const [serverAddressValue, setServerAddressValue] = useState('')
+  const [contextWindowValue, setContextWindowValue] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const activeServer = servers.find((server) => server.id === activeServerId) ?? servers[0] ?? null
   const visibleModels = activeServer
     ? models.filter((model) => model.serverId === activeServer.id)
     : []
   const modelOptions = availableModels.length > 0 ? availableModels : visibleModels
+  const activeModel = visibleModels.find((model) => model.slug === activeModelSlug) ?? null
 
   /**
    * Keep the manual address field synced with the selected server profile.
@@ -113,6 +124,13 @@ export function SettingsModal({
   useEffect(() => {
     setServerAddressValue(activeServer?.baseUrl ?? '')
   }, [activeServer?.baseUrl, activeServer?.id])
+
+  /**
+   * Keep the context budget field synced with the selected model preset.
+   */
+  useEffect(() => {
+    setContextWindowValue(activeModel?.contextWindowTokens?.toString() ?? '')
+  }, [activeModel?.contextWindowTokens, activeModel?.slug])
 
   /**
    * Open the hidden file input for theme import.
@@ -152,6 +170,13 @@ export function SettingsModal({
       setIsSaving(true)
       try {
         await onSaveServerAddress(activeServer.id, serverAddressValue)
+        if (activeModel) {
+          const trimmedValue = contextWindowValue.trim()
+          await onSaveModelContext(
+            activeModel.slug,
+            trimmedValue.length === 0 ? null : Number(trimmedValue),
+          )
+        }
       } finally {
         setIsSaving(false)
       }
@@ -218,6 +243,28 @@ export function SettingsModal({
                     accept=".json,application/json"
                     onChange={handleFileChange}
                   />
+                </div>
+
+                <div className="settings-modal__field-grid">
+                  <div className="settings-modal__field">
+                    <label className="settings-modal__label" htmlFor="settings-chat-text-size">
+                      Chat Text Size
+                    </label>
+                    <select
+                      id="settings-chat-text-size"
+                      className="settings-modal__select"
+                      value={chatTextSize}
+                      onChange={(event) => onChatTextSizeSelect(event.target.value as ChatTextSize)}
+                    >
+                      <option value="small">Small (Default)</option>
+                      <option value="medium">Medium</option>
+                      <option value="large">Large</option>
+                      <option value="extra-large">Extra-Large</option>
+                    </select>
+                    <p className="settings-modal__field-hint">
+                      Adjusts the text size used inside chat bubbles.
+                    </p>
+                  </div>
                 </div>
 
                 <div className="settings-modal__group">
@@ -307,7 +354,7 @@ export function SettingsModal({
                       disabled={!activeServer}
                     />
                     <p className="settings-modal__field-hint">
-                      Enter the full OpenAI-compatible base URL for the selected server.
+                      Enter the server base URL. LM Studio uses its native chat API automatically when selected; other servers use the OpenAI-compatible endpoints.
                     </p>
                   </div>
 
@@ -348,6 +395,26 @@ export function SettingsModal({
                         ))
                       )}
                     </div>
+                  </div>
+
+                  <div className="settings-modal__field">
+                    <label className="settings-modal__label" htmlFor="settings-context-budget">
+                      Context Budget
+                    </label>
+                    <input
+                      id="settings-context-budget"
+                      className="settings-modal__select"
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="e.g. 8192"
+                      value={contextWindowValue}
+                      onChange={(event) => setContextWindowValue(event.target.value)}
+                      disabled={!activeModel}
+                    />
+                    <p className="settings-modal__field-hint">
+                      Override the selected model&apos;s total context window in tokens. Leave blank to keep the discovered value.
+                    </p>
                   </div>
                 </div>
               </section>

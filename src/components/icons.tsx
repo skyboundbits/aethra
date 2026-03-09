@@ -306,3 +306,65 @@ export function PaletteIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
+/**
+ * Trash2Icon
+ * Trash/delete icon based on the provided Lucide-style path definition.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function Trash2Icon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+  )
+}
+
+/**
+ * BugIcon
+ * Debug/inspection icon based on the provided Lucide-style path definition.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function BugIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="m8 2 1.88 1.88" />
+      <path d="M14.12 3.88 16 2" />
+      <path d="M9 7.13v-1a3 3 0 1 1 6 0v1" />
+      <path d="M12 20v-8" />
+      <path d="M5 12h14" />
+      <path d="M6 8h12" />
+      <path d="M15 20.88a4 4 0 0 1-6 0C7.8 19.72 7 17.96 7 16v-5h10v5c0 1.96-.8 3.72-2 4.88Z" />
+      <path d="M3 21 6 18" />
+      <path d="m21 21-3-3" />
+    </svg>
+  )
+}

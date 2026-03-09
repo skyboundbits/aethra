@@ -1,0 +1,101 @@
+/**
+ * src/styles/model-loader.css
+ * Styles for the text-generation-webui model loader modal.
+ */
+
+.modal--model-loader {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.model-loader {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.model-loader__intro,
+.model-loader__empty,
+.model-loader__hint {
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-body);
+  line-height: 1.5;
+}
+
+.model-loader__status {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+}
+
+.model-loader__status--error {
+  border-color: rgba(210, 72, 90, 0.45);
+}
+
+.model-loader__status--success {
+  border-color: rgba(66, 184, 131, 0.45);
+}
+
+.model-loader__field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-loader__label {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.model-loader__input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+}
+
+.model-loader__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.model-loader__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.model-loader__button {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+}
+
+.model-loader__button--primary {
+  background-color: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
+}
+
+.model-loader__button--primary:hover {
+  background-color: var(--surface-bg-accent-hover);
+}
+
+@media (max-width: 720px) {
+  .model-loader__footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .model-loader__actions {
+    justify-content: flex-end;
+  }
+}

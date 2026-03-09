@@ -9,11 +9,14 @@
 
 import type {
   AppSettings,
+  AiDebugEntry,
   AvailableModel,
   Campaign,
   CampaignFileHandle,
   CampaignSummary,
+  CharacterProfile,
   ChatMessage,
+  TokenUsage,
   WindowControlsState,
 } from './index'
 
@@ -21,6 +24,8 @@ import type {
 interface StreamHandlers {
   /** Called once per streamed text token. */
   onToken: (chunk: string) => void
+  /** Called if the server reports real token usage for the request. */
+  onUsage?: (usage: TokenUsage) => void
   /** Called when the stream ends successfully. */
   onDone:  () => void
   /** Called if the request fails; receives an error description. */
@@ -65,6 +70,38 @@ declare global {
       browseModels: (serverId: string) => Promise<AvailableModel[]>
 
       /**
+       * Ask a configured server to load a model with the selected context size.
+       * @param serverId - Server profile ID to control.
+       * @param modelName - Exact upstream model name to load.
+       * @param contextWindowTokens - Requested context window size in tokens.
+       */
+      loadModel: (serverId: string, modelName: string, contextWindowTokens: number) => Promise<void>
+
+      /**
+       * Read the current in-memory AI debug log.
+       * @returns Promise resolving to the most recent AI debug entries.
+       */
+      getAiDebugLog: () => Promise<AiDebugEntry[]>
+
+      /**
+       * Clear the in-memory AI debug log.
+       */
+      clearAiDebugLog: () => Promise<void>
+
+      /**
+       * Append a renderer-originated AI debug entry to the shared log.
+       * @param entry - Entry fields excluding the generated id.
+       */
+      appendAiDebugEntry: (entry: Omit<AiDebugEntry, 'id'>) => Promise<void>
+
+      /**
+       * Subscribe to AI debug events from the main process.
+       * @param listener - Called whenever a new debug entry is recorded.
+       * @returns Cleanup function to remove the listener.
+       */
+      onAiDebugEntry: (listener: (entry: AiDebugEntry) => void) => () => void
+
+      /**
        * Create a new campaign folder and initial campaign.json payload.
        * @param name - Human-readable campaign name.
        * @param description - Short campaign description.
@@ -91,6 +128,26 @@ declare global {
        * @param campaign - Full campaign payload to save.
        */
       saveCampaign: (path: string, campaign: Campaign) => Promise<void>
+
+      /**
+       * Load all stored characters for a campaign.
+       * @param campaignPath - Absolute path to the active campaign folder.
+       */
+      listCharacters: (campaignPath: string) => Promise<CharacterProfile[]>
+
+      /**
+       * Create a new stored character folder within the active campaign.
+       * @param campaignPath - Absolute path to the active campaign folder.
+       * @param name - Human-readable character name.
+       */
+      createCharacter: (campaignPath: string, name: string) => Promise<CharacterProfile>
+
+      /**
+       * Persist a character profile to its character folder.
+       * @param campaignPath - Absolute path to the active campaign folder.
+       * @param character - Character profile to save.
+       */
+      saveCharacter: (campaignPath: string, character: CharacterProfile) => Promise<CharacterProfile>
 
       /**
        * Read the current platform and maximize state for the focused window.
