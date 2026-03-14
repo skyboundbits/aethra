@@ -26,6 +26,7 @@ import { SettingsModal } from './components/SettingsModal'
 import { TitleBar } from './components/TitleBar'
 import { CampaignLauncher } from './components/CampaignLauncher'
 import { CreateCampaignModal } from './components/CreateCampaignModal'
+import { EditCampaignModal } from './components/EditCampaignModal'
 import { CharactersModal } from './components/CharactersModal'
 import { AiDebugModal } from './components/AiDebugModal'
 import { ModelLoaderModal } from './components/ModelLoaderModal'
@@ -428,6 +429,10 @@ export default function App() {
 
   /** True while the create campaign modal is open. */
   const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false)
+  const [editingCampaignSummary, setEditingCampaignSummary] = useState(null)
+  const [isEditCampaignBusy, setIsEditCampaignBusy] = useState(false)
+  const [pendingDeleteCampaignSummary, setPendingDeleteCampaignSummary] = useState(null)
+  const [isDeleteCampaignBusy, setIsDeleteCampaignBusy] = useState(false)
   /** True while the model loader modal is open. */
   const [isModelLoaderOpen, setIsModelLoaderOpen] = useState(false)
   /** True while the runtime model parameters modal is open. */
@@ -1034,6 +1039,51 @@ export default function App() {
       setCampaignStatusMessage(err instanceof Error ? err.message : 'Could not open campaign.')
     } finally {
       setIsCampaignBusy(false)
+    }
+  }
+
+  function handleEditCampaign(summary) {
+    setCampaignStatusMessage(null)
+    setEditingCampaignSummary(summary)
+  }
+
+  async function handleEditCampaignSubmit(name, description) {
+    if (!editingCampaignSummary) return
+    setIsEditCampaignBusy(true)
+    try {
+      await window.api.updateCampaignMetadata(editingCampaignSummary.path, name, description)
+      setEditingCampaignSummary(null)
+      await refreshCampaigns()
+    } catch (err) {
+      console.error('[Aethra] Could not update campaign metadata:', err)
+      setCampaignStatusMessage(err instanceof Error ? err.message : 'Could not save campaign changes.')
+    } finally {
+      setIsEditCampaignBusy(false)
+    }
+  }
+
+  function handleDeleteCampaignRequest(summary) {
+    setCampaignStatusMessage(null)
+    setPendingDeleteCampaignSummary(summary)
+  }
+
+  function handleCancelDeleteCampaign() {
+    setPendingDeleteCampaignSummary(null)
+  }
+
+  async function handleConfirmDeleteCampaign() {
+    if (!pendingDeleteCampaignSummary) return
+    setIsDeleteCampaignBusy(true)
+    try {
+      await window.api.deleteCampaign(pendingDeleteCampaignSummary.path)
+      setPendingDeleteCampaignSummary(null)
+      await refreshCampaigns()
+    } catch (err) {
+      console.error('[Aethra] Could not delete campaign:', err)
+      setCampaignStatusMessage(err instanceof Error ? err.message : 'Could not delete campaign.')
+      setPendingDeleteCampaignSummary(null)
+    } finally {
+      setIsDeleteCampaignBusy(false)
     }
   }
 
@@ -2001,6 +2051,8 @@ export default function App() {
           onOpenCampaign={(path) => {
             void handleOpenCampaign(path)
           }}
+          onEditCampaign={handleEditCampaign}
+          onDeleteCampaign={handleDeleteCampaignRequest}
         />
       )}
 
