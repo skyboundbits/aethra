@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { LlamaBinaryBanner } from './LlamaBinaryBanner'
 import { Modal } from './Modal'
 import { PaletteIcon, SettingsIcon, SparklesIcon } from './icons'
 import { formatBytes } from '../services/modelFitService'
@@ -13,6 +14,7 @@ import '../styles/settings.css'
 
 import type {
   AvailableModel,
+  BinaryInstallProgress,
   ChatTextSize,
   HardwareInfo,
   HuggingFaceModelFile,
@@ -79,6 +81,8 @@ interface SettingsModalProps {
   chatTextSize: ChatTextSize
   /** Imported custom themes available to select. */
   customThemes: ThemeDefinition[]
+  /** Current llama-server binary install progress, or null. */
+  binaryInstallProgress: BinaryInstallProgress | null
   /** Optional status text shown after save/import attempts. */
   statusMessage: string | null
   /** Visual state of the status message. */
@@ -164,6 +168,7 @@ export function SettingsModal({
   activeThemeId,
   chatTextSize,
   customThemes,
+  binaryInstallProgress,
   statusMessage,
   statusKind,
   onClose,
@@ -183,6 +188,12 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('interface')
+  const [binaryCheckResult, setBinaryCheckResult] = useState<{
+    found: boolean
+    path: string | null
+    detectedBackend: 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'
+    estimatedSizeMb: number
+  } | null>(null)
   const [serverAddressValue, setServerAddressValue] = useState('')
   const [contextWindowValue, setContextWindowValue] = useState('')
   const [modelsDirectoryValue, setModelsDirectoryValue] = useState('')
@@ -227,6 +238,30 @@ export function SettingsModal({
   useEffect(() => {
     setContextWindowValue(activeModel?.contextWindowTokens?.toString() ?? '')
   }, [activeModel?.contextWindowTokens, activeModel?.slug])
+
+  /**
+   * Run a binary check whenever the active server changes to a llama.cpp server.
+   */
+  useEffect(() => {
+    const currentActiveServer = servers.find((s) => s.id === activeServerId)
+    if (currentActiveServer?.kind !== 'llama.cpp') {
+      setBinaryCheckResult(null)
+      return
+    }
+    window.api.checkLlamaBinary(currentActiveServer.id).then(setBinaryCheckResult).catch(() => {
+      setBinaryCheckResult(null)
+    })
+  }, [activeServerId, servers])
+
+  /**
+   * Re-check the binary after a successful install completes.
+   */
+  useEffect(() => {
+    if (binaryInstallProgress?.status !== 'complete') return
+    const currentActiveServer = servers.find((s) => s.id === activeServerId)
+    if (currentActiveServer?.kind !== 'llama.cpp') return
+    window.api.checkLlamaBinary(currentActiveServer.id).then(setBinaryCheckResult).catch(() => {})
+  }, [binaryInstallProgress?.status, activeServerId, servers])
 
   /**
    * Open the hidden file input for theme import.
@@ -494,6 +529,17 @@ export function SettingsModal({
                           Defaults to a `models` folder inside the application directory, not AppData.
                         </p>
                       </div>
+
+                      {binaryCheckResult && !binaryCheckResult.found && (
+                        <LlamaBinaryBanner
+                          detectedBackend={binaryCheckResult.detectedBackend}
+                          estimatedSizeMb={binaryCheckResult.estimatedSizeMb}
+                          progress={binaryInstallProgress}
+                          onInstall={() => {
+                            if (activeServer) void window.api.installLlamaBinary(activeServer.id)
+                          }}
+                        />
+                      )}
 
                       <div className="settings-modal__field">
                         <label className="settings-modal__label" htmlFor="settings-llama-executable">
