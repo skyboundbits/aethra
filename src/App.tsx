@@ -380,6 +380,12 @@ export default function App() {
   /** Persisted app settings loaded from Electron. */
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
 
+  /**
+   * Ref that always holds the latest appSettings value, used by event listeners
+   * registered in empty-dep useEffects to avoid stale closure issues.
+   */
+  const appSettingsRef = useRef<AppSettings>(DEFAULT_SETTINGS)
+
   /** Detected local hardware inventory used for llama.cpp fit guidance. */
   const [hardwareInfo, setHardwareInfo] = useState<HardwareInfo | null>(null)
 
@@ -391,6 +397,13 @@ export default function App() {
 
   /** Current binary installation progress (llama-server or similar). */
   const [binaryInstallProgress, setBinaryInstallProgress] = useState<BinaryInstallProgress | null>(null)
+
+  /** Binary check result populated when the model loader modal opens (llama.cpp servers only). */
+  const [modelLoaderBinaryCheck, setModelLoaderBinaryCheck] = useState<{
+    found: boolean
+    detectedBackend: 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'
+    estimatedSizeMb: number
+  } | null>(null)
 
   /** GGUF files currently listed from the selected Hugging Face repository. */
   const [huggingFaceFiles, setHuggingFaceFiles] = useState<HuggingFaceModelFile[]>([])
@@ -550,6 +563,15 @@ export default function App() {
     })
     const disposeBinaryInstallListener = window.api.onBinaryInstallProgress((progress) => {
       setBinaryInstallProgress(progress)
+      if (progress.status === 'complete') {
+        const currentSettings = appSettingsRef.current
+        const server = currentSettings.servers.find((s) => s.id === currentSettings.activeServerId)
+        if (server?.kind === 'llama.cpp') {
+          window.api.checkLlamaBinary(server.id)
+            .then((result) => { setModelLoaderBinaryCheck(result) })
+            .catch(() => {})
+        }
+      }
     })
 
     return () => {
@@ -559,6 +581,9 @@ export default function App() {
       disposeBinaryInstallListener()
     }
   }, [])
+
+  // Keep the settings ref in sync so event listeners in empty-dep useEffects can read current values.
+  appSettingsRef.current = appSettings
 
   /**
    * Apply the currently active theme whenever theme settings change.
@@ -1229,11 +1254,21 @@ export default function App() {
 
   /**
    * Open the model loader modal for text-generation-webui.
+   * For llama.cpp servers, also runs a binary check so the modal can show
+   * the install banner if llama-server is missing.
    */
   function handleOpenModelLoader(): void {
     setModelLoaderStatusKind(null)
     setModelLoaderStatusMessage(null)
     setIsModelLoaderOpen(true)
+    const activeServer = appSettings.servers.find((s) => s.id === appSettings.activeServerId)
+    if (activeServer?.kind === 'llama.cpp') {
+      window.api.checkLlamaBinary(activeServer.id)
+        .then((result) => { setModelLoaderBinaryCheck(result) })
+        .catch(() => { setModelLoaderBinaryCheck(null) })
+    } else {
+      setModelLoaderBinaryCheck(null)
+    }
   }
 
   /**
@@ -2422,11 +2457,16 @@ export default function App() {
           fitEstimate={activeLocalModelFit}
           localRuntimeStatus={localRuntimeStatus}
           binaryInstallProgress={binaryInstallProgress}
+          binaryCheckResult={modelLoaderBinaryCheck}
           statusMessage={modelLoaderStatusMessage}
           statusKind={modelLoaderStatusKind}
           isBusy={isModelLoading}
           onClose={handleCloseModelLoader}
           onLoadModel={(modelSlug, contextWindowTokens, temperature) => handleLoadModel(modelSlug, contextWindowTokens, temperature)}
+          onInstallBinary={() => {
+            const server = appSettings.servers.find((s) => s.id === appSettings.activeServerId)
+            if (server?.kind === 'llama.cpp') void window.api.installLlamaBinary(server.id)
+          }}
         />
       ) : null}
 
