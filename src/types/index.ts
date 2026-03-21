@@ -22,6 +22,10 @@ export interface Message {
   characterId?: string
   /** Character name snapshot captured when the message was created, if any. */
   characterName?: string
+  /** Avatar image snapshot captured when the message was created, if any. */
+  characterAvatarImageData?: string
+  /** Avatar crop snapshot captured when the message was created, if any. */
+  characterAvatarCrop?: CharacterAvatarCrop
   /** The text content of the message. */
   content: string
   /** Unix timestamp (ms) when the message was created. */
@@ -39,6 +43,10 @@ export interface Session {
   title: string
   /** Ordered list of messages exchanged in this session. */
   messages: Message[]
+  /** Rolling continuity summary covering archived messages outside the live prompt window. */
+  rollingSummary: string
+  /** Count of visible prompt messages already compressed into the rolling summary. */
+  summarizedMessageCount: number
   /** Unix timestamp (ms) when the session was created. */
   createdAt: number
   /** Unix timestamp (ms) of the most recent activity. */
@@ -523,6 +531,8 @@ export interface AppSettings {
   activeModelSlug: string | null
   /** System prompt prepended to each chat request. */
   systemPrompt: string
+  /** Whether campaign chats should send a rolling summary plus the most recent messages. */
+  enableRollingSummaries: boolean
   /** Selected chat bubble text size preset. */
   chatTextSize: ChatTextSize
   /** Selected visual theme ID. Built-ins and custom themes share the same namespace. */

@@ -353,6 +353,15 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   /**
+   * Open a native file picker for an existing campaign JSON file.
+   *
+   * @returns Promise resolving to the selected campaign folder path, or null.
+   */
+  pickCampaignFile(): Promise<string | null> {
+    return ipcRenderer.invoke('campaign:pick-file') as Promise<string | null>
+  },
+
+  /**
    * Save the current campaign JSON to disk.
    *
    * @param path - Absolute path to the target file.

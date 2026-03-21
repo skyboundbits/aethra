@@ -42,6 +42,12 @@ export function ChatArea({ messages, characters, textSize, onDeleteMessage, isBu
     () => new Map(characters.map((character) => [character.id, character])),
     [characters],
   )
+  const charactersByName = useMemo(
+    () => new Map(
+      characters.map((character) => [character.name.trim().toLocaleLowerCase(), character]),
+    ),
+    [characters],
+  )
 
   /**
    * Keep the latest message in view when new messages arrive or when an
@@ -82,17 +88,26 @@ export function ChatArea({ messages, characters, textSize, onDeleteMessage, isBu
         </div>
       ) : (
         /* ── Message list ────────────────────────────────────────────── */
-        messages.map((msg) => (
-          <MemoizedMessageBubble
-            key={msg.id}
-            message={msg}
-            character={msg.characterId ? charactersById.get(msg.characterId) ?? null : null}
-            textSize={textSize}
-            messageId={msg.id}
-            onDeleteMessage={onDeleteMessage}
-            isBusy={isBusy}
-          />
-        ))
+        messages.map((msg) => {
+          const matchedCharacter =
+            (msg.characterId ? charactersById.get(msg.characterId) : undefined) ??
+            (msg.characterName
+              ? charactersByName.get(msg.characterName.trim().toLocaleLowerCase())
+              : undefined) ??
+            null
+
+          return (
+            <MemoizedMessageBubble
+              key={msg.id}
+              message={msg}
+              character={matchedCharacter}
+              textSize={textSize}
+              messageId={msg.id}
+              onDeleteMessage={onDeleteMessage}
+              isBusy={isBusy}
+            />
+          )
+        })
       )}
 
       {/* Invisible anchor for auto-scroll */}
@@ -182,11 +197,13 @@ function MessageBubble({ message, messageId, character, textSize, onDeleteMessag
 
   const avatarLabel = getCharacterInitials(message.characterName)
   const avatarOffsetScale = CHAT_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
-  const avatarStyle = character?.avatarImageData
+  const avatarImageData = message.characterAvatarImageData ?? character?.avatarImageData
+  const avatarCrop = message.characterAvatarCrop ?? character?.avatarCrop
+  const avatarStyle = avatarImageData && avatarCrop
     ? {
-      backgroundImage: `url("${character.avatarImageData}")`,
-      backgroundPosition: `${character.avatarCrop.x * avatarOffsetScale}px ${character.avatarCrop.y * avatarOffsetScale}px`,
-      backgroundSize: `${character.avatarCrop.scale * 100}%`,
+      backgroundImage: `url("${avatarImageData}")`,
+      backgroundPosition: `${avatarCrop.x * avatarOffsetScale}px ${avatarCrop.y * avatarOffsetScale}px`,
+      backgroundSize: `${avatarCrop.scale * 100}%`,
     }
     : undefined
 

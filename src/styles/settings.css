@@ -112,6 +112,29 @@
   gap: var(--space-2);
 }
 
+.settings-modal__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+}
+
+.settings-modal__toggle-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.settings-modal__toggle-input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--surface-bg-accent);
+}
+
 .settings-modal__inline-input {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

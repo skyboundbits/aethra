@@ -160,8 +160,11 @@ export function ModelLoaderModal({
             </div>
 
             {isLocalProvider && localRuntimeStatus ? (
-              <div className="model-loader__runtime">
+              <div className={`model-loader__runtime${localRuntimeStatus.state === 'error' ? ' model-loader__runtime--error' : ''}`}>
                 Runtime: {localRuntimeStatus.state}{localRuntimeStatus.modelSlug ? ` • ${localRuntimeStatus.modelSlug}` : ''}
+                {localRuntimeStatus.state === 'error' && localRuntimeStatus.lastError ? (
+                  <span className="model-loader__runtime-error"> — {localRuntimeStatus.lastError}</span>
+                ) : null}
               </div>
             ) : null}
 

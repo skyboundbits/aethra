@@ -1,0 +1,202 @@
+/**
+ * src/styles/campaign-modal.css
+ * Styles for the campaign management modal.
+ */
+
+.modal--campaign {
+  width: 720px;
+}
+
+.campaign-modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.campaign-modal__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.campaign-modal__section + .campaign-modal__section {
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-color);
+}
+
+.campaign-modal__section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.campaign-modal__eyebrow {
+  color: var(--text-color-brand);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.campaign-modal__section-title {
+  margin-top: var(--space-1);
+  font-size: 18px;
+  color: var(--text-color-primary);
+}
+
+.campaign-modal__copy,
+.campaign-modal__empty {
+  color: var(--text-color-secondary);
+}
+
+.campaign-modal__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.campaign-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.campaign-modal__label {
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+}
+
+.campaign-modal__input,
+.campaign-modal__textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+  font: inherit;
+}
+
+.campaign-modal__textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.campaign-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.campaign-modal__button {
+  min-width: 168px;
+  padding: 12px 18px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+  transition:
+    background-color var(--motion-base),
+    border-color var(--motion-base),
+    color var(--motion-base);
+}
+
+.campaign-modal__button:hover:not(:disabled),
+.campaign-modal__recent-item:hover:not(:disabled) {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-emphasis);
+}
+
+.campaign-modal__button:disabled,
+.campaign-modal__recent-item:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.campaign-modal__button--primary {
+  border-color: transparent;
+  background-color: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
+}
+
+.campaign-modal__button--primary:hover:not(:disabled) {
+  background-color: var(--surface-bg-accent-hover);
+}
+
+.campaign-modal__recent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.campaign-modal__recent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.campaign-modal__recent-title {
+  font-size: 15px;
+  color: var(--text-color-primary);
+}
+
+.campaign-modal__recent-count {
+  color: var(--text-color-muted);
+  font-size: var(--font-size-caption);
+}
+
+.campaign-modal__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.campaign-modal__recent-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  text-align: left;
+  transition:
+    background-color var(--motion-base),
+    border-color var(--motion-base);
+}
+
+.campaign-modal__recent-name {
+  color: var(--text-color-primary);
+  font-weight: 600;
+}
+
+.campaign-modal__recent-description {
+  color: var(--text-color-secondary);
+}
+
+.campaign-modal__recent-meta {
+  color: var(--text-color-muted);
+  font-size: var(--font-size-caption);
+}
+
+.campaign-modal__status,
+.campaign-modal__error {
+  color: var(--status-color-error);
+}
+
+@media (max-width: 720px) {
+  .modal--campaign {
+    width: calc(100vw - 24px);
+  }
+
+  .campaign-modal__button {
+    width: 100%;
+  }
+}

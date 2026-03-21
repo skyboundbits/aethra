@@ -158,6 +158,28 @@
   flex-shrink: 0;
 }
 
+.sidebar__summary-btn {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  transition: border-color var(--motion-base), background-color var(--motion-base);
+}
+
+.sidebar__summary-btn:hover:not(:disabled) {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-emphasis);
+}
+
+.sidebar__summary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .sidebar__footer-eyebrow {
   font-size: var(--font-size-caption);
   letter-spacing: 0.08em;

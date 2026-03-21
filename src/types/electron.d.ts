@@ -225,6 +225,12 @@ declare global {
       openCampaign: (path: string) => Promise<CampaignFileHandle>
 
       /**
+       * Open a native file picker for an existing campaign JSON file.
+       * @returns Promise resolving to the selected campaign folder path, or null when cancelled.
+       */
+      pickCampaignFile: () => Promise<string | null>
+
+      /**
        * Persist the current campaign to its JSON file.
        * @param path - Absolute path to the target campaign JSON file.
        * @param campaign - Full campaign payload to save.

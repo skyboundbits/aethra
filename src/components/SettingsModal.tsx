@@ -79,6 +79,8 @@ interface SettingsModalProps {
   activeThemeId: string
   /** Currently active chat bubble text size preset. */
   chatTextSize: ChatTextSize
+  /** Whether prompts should use rolling summaries plus a recent chat window. */
+  enableRollingSummaries: boolean
   /** Imported custom themes available to select. */
   customThemes: ThemeDefinition[]
   /** Current llama-server binary install progress, or null. */
@@ -122,6 +124,8 @@ interface SettingsModalProps {
   onThemeSelect: (themeId: string) => void
   /** Called when the user selects a chat text size preset. */
   onChatTextSizeSelect: (textSize: ChatTextSize) => void
+  /** Called when the user toggles rolling summaries for campaign prompts. */
+  onRollingSummariesToggle: (enabled: boolean) => void
   /** Called when the user imports a theme JSON file. */
   onImportTheme: (file: File) => void
 }
@@ -167,6 +171,7 @@ export function SettingsModal({
   isDownloadingModel,
   activeThemeId,
   chatTextSize,
+  enableRollingSummaries,
   customThemes,
   binaryInstallProgress,
   statusMessage,
@@ -184,6 +189,7 @@ export function SettingsModal({
   onDownloadHuggingFaceModel,
   onThemeSelect,
   onChatTextSizeSelect,
+  onRollingSummariesToggle,
   onImportTheme,
 }: SettingsModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -427,6 +433,22 @@ export function SettingsModal({
                       Adjusts the text size used inside chat bubbles.
                     </p>
                   </div>
+
+                  <label className="settings-modal__toggle" htmlFor="settings-rolling-summaries">
+                    <span className="settings-modal__toggle-body">
+                      <span className="settings-modal__label">Rolling Scene Summaries</span>
+                      <span className="settings-modal__field-hint">
+                        Send the rolling scene summary plus the latest 10 chats instead of the full transcript.
+                      </span>
+                    </span>
+                    <input
+                      id="settings-rolling-summaries"
+                      className="settings-modal__toggle-input"
+                      type="checkbox"
+                      checked={enableRollingSummaries}
+                      onChange={(event) => onRollingSummariesToggle(event.target.checked)}
+                    />
+                  </label>
                 </div>
 
                 <div className="settings-modal__group">

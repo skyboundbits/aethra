@@ -49,6 +49,15 @@
   color: var(--text-color-primary);
 }
 
+.model-loader__runtime--error {
+  border-color: var(--status-border-error);
+}
+
+.model-loader__runtime-error {
+  color: var(--status-color-error);
+  word-break: break-word;
+}
+
 .model-loader__fit--good {
   border-color: rgba(66, 184, 131, 0.45);
 }

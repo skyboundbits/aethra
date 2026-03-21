@@ -28,12 +28,16 @@ interface SidebarProps {
   sessions: Session[]
   /** ID of the currently active session, or null if none selected. */
   activeSessionId: string | null
+  /** Active session summary text, or null when no session is selected. */
+  activeSessionSummary: string | null
   /** Called when the user clicks a session item. */
   onSelectSession: (id: string) => void
   /** Called when the user requests deletion of a session. */
   onDeleteSession: (id: string) => void
   /** Called when the user clicks the "New Session" button. */
   onNewSession: () => void
+  /** Called when the user wants to inspect the current summary. */
+  onOpenSummary: () => void
   /** True while session actions should be temporarily blocked. */
   isBusy?: boolean
 }
@@ -53,9 +57,11 @@ export function Sidebar({
   remainingTokensIsExact,
   sessions,
   activeSessionId,
+  activeSessionSummary,
   onSelectSession,
   onDeleteSession,
   onNewSession,
+  onOpenSummary,
   isBusy = false,
 }: SidebarProps) {
   return (
@@ -95,6 +101,14 @@ export function Sidebar({
       </div>
 
       <div className="sidebar__footer">
+        <button
+          type="button"
+          className="sidebar__summary-btn"
+          onClick={onOpenSummary}
+          disabled={!activeSessionId}
+        >
+          {activeSessionSummary?.trim() ? 'View Current Summary' : 'View Summary'}
+        </button>
         <div className="sidebar__footer-eyebrow">Context Budget</div>
         <div className="sidebar__footer-model">{activeModelName ?? 'No model selected'}</div>
         <div className="sidebar__footer-stats">

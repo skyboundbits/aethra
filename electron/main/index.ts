@@ -61,22 +61,23 @@ const LOCAL_LLAMACPP_DEFAULT_PORT = 3939
 const MODEL_SCAN_EXTENSIONS = new Set(['.gguf'])
 
 /** Pinned llama.cpp GitHub release tag used for binary auto-download. */
-const LLAMA_CPP_RELEASE = 'b5616'
+const LLAMA_CPP_RELEASE = 'b8460'
 
 /**
  * Static asset lookup table for the pinned llama.cpp release.
  * Key format: `{platform}-{backend}` or `darwin-metal-{arch}`.
  * Update LLAMA_CPP_RELEASE and this table together when bumping the bundled version.
+ * Windows assets use .zip; macOS and Linux assets use .tar.gz.
  */
-const LLAMA_CPP_ASSETS: Record<string, { fileName: string; sizeMb: number; ext: 'zip' }> = {
-  'win32-cuda':         { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-win-cuda-12.4-x64.zip`,    sizeMb: 126, ext: 'zip' },
-  'win32-vulkan':       { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-win-vulkan-x64.zip`,        sizeMb: 21,  ext: 'zip' },
-  'win32-cpu':          { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-win-cpu-x64.zip`,           sizeMb: 14,  ext: 'zip' },
-  'darwin-metal-arm64': { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-macos-arm64.zip`,           sizeMb: 10,  ext: 'zip' },
-  'darwin-metal-x64':   { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-macos-x64.zip`,            sizeMb: 25,  ext: 'zip' },
-  'linux-cuda':         { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-ubuntu-vulkan-x64.zip`,     sizeMb: 20,  ext: 'zip' }, // no linux cuda build; fall back to vulkan
-  'linux-vulkan':       { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-ubuntu-vulkan-x64.zip`,     sizeMb: 20,  ext: 'zip' },
-  'linux-cpu':          { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-ubuntu-x64.zip`,            sizeMb: 12,  ext: 'zip' },
+const LLAMA_CPP_ASSETS: Record<string, { fileName: string; sizeMb: number; ext: 'zip' | 'tar.gz'; cudartFile?: string; cudartSizeMb?: number }> = {
+  'win32-cuda':         { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-win-cuda-12.4-x64.zip`,    sizeMb: 126, ext: 'zip',     cudartFile: `cudart-llama-bin-win-cuda-12.4-x64.zip`, cudartSizeMb: 248 },
+  'win32-vulkan':       { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-win-vulkan-x64.zip`,        sizeMb: 21,  ext: 'zip'    },
+  'win32-cpu':          { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-win-cpu-x64.zip`,           sizeMb: 14,  ext: 'zip'    },
+  'darwin-metal-arm64': { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-macos-arm64.tar.gz`,        sizeMb: 10,  ext: 'tar.gz' },
+  'darwin-metal-x64':   { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-macos-x64.tar.gz`,         sizeMb: 25,  ext: 'tar.gz' },
+  'linux-cuda':         { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-ubuntu-vulkan-x64.tar.gz`,  sizeMb: 20,  ext: 'tar.gz' }, // no linux cuda build; fall back to vulkan
+  'linux-vulkan':       { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-ubuntu-vulkan-x64.tar.gz`,  sizeMb: 20,  ext: 'tar.gz' },
+  'linux-cpu':          { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-ubuntu-x64.tar.gz`,         sizeMb: 12,  ext: 'tar.gz' },
 }
 
 /** Display name mapping for recommendedBackend values. */
@@ -150,6 +151,10 @@ interface WindowBounds {
 interface PartialMessageRecord {
   id?: unknown
   role?: unknown
+  characterId?: unknown
+  characterName?: unknown
+  characterAvatarImageData?: unknown
+  characterAvatarCrop?: unknown
   content?: unknown
   timestamp?: unknown
 }
@@ -161,6 +166,8 @@ interface PartialSessionRecord {
   id?: unknown
   title?: unknown
   messages?: unknown
+  rollingSummary?: unknown
+  summarizedMessageCount?: unknown
   createdAt?: unknown
   updatedAt?: unknown
 }
@@ -406,6 +413,7 @@ function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSet
     systemPrompt: typeof raw?.systemPrompt === 'string'
       ? raw.systemPrompt
       : 'You are a roleplaying agent responding naturally to the user.',
+    enableRollingSummaries: raw?.enableRollingSummaries === true,
     chatTextSize: isChatTextSize(raw?.chatTextSize) ? raw.chatTextSize : 'small',
     activeThemeId: typeof raw?.activeThemeId === 'string' ? raw.activeThemeId : 'default',
     customThemes: Array.isArray(raw?.customThemes) ? raw.customThemes as ThemeDefinition[] : [],
@@ -950,10 +958,27 @@ function normalizeMessage(raw: PartialMessageRecord, fallbackTimestamp: number) 
   const role = raw.role === 'assistant' || raw.role === 'system' || raw.role === 'user'
     ? raw.role
     : 'user'
+  const safeAvatarCrop = isRecord(raw.characterAvatarCrop) ? raw.characterAvatarCrop : {}
 
   return {
     id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : uid(),
     role,
+    characterId: typeof raw.characterId === 'string' && raw.characterId.length > 0
+      ? raw.characterId
+      : undefined,
+    characterName: typeof raw.characterName === 'string' && raw.characterName.trim().length > 0
+      ? raw.characterName.trim()
+      : undefined,
+    characterAvatarImageData: typeof raw.characterAvatarImageData === 'string' && raw.characterAvatarImageData.length > 0
+      ? raw.characterAvatarImageData
+      : undefined,
+    characterAvatarCrop: isFiniteNumber(safeAvatarCrop.x) || isFiniteNumber(safeAvatarCrop.y) || isFiniteNumber(safeAvatarCrop.scale)
+      ? {
+        x: isFiniteNumber(safeAvatarCrop.x) ? safeAvatarCrop.x : 0,
+        y: isFiniteNumber(safeAvatarCrop.y) ? safeAvatarCrop.y : 0,
+        scale: isFiniteNumber(safeAvatarCrop.scale) && safeAvatarCrop.scale > 0 ? safeAvatarCrop.scale : 1,
+      }
+      : undefined,
     content: typeof raw.content === 'string' ? raw.content : '',
     timestamp,
   }
@@ -981,6 +1006,10 @@ function normalizeSession(raw: PartialSessionRecord, fallbackTimestamp: number):
     id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : uid(),
     title: typeof raw.title === 'string' && raw.title.trim().length > 0 ? raw.title.trim() : 'New Chat',
     messages,
+    rollingSummary: typeof raw.rollingSummary === 'string' ? raw.rollingSummary.trim() : '',
+    summarizedMessageCount: isFiniteNumber(raw.summarizedMessageCount)
+      ? Math.max(0, Math.floor(raw.summarizedMessageCount))
+      : 0,
     createdAt,
     updatedAt,
   }
@@ -1836,14 +1865,70 @@ function classifyGpuVendor(name: string): HardwareGpuInfo['vendor'] {
  *
  * @returns Hardware summary cached for subsequent requests.
  */
+/**
+ * Query NVIDIA GPUs using nvidia-smi for accurate VRAM detection.
+ * Returns array of GPU entries if nvidia-smi is available, empty array otherwise.
+ *
+ * @returns Array of detected NVIDIA GPU entries with correct VRAM.
+ */
+function detectNvidiaGpusViaSmi(): HardwareGpuInfo[] {
+  const result = spawnSync('nvidia-smi', [
+    '--query-gpu=name,memory.total,driver_version',
+    '--format=csv,noheader',
+  ], {
+    encoding: 'utf-8',
+    windowsHide: true,
+  })
+
+  if (result.status !== 0 || typeof result.stdout !== 'string' || result.stdout.trim().length === 0) {
+    return []
+  }
+
+  const gpuEntries: HardwareGpuInfo[] = []
+  const lines = result.stdout.trim().split('\n')
+
+  lines.forEach((line) => {
+    const parts = line.split(',').map((s) => s.trim())
+    if (parts.length < 1) return
+
+    const name = parts[0] ?? ''
+    const memoryMibStr = parts[1] ?? ''
+    const driverVersion = parts[2] ?? ''
+
+    if (!name) return
+
+    // Parse memory: "24564 MiB" -> bytes (24564 * 1024 * 1024)
+    const memoryMatch = memoryMibStr.match(/^(\d+)/)
+    const memoryMib = memoryMatch ? Number(memoryMatch[1]) : null
+    const vramBytes = typeof memoryMib === 'number' && memoryMib > 0
+      ? memoryMib * 1024 * 1024
+      : null
+
+    gpuEntries.push({
+      name,
+      vendor: 'nvidia',
+      vramBytes,
+      driverVersion: driverVersion && driverVersion.length > 0 ? driverVersion : null,
+    })
+  })
+
+  return gpuEntries
+}
+
 function detectHardwareInfo(): HardwareInfo {
   if (cachedHardwareInfo) {
     return cachedHardwareInfo
   }
 
-  const gpuEntries: HardwareGpuInfo[] = []
+  let gpuEntries: HardwareGpuInfo[] = []
 
+  // Try nvidia-smi first for NVIDIA GPUs (more accurate on Windows)
   if (process.platform === 'win32') {
+    gpuEntries = detectNvidiaGpusViaSmi()
+  }
+
+  // Fall back to Win32_VideoController if nvidia-smi didn't find anything
+  if (process.platform === 'win32' && gpuEntries.length === 0) {
     const command = [
       '$devices = Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion',
       'if ($devices) { $devices | ConvertTo-Json -Compress } else { "[]" }',
@@ -1928,8 +2013,15 @@ function isLocalLlamaServer(server: ServerProfile): boolean {
  * @returns Object with asset key, display name, and size in MB.
  */
 function detectLlamaBinaryBackend(): { key: string; display: 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'; sizeMb: number } {
-  const backend = cachedHardwareInfo?.recommendedBackend ?? 'cpu'
+  // Ensure hardware info is detected first so we have accurate GPU detection
+  const hardwareInfo = cachedHardwareInfo ?? detectHardwareInfo()
+  const backend = hardwareInfo.recommendedBackend ?? 'cpu'
   const platform = process.platform
+
+  console.log(`[LLAMA] Backend detection: platform=${platform}, recommendedBackend=${backend}, gpus=${hardwareInfo.gpus.length}`)
+  hardwareInfo.gpus.forEach((gpu, i) => {
+    console.log(`[LLAMA]   GPU ${i}: ${gpu.name} (${gpu.vendor}) - ${gpu.vramBytes ? (gpu.vramBytes / 1024 / 1024 / 1024).toFixed(1) : 'unknown'} GB`)
+  })
 
   // On macOS, Metal is always the backend regardless of recommendedBackend value.
   // Differentiate Apple Silicon (arm64) from Intel (x64) for the asset filename.
@@ -1950,7 +2042,46 @@ function detectLlamaBinaryBackend(): { key: string; display: 'CUDA' | 'Vulkan' |
   }
 
   const asset = LLAMA_CPP_ASSETS[key] ?? LLAMA_CPP_ASSETS[`${platform}-cpu`]
+  console.log(`[LLAMA] Resolved to key=${key}, display=${display}, sizeMb=${asset?.sizeMb ?? 0}`)
   return { key, display, sizeMb: asset?.sizeMb ?? 0 }
+}
+
+/**
+ * Download a file from a URL with progress tracking.
+ *
+ * @param url - URL to download from.
+ * @param destPath - Where to save the file.
+ * @param onProgress - Progress callback (percent: 0-100 or null).
+ * @returns Promise that resolves when download completes.
+ */
+async function downloadFile(url: string, destPath: string, onProgress: (percent: number | null) => void): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const follow = (redirectUrl: string): void => {
+      httpsGet(redirectUrl, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          follow(res.headers.location)
+          return
+        }
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode} downloading from ${redirectUrl}`))
+          return
+        }
+        const total = res.headers['content-length'] ? parseInt(res.headers['content-length'], 10) : null
+        let downloaded = 0
+        const out = createWriteStream(destPath)
+        res.on('data', (chunk: Buffer) => {
+          downloaded += chunk.length
+          const pct = total ? Math.round((downloaded / total) * 100) : null
+          onProgress(pct)
+        })
+        res.pipe(out)
+        out.on('finish', resolve)
+        out.on('error', reject)
+        res.on('error', reject)
+      }).on('error', reject)
+    }
+    follow(url)
+  })
 }
 
 /**
@@ -1978,7 +2109,7 @@ async function installLlamaBinary(): Promise<string> {
   const destBinary = join(destination, fileName)
 
   const tempDir = app.getPath('temp')
-  const archivePath = join(tempDir, `llama-cpp-${LLAMA_CPP_RELEASE}.zip`)
+  const archivePath = join(tempDir, `llama-cpp-${LLAMA_CPP_RELEASE}.${asset.ext}`)
   const extractDir = join(tempDir, `llama-cpp-extract-${LLAMA_CPP_RELEASE}`)
 
   /** Remove temp archive and extract dir, swallowing errors. */
@@ -2007,37 +2138,34 @@ async function installLlamaBinary(): Promise<string> {
     // Ensure destination directory exists
     mkdirSync(destination, { recursive: true })
 
-    // Phase 1: download
+    // Phase 1: download main binary
     broadcast('downloading', 0, `Downloading llama-server (${display})…`)
-
-    await new Promise<void>((resolve, reject) => {
-      /** Follow HTTP redirects (GitHub releases always redirect). */
-      const follow = (redirectUrl: string): void => {
-        httpsGet(redirectUrl, (res) => {
-          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            follow(res.headers.location)
-            return
-          }
-          if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode} downloading llama-server binary.`))
-            return
-          }
-          const total = res.headers['content-length'] ? parseInt(res.headers['content-length'], 10) : null
-          let downloaded = 0
-          const out = createWriteStream(archivePath)
-          res.on('data', (chunk: Buffer) => {
-            downloaded += chunk.length
-            const pct = total ? Math.round((downloaded / total) * 100) : null
-            broadcast('downloading', pct, `Downloading llama-server (${display})…${pct != null ? `  ${pct}%` : ''}`)
-          })
-          res.pipe(out)
-          out.on('finish', resolve)
-          out.on('error', reject)
-          res.on('error', reject)
-        }).on('error', reject)
-      }
-      follow(url)
+    await downloadFile(url, archivePath, (pct) => {
+      broadcast('downloading', pct, `Downloading llama-server (${display})…${pct != null ? `  ${pct}%` : ''}`)
     })
+
+    // Phase 1b: download CUDA runtime DLLs if needed
+    if (asset.cudartFile && process.platform === 'win32') {
+      const cudartUrl = `https://github.com/ggerganov/llama.cpp/releases/download/${LLAMA_CPP_RELEASE}/${asset.cudartFile}`
+      const cudartArchivePath = join(tempDir, `cudart-${LLAMA_CPP_RELEASE}.zip`)
+      broadcast('downloading', 0, `Downloading CUDA runtime libraries…`)
+      try {
+        await downloadFile(cudartUrl, cudartArchivePath, (pct) => {
+          broadcast('downloading', pct, `Downloading CUDA runtime libraries…${pct != null ? `  ${pct}%` : ''}`)
+        })
+        // Extract CUDA DLLs to the same extract directory
+        const cudartExtractResult = spawnSync('powershell.exe', [
+          '-NoProfile', '-NonInteractive', '-Command',
+          `Expand-Archive -Path '${cudartArchivePath}' -DestinationPath '${extractDir}' -Force`,
+        ], { encoding: 'utf-8', windowsHide: true, timeout: 120_000 })
+        if (cudartExtractResult.status !== 0) {
+          console.warn('CUDA runtime extraction warning (non-fatal):', cudartExtractResult.stderr)
+        }
+        try { if (existsSync(cudartArchivePath)) rmSync(cudartArchivePath) } catch { /* ignore */ }
+      } catch (err) {
+        console.warn('CUDA runtime download warning (non-fatal):', err instanceof Error ? err.message : String(err))
+      }
+    }
 
     // Phase 2: extract
     broadcast('extracting', null, 'Extracting…')
@@ -2048,7 +2176,7 @@ async function installLlamaBinary(): Promise<string> {
           '-NoProfile', '-NonInteractive', '-Command',
           `Expand-Archive -Path '${archivePath}' -DestinationPath '${extractDir}' -Force`,
         ], { encoding: 'utf-8', windowsHide: true, timeout: 120_000 })
-      : spawnSync('unzip', ['-o', archivePath, '-d', extractDir],
+      : spawnSync('tar', ['-xzf', archivePath, '-C', extractDir],
           { encoding: 'utf-8', timeout: 120_000 })
 
     if (extractResult.status !== 0) {
@@ -2241,9 +2369,7 @@ async function startLocalRuntime(server: ServerProfile, model: ModelPreset): Pro
     '--n-gpu-layers', (model.gpuLayers ?? 999).toString(),
   ]
 
-  if (model.flashAttention !== false) {
-    args.push('--flash-attn')
-  }
+  args.push('--flash-attn', model.flashAttention === false ? 'off' : 'on')
 
   const child = spawn(executablePath, args, {
     windowsHide: true,
@@ -2263,7 +2389,12 @@ async function startLocalRuntime(server: ServerProfile, model: ModelPreset): Pro
 
   let stderrBuffer = ''
   child.stderr.on('data', (chunk: Buffer) => {
-    stderrBuffer += chunk.toString()
+    const text = chunk.toString()
+    stderrBuffer += text
+    // Broadcast startup logs to renderer in real-time (first 5000 chars)
+    if (stderrBuffer.length <= 5000) {
+      broadcastToAllWindows('llama:startup-log', text)
+    }
     if (stderrBuffer.length > 4000) {
       stderrBuffer = stderrBuffer.slice(stderrBuffer.length - 4000)
     }
@@ -2721,6 +2852,9 @@ async function* streamChat(
   const decoder = new TextDecoder()
   let   buffer  = ''
   let   aggregatedContent = ''
+  // Strip Qwen3-style <think>...</think> blocks that arrive mid-stream.
+  // inThinkBlock tracks whether we are currently inside a <think> tag.
+  let   inThinkBlock = false
 
   /**
    * Emit a single debug entry containing the full streamed assistant content.
@@ -2764,10 +2898,34 @@ async function* streamChat(
             total_tokens?: number
           }
         }
-        const content = json.choices?.[0]?.delta?.content
+        let content = json.choices?.[0]?.delta?.content
         if (content) {
-          aggregatedContent += content
-          yield { chunk: content }
+          // Strip <think>...</think> blocks emitted by Qwen3-family models.
+          // The tags can span multiple chunks so we track state across iterations.
+          if (inThinkBlock) {
+            const closeIdx = content.indexOf('</think>')
+            if (closeIdx !== -1) {
+              inThinkBlock = false
+              content = content.slice(closeIdx + '</think>'.length)
+            } else {
+              content = ''
+            }
+          }
+          if (!inThinkBlock && content.includes('<think>')) {
+            const openIdx = content.indexOf('<think>')
+            const closeIdx = content.indexOf('</think>', openIdx)
+            if (closeIdx !== -1) {
+              // Entire block in one chunk
+              content = content.slice(0, openIdx) + content.slice(closeIdx + '</think>'.length)
+            } else {
+              inThinkBlock = true
+              content = content.slice(0, openIdx)
+            }
+          }
+          if (content) {
+            aggregatedContent += content
+            yield { chunk: content }
+          }
         }
 
         const usage = json.usage
@@ -3376,6 +3534,29 @@ ipcMain.handle('campaign:list', (): CampaignSummary[] => {
  */
 ipcMain.handle('campaign:open', async (_event, path: string): Promise<CampaignFileHandle> => {
   return loadCampaignFile(path)
+})
+
+/**
+ * Campaigns: choose a campaign.json file from disk and return its folder path.
+ */
+ipcMain.handle('campaign:pick-file', async (): Promise<string | null> => {
+  const result = await dialog.showOpenDialog({
+    title: 'Open Campaign File',
+    properties: ['openFile'],
+    filters: [
+      {
+        name: 'Campaign Files',
+        extensions: ['json'],
+      },
+    ],
+  })
+
+  if (result.canceled) {
+    return null
+  }
+
+  const selectedPath = result.filePaths[0]
+  return selectedPath ? dirname(selectedPath) : null
 })
 
 /**

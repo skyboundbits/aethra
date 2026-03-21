@@ -16,6 +16,8 @@ interface CampaignLauncherProps {
   statusMessage: string | null
   /** Called when the user wants to create a new campaign. */
   onCreateCampaign: () => void
+  /** Called when the user wants to pick a campaign file from disk. */
+  onOpenFromFile: () => void
   /** Called when the user wants to open an existing stored campaign. */
   onOpenCampaign: (path: string) => void
 }
@@ -30,6 +32,7 @@ export function CampaignLauncher({
   isBusy,
   statusMessage,
   onCreateCampaign,
+  onOpenFromFile,
   onOpenCampaign,
 }: CampaignLauncherProps) {
   return (
@@ -51,6 +54,14 @@ export function CampaignLauncher({
             disabled={isBusy}
           >
             New Campaign
+          </button>
+          <button
+            className="campaign-launcher__button campaign-launcher__button--secondary"
+            type="button"
+            onClick={onOpenFromFile}
+            disabled={isBusy}
+          >
+            Open From File
           </button>
         </div>
 
