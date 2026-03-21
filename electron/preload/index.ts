@@ -22,6 +22,11 @@ import type {
   CampaignSummary,
   CharacterProfile,
   ChatMessage,
+  HardwareInfo,
+  HuggingFaceModelFile,
+  LocalRuntimeStatus,
+  ModelDownloadProgress,
+  ModelPreset,
   TokenUsage,
   WindowControlsState,
 } from '../../src/types'
@@ -118,6 +123,117 @@ contextBridge.exposeInMainWorld('api', {
    */
   loadModel(serverId: string, modelName: string, contextWindowTokens: number): Promise<void> {
     return ipcRenderer.invoke('models:load', serverId, modelName, contextWindowTokens) as Promise<void>
+  },
+
+  /**
+   * Read the detected local hardware inventory used for llama.cpp guidance.
+   *
+   * @returns Promise resolving to the latest hardware summary.
+   */
+  getHardwareInfo(): Promise<HardwareInfo> {
+    return ipcRenderer.invoke('hardware:get') as Promise<HardwareInfo>
+  },
+
+  /**
+   * Open a native folder picker for the local llama.cpp models directory.
+   *
+   * @returns Promise resolving to the chosen directory path, or null when cancelled.
+   */
+  pickModelsDirectory(): Promise<string | null> {
+    return ipcRenderer.invoke('llama:pick-models-directory') as Promise<string | null>
+  },
+
+  /**
+   * Open a native file picker for the llama-server executable.
+   *
+   * @returns Promise resolving to the chosen executable path, or null when cancelled.
+   */
+  pickLlamaExecutable(): Promise<string | null> {
+    return ipcRenderer.invoke('llama:pick-executable') as Promise<string | null>
+  },
+
+  /**
+   * Browse GGUF files available in a Hugging Face repository.
+   *
+   * @param serverId - Local llama.cpp server profile id.
+   * @param repoId - Hugging Face repository identifier.
+   * @returns Promise resolving to GGUF files reported by Hugging Face.
+   */
+  browseHuggingFaceModels(serverId: string, repoId: string): Promise<HuggingFaceModelFile[]> {
+    return ipcRenderer.invoke('llama:hf:browse', serverId, repoId) as Promise<HuggingFaceModelFile[]>
+  },
+
+  /**
+   * Download a GGUF file from Hugging Face into the configured local models directory.
+   *
+   * @param serverId - Local llama.cpp server profile id.
+   * @param repoId - Hugging Face repository identifier.
+   * @param fileName - Repository-relative GGUF path.
+   * @returns Promise resolving to the persisted local model preset.
+   */
+  downloadHuggingFaceModel(serverId: string, repoId: string, fileName: string): Promise<ModelPreset> {
+    return ipcRenderer.invoke('llama:hf:download', serverId, repoId, fileName) as Promise<ModelPreset>
+  },
+
+  /**
+   * Subscribe to Hugging Face model download progress updates.
+   *
+   * @param listener - Called whenever the main process emits a progress update.
+   * @returns Cleanup function that removes the IPC listener.
+   */
+  onModelDownloadProgress(listener: (progress: ModelDownloadProgress) => void): () => void {
+    function onProgress(_: IpcRendererEvent, progress: ModelDownloadProgress) {
+      listener(progress)
+    }
+
+    ipcRenderer.on('llama:model-download:progress', onProgress)
+    return () => {
+      ipcRenderer.off('llama:model-download:progress', onProgress)
+    }
+  },
+
+  /**
+   * Read the current managed local runtime status.
+   *
+   * @returns Promise resolving to the managed llama.cpp runtime status.
+   */
+  getLocalRuntimeStatus(): Promise<LocalRuntimeStatus> {
+    return ipcRenderer.invoke('llama:runtime:get-status') as Promise<LocalRuntimeStatus>
+  },
+
+  /**
+   * Start the managed local llama.cpp runtime for a selected GGUF model.
+   *
+   * @param serverId - Local llama.cpp server profile id.
+   * @param modelSlug - Local model slug to load.
+   * @returns Promise resolving to the runtime status after startup completes.
+   */
+  loadLocalModel(serverId: string, modelSlug: string): Promise<LocalRuntimeStatus> {
+    return ipcRenderer.invoke('llama:runtime:load', serverId, modelSlug) as Promise<LocalRuntimeStatus>
+  },
+
+  /**
+   * Stop the managed local llama.cpp runtime.
+   */
+  stopLocalModel(): Promise<void> {
+    return ipcRenderer.invoke('llama:runtime:stop') as Promise<void>
+  },
+
+  /**
+   * Subscribe to local runtime state changes pushed from the main process.
+   *
+   * @param listener - Called whenever the managed runtime status changes.
+   * @returns Cleanup function that removes the IPC listener.
+   */
+  onLocalRuntimeStatus(listener: (status: LocalRuntimeStatus) => void): () => void {
+    function onStatus(_: IpcRendererEvent, status: LocalRuntimeStatus) {
+      listener(status)
+    }
+
+    ipcRenderer.on('llama:runtime:status', onStatus)
+    return () => {
+      ipcRenderer.off('llama:runtime:status', onStatus)
+    }
   },
 
   /**

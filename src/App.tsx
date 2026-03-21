@@ -34,6 +34,7 @@ import { ModelParametersModal } from './components/ModelParametersModal'
 import { Modal } from './components/Modal'
 
 import { streamCompletion } from './services/aiService'
+import { estimateLocalModelFit } from './services/modelFitService'
 import { applyTheme, parseImportedTheme, upsertCustomTheme } from './services/themeService'
 
 import type {
@@ -43,8 +44,12 @@ import type {
   Campaign,
   CampaignSummary,
   CharacterProfile,
+  HardwareInfo,
+  HuggingFaceModelFile,
+  LocalRuntimeStatus,
   Message,
   ChatMessage,
+  ModelDownloadProgress,
   ModelPreset,
   Session,
   TokenUsage,
@@ -374,6 +379,24 @@ export default function App() {
   /** Persisted app settings loaded from Electron. */
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
 
+  /** Detected local hardware inventory used for llama.cpp fit guidance. */
+  const [hardwareInfo, setHardwareInfo] = useState<HardwareInfo | null>(null)
+
+  /** Current managed local llama.cpp runtime status. */
+  const [localRuntimeStatus, setLocalRuntimeStatus] = useState<LocalRuntimeStatus | null>(null)
+
+  /** Most recent Hugging Face model download progress update. */
+  const [modelDownloadProgress, setModelDownloadProgress] = useState<ModelDownloadProgress | null>(null)
+
+  /** GGUF files currently listed from the selected Hugging Face repository. */
+  const [huggingFaceFiles, setHuggingFaceFiles] = useState<HuggingFaceModelFile[]>([])
+
+  /** True while browsing the currently entered Hugging Face repository. */
+  const [isBrowsingHuggingFace, setIsBrowsingHuggingFace] = useState(false)
+
+  /** True while downloading a Hugging Face GGUF file. */
+  const [isDownloadingModel, setIsDownloadingModel] = useState(false)
+
   /** True while the settings modal is open. */
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
@@ -487,6 +510,49 @@ export default function App() {
   }, [])
 
   /**
+   * Load local hardware details and subscribe to managed llama.cpp runtime updates.
+   */
+  useEffect(() => {
+    let cancelled = false
+
+    void window.api.getHardwareInfo()
+      .then((info) => {
+        if (!cancelled) {
+          setHardwareInfo(info)
+        }
+      })
+      .catch((err) => {
+        console.error('[Aethra] Could not detect local hardware:', err)
+      })
+
+    void window.api.getLocalRuntimeStatus()
+      .then((status) => {
+        if (!cancelled) {
+          setLocalRuntimeStatus(status)
+        }
+      })
+      .catch((err) => {
+        console.error('[Aethra] Could not read local runtime status:', err)
+      })
+
+    const disposeRuntimeListener = window.api.onLocalRuntimeStatus((status) => {
+      setLocalRuntimeStatus(status)
+    })
+    const disposeDownloadListener = window.api.onModelDownloadProgress((progress) => {
+      setModelDownloadProgress(progress)
+      if (progress.status === 'completed' || progress.status === 'error') {
+        setIsDownloadingModel(false)
+      }
+    })
+
+    return () => {
+      cancelled = true
+      disposeRuntimeListener()
+      disposeDownloadListener()
+    }
+  }, [])
+
+  /**
    * Apply the currently active theme whenever theme settings change.
    */
   useEffect(() => {
@@ -540,9 +606,11 @@ export default function App() {
     ? appSettings.models.filter((model) => model.serverId === activeServer.id)
     : []
 
-  /** True when the selected server is text-generation-webui. */
-  const canLoadModel = activeServer?.id === 'textgen-webui-default' ||
-    activeServer?.name.trim().toLowerCase() === 'text-generation-webui'
+  /** True when the selected server supports explicit model load actions. */
+  const canLoadModel = activeServer?.kind === 'text-generation-webui' || activeServer?.kind === 'llama.cpp'
+
+  /** True when the selected server is the managed local llama.cpp provider. */
+  const isLocalLlamaActive = activeServer?.kind === 'llama.cpp'
 
   /** The currently selected AI model from persisted settings. */
   const activeModel =
@@ -552,6 +620,14 @@ export default function App() {
 
   /** True when runtime parameters can be edited for the active model preset. */
   const canEditModelParameters = activeModel !== null
+
+  /** Heuristic GPU fit guidance for the active local model, when applicable. */
+  const activeLocalModelFit = useMemo(
+    () => isLocalLlamaActive
+      ? estimateLocalModelFit(activeModel, hardwareInfo, activeModel?.contextWindowTokens ?? null)
+      : null,
+    [activeModel, hardwareInfo, isLocalLlamaActive],
+  )
 
   /** Stable system-context payload for the active campaign. */
   const systemContextMessages = useMemo(
@@ -592,6 +668,7 @@ export default function App() {
     setAvailableModels((prev) =>
       activeServer ? prev.filter((model) => model.serverId === activeServer.id) : [],
     )
+    setHuggingFaceFiles([])
   }, [activeServer?.id])
 
   /**
@@ -1315,7 +1392,9 @@ export default function App() {
    * @param modelSlug - Slug of the selected model preset.
    */
   async function handleModelSelect(modelSlug: string): Promise<void> {
-    const selectedModel = appSettings.models.find((model) => model.slug === modelSlug)
+    const selectedModel = (activeServer
+      ? appSettings.models.find((model) => model.serverId === activeServer.id && model.slug === modelSlug)
+      : null) ?? appSettings.models.find((model) => model.slug === modelSlug)
     if (!selectedModel) {
       setSettingsStatusKind('error')
       setSettingsStatusMessage('Could not find the selected model.')
@@ -1387,9 +1466,24 @@ export default function App() {
           serverId: model.serverId,
           name: model.name,
           slug: model.slug,
+          source: model.source ?? existingModel?.source,
+          localPath: model.localPath ?? existingModel?.localPath,
+          huggingFaceRepo: model.huggingFaceRepo ?? existingModel?.huggingFaceRepo,
+          huggingFaceFile: model.huggingFaceFile ?? existingModel?.huggingFaceFile,
+          fileSizeBytes: model.fileSizeBytes ?? existingModel?.fileSizeBytes,
+          parameterSizeBillions: model.parameterSizeBillions ?? existingModel?.parameterSizeBillions,
+          quantization: model.quantization ?? existingModel?.quantization,
           contextWindowTokens: model.contextWindowTokens ?? existingModel?.contextWindowTokens,
+          gpuLayers: model.gpuLayers ?? existingModel?.gpuLayers,
+          threads: model.threads ?? existingModel?.threads,
+          batchSize: model.batchSize ?? existingModel?.batchSize,
+          microBatchSize: model.microBatchSize ?? existingModel?.microBatchSize,
+          flashAttention: model.flashAttention ?? existingModel?.flashAttention,
           temperature: model.temperature ?? existingModel?.temperature,
           topP: model.topP ?? existingModel?.topP,
+          topK: model.topK ?? existingModel?.topK,
+          repeatPenalty: model.repeatPenalty ?? existingModel?.repeatPenalty,
+          seed: model.seed ?? existingModel?.seed,
           maxOutputTokens: model.maxOutputTokens ?? existingModel?.maxOutputTokens,
           presencePenalty: model.presencePenalty ?? existingModel?.presencePenalty,
           frequencyPenalty: model.frequencyPenalty ?? existingModel?.frequencyPenalty,
@@ -1463,7 +1557,9 @@ export default function App() {
       throw new Error('Invalid context budget.')
     }
 
-    const selectedModel = appSettings.models.find((model) => model.slug === modelSlug)
+    const selectedModel = (activeServer
+      ? appSettings.models.find((model) => model.serverId === activeServer.id && model.slug === modelSlug)
+      : null) ?? appSettings.models.find((model) => model.slug === modelSlug)
     if (!selectedModel) {
       setSettingsStatusKind('error')
       setSettingsStatusMessage('Could not find the selected model.')
@@ -1471,7 +1567,7 @@ export default function App() {
     }
 
     const nextModels = appSettings.models.map((model) =>
-      model.slug === modelSlug
+      model.slug === modelSlug && model.serverId === selectedModel.serverId
         ? { ...model, contextWindowTokens: normalizedContextWindowTokens }
         : model,
     )
@@ -1508,8 +1604,16 @@ export default function App() {
   async function handleSaveModelParameters(
     modelSlug: string,
     values: {
+      contextWindowTokens: number | null
       temperature: number | null
       topP: number | null
+      topK: number | null
+      repeatPenalty: number | null
+      gpuLayers: number | null
+      threads: number | null
+      batchSize: number | null
+      microBatchSize: number | null
+      flashAttention: boolean
       maxOutputTokens: number | null
       presencePenalty: number | null
       frequencyPenalty: number | null
@@ -1559,8 +1663,15 @@ export default function App() {
 
     try {
       setIsModelParametersSaving(true)
+      const normalizedContextWindowTokens = normalizeInteger(values.contextWindowTokens, 1, 'Context length')
       const normalizedTemperature = normalizeRange(values.temperature, 0, 5, 'Temperature')
       const normalizedTopP = normalizeRange(values.topP, 0, 1, 'Top P')
+      const normalizedTopK = normalizeInteger(values.topK, 0, 'Top K')
+      const normalizedRepeatPenalty = normalizeRange(values.repeatPenalty, 0, 5, 'Repeat penalty')
+      const normalizedGpuLayers = normalizeInteger(values.gpuLayers, 0, 'GPU layers')
+      const normalizedThreads = normalizeInteger(values.threads, 1, 'Threads')
+      const normalizedBatchSize = normalizeInteger(values.batchSize, 1, 'Batch size')
+      const normalizedMicroBatchSize = normalizeInteger(values.microBatchSize, 1, 'Micro-batch size')
       const normalizedMaxOutputTokens = normalizeInteger(values.maxOutputTokens, 1, 'Max output tokens')
       const normalizedPresencePenalty = normalizeRange(values.presencePenalty, -2, 2, 'Presence penalty')
       const normalizedFrequencyPenalty = normalizeRange(values.frequencyPenalty, -2, 2, 'Frequency penalty')
@@ -1569,8 +1680,16 @@ export default function App() {
         model.serverId === selectedModel.serverId && model.slug === selectedModel.slug
           ? {
             ...model,
+            contextWindowTokens: normalizedContextWindowTokens ?? undefined,
             temperature: normalizedTemperature ?? undefined,
             topP: normalizedTopP ?? undefined,
+            topK: normalizedTopK ?? undefined,
+            repeatPenalty: normalizedRepeatPenalty ?? undefined,
+            gpuLayers: normalizedGpuLayers ?? undefined,
+            threads: normalizedThreads ?? undefined,
+            batchSize: normalizedBatchSize ?? undefined,
+            microBatchSize: normalizedMicroBatchSize ?? undefined,
+            flashAttention: values.flashAttention,
             maxOutputTokens: normalizedMaxOutputTokens ?? undefined,
             presencePenalty: normalizedPresencePenalty ?? undefined,
             frequencyPenalty: normalizedFrequencyPenalty ?? undefined,
@@ -1587,8 +1706,16 @@ export default function App() {
         serverId: selectedModel.serverId,
         modelId: selectedModel.id,
         modelSlug: selectedModel.slug,
+        contextWindowTokens: normalizedContextWindowTokens,
         temperature: normalizedTemperature,
         topP: normalizedTopP,
+        topK: normalizedTopK,
+        repeatPenalty: normalizedRepeatPenalty,
+        gpuLayers: normalizedGpuLayers,
+        threads: normalizedThreads,
+        batchSize: normalizedBatchSize,
+        microBatchSize: normalizedMicroBatchSize,
+        flashAttention: values.flashAttention,
         maxOutputTokens: normalizedMaxOutputTokens,
         presencePenalty: normalizedPresencePenalty,
         frequencyPenalty: normalizedFrequencyPenalty,
@@ -1614,7 +1741,7 @@ export default function App() {
   async function handleLoadModel(modelSlug: string, contextWindowTokens: number, temperature: number): Promise<void> {
     if (!activeServer || !canLoadModel) {
       setModelLoaderStatusKind('error')
-      setModelLoaderStatusMessage('Model loading is currently available only for text-generation-webui.')
+      setModelLoaderStatusMessage('Model loading is not available for the selected provider.')
       return
     }
 
@@ -1642,16 +1769,6 @@ export default function App() {
     setIsModelLoading(true)
 
     try {
-      await appendAiDebugEntry('request', 'ai.model.load.request', {
-        serverId: activeServer.id,
-        serverName: activeServer.name,
-        baseUrl: activeServer.baseUrl,
-        modelSlug: selectedModel.slug,
-        contextWindowTokens: normalizedContextWindowTokens,
-        temperature: normalizedTemperature,
-      })
-      await window.api.loadModel(activeServer.id, selectedModel.slug, normalizedContextWindowTokens)
-
       const nextModels = appSettings.models.map((model) =>
         model.serverId === selectedModel.serverId && model.slug === selectedModel.slug
           ? { ...model, contextWindowTokens: normalizedContextWindowTokens, temperature: normalizedTemperature }
@@ -1664,7 +1781,22 @@ export default function App() {
         activeModelSlug: selectedModel.slug,
       }
 
+      await appendAiDebugEntry('request', 'ai.model.load.request', {
+        serverId: activeServer.id,
+        serverName: activeServer.name,
+        baseUrl: activeServer.baseUrl,
+        modelSlug: selectedModel.slug,
+        contextWindowTokens: normalizedContextWindowTokens,
+        temperature: normalizedTemperature,
+      })
+
       await persistSettings(nextSettings)
+      if (activeServer.kind === 'llama.cpp') {
+        const status = await window.api.loadLocalModel(activeServer.id, selectedModel.slug)
+        setLocalRuntimeStatus(status)
+      } else {
+        await window.api.loadModel(activeServer.id, selectedModel.slug, normalizedContextWindowTokens)
+      }
       await appendAiDebugEntry('response', 'ai.model.load.success', {
         serverId: activeServer.id,
         modelSlug: selectedModel.slug,
@@ -1672,7 +1804,11 @@ export default function App() {
         temperature: normalizedTemperature,
       })
       setModelLoaderStatusKind('success')
-      setModelLoaderStatusMessage(`Loaded ${selectedModel.name} with ${normalizedContextWindowTokens.toLocaleString()} tokens and temperature ${normalizedTemperature.toFixed(1)}.`)
+      setModelLoaderStatusMessage(
+        activeServer.kind === 'llama.cpp'
+          ? `Started ${selectedModel.name} in llama.cpp with ${normalizedContextWindowTokens.toLocaleString()} tokens.`
+          : `Loaded ${selectedModel.name} with ${normalizedContextWindowTokens.toLocaleString()} tokens and temperature ${normalizedTemperature.toFixed(1)}.`,
+      )
     } catch (err) {
       await appendAiDebugEntry('error', 'ai.model.load.error', {
         serverId: activeServer.id,
@@ -1720,6 +1856,157 @@ export default function App() {
       setSettingsStatusKind('error')
       setSettingsStatusMessage('Could not save the server address.')
       throw err
+    }
+  }
+
+  /**
+   * Persist local llama.cpp-specific server configuration fields.
+   *
+   * @param serverId - ID of the local server profile to update.
+   * @param values - Local runtime configuration fields to persist.
+   */
+  async function handleLocalServerConfigSave(
+    serverId: string,
+    values: {
+      modelsDirectory: string
+      executablePath: string
+      host: string
+      port: number
+      huggingFaceToken: string
+    },
+  ): Promise<void> {
+    const normalizedModelsDirectory = values.modelsDirectory.trim()
+    const normalizedHost = values.host.trim() || '127.0.0.1'
+    const normalizedPort = Math.floor(values.port)
+
+    if (!normalizedModelsDirectory) {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Models directory cannot be empty.')
+      throw new Error('Models directory cannot be empty.')
+    }
+
+    if (!Number.isFinite(normalizedPort) || normalizedPort <= 0) {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Port must be a whole number greater than zero.')
+      throw new Error('Invalid llama.cpp port.')
+    }
+
+    const nextServers = appSettings.servers.map((server) =>
+      server.id === serverId
+        ? {
+          ...server,
+          modelsDirectory: normalizedModelsDirectory,
+          executablePath: values.executablePath.trim() || null,
+          host: normalizedHost,
+          port: normalizedPort,
+          huggingFaceToken: values.huggingFaceToken,
+          baseUrl: `http://${normalizedHost}:${normalizedPort}/v1`,
+        }
+        : server,
+    )
+
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      servers: nextServers,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage('Local llama.cpp settings updated.')
+    } catch (err) {
+      console.error('[Aethra] Could not save local llama.cpp settings:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save local llama.cpp settings.')
+      throw err
+    }
+  }
+
+  /**
+   * Open a native folder picker and store the selected models directory.
+   */
+  async function handlePickModelsDirectory(): Promise<string | null> {
+    try {
+      return await window.api.pickModelsDirectory()
+    } catch (err) {
+      console.error('[Aethra] Could not choose models directory:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not open the models directory picker.')
+      return null
+    }
+  }
+
+  /**
+   * Open a native file picker for the llama-server executable.
+   */
+  async function handlePickLlamaExecutable(): Promise<string | null> {
+    try {
+      return await window.api.pickLlamaExecutable()
+    } catch (err) {
+      console.error('[Aethra] Could not choose llama-server executable:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not open the llama-server file picker.')
+      return null
+    }
+  }
+
+  /**
+   * Browse GGUF files in a Hugging Face repository for the local llama.cpp provider.
+   *
+   * @param repoId - Hugging Face repository identifier to inspect.
+   */
+  async function handleBrowseHuggingFaceModels(repoId: string): Promise<void> {
+    if (!activeServer || activeServer.kind !== 'llama.cpp') {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Select the local llama.cpp provider before browsing Hugging Face.')
+      return
+    }
+
+    setIsBrowsingHuggingFace(true)
+    try {
+      const files = await window.api.browseHuggingFaceModels(activeServer.id, repoId)
+      setHuggingFaceFiles(files)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage(
+        files.length > 0
+          ? `Found ${files.length} GGUF file${files.length === 1 ? '' : 's'} in ${repoId}.`
+          : `No GGUF files were found in ${repoId}.`,
+      )
+    } catch (err) {
+      console.error('[Aethra] Could not browse Hugging Face models:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage(err instanceof Error ? err.message : 'Could not browse Hugging Face models.')
+      setHuggingFaceFiles([])
+    } finally {
+      setIsBrowsingHuggingFace(false)
+    }
+  }
+
+  /**
+   * Download a GGUF file from Hugging Face and refresh the local model catalog.
+   *
+   * @param repoId - Hugging Face repository identifier.
+   * @param fileName - Repository-relative GGUF path.
+   */
+  async function handleDownloadHuggingFaceModel(repoId: string, fileName: string): Promise<void> {
+    if (!activeServer || activeServer.kind !== 'llama.cpp') {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Select the local llama.cpp provider before downloading models.')
+      return
+    }
+
+    setIsDownloadingModel(true)
+    try {
+      await window.api.downloadHuggingFaceModel(activeServer.id, repoId, fileName)
+      await handleBrowseModels()
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage(`Downloaded ${fileName} from ${repoId}.`)
+    } catch (err) {
+      console.error('[Aethra] Could not download Hugging Face model:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage(err instanceof Error ? err.message : 'Could not download the selected model.')
+    } finally {
+      setIsDownloadingModel(false)
     }
   }
 
@@ -2064,6 +2351,12 @@ export default function App() {
           activeModelSlug={activeModel?.slug ?? null}
           availableModels={availableModels}
           isBrowsingModels={isBrowsingModels}
+          hardwareInfo={hardwareInfo}
+          localRuntimeStatus={localRuntimeStatus}
+          modelDownloadProgress={modelDownloadProgress}
+          huggingFaceFiles={huggingFaceFiles}
+          isBrowsingHuggingFace={isBrowsingHuggingFace}
+          isDownloadingModel={isDownloadingModel}
           activeThemeId={appSettings.activeThemeId}
           chatTextSize={appSettings.chatTextSize}
           customThemes={appSettings.customThemes}
@@ -2081,6 +2374,15 @@ export default function App() {
             void handleBrowseModels()
           }}
           onSaveServerAddress={(serverId, baseUrl) => handleServerAddressSave(serverId, baseUrl)}
+          onSaveLocalServerConfig={(serverId, values) => handleLocalServerConfigSave(serverId, values)}
+          onPickModelsDirectory={() => handlePickModelsDirectory()}
+          onPickLlamaExecutable={() => handlePickLlamaExecutable()}
+          onBrowseHuggingFaceModels={(repoId) => {
+            void handleBrowseHuggingFaceModels(repoId)
+          }}
+          onDownloadHuggingFaceModel={(repoId, fileName) => {
+            void handleDownloadHuggingFaceModel(repoId, fileName)
+          }}
           onThemeSelect={(themeId) => {
             void handleThemeSelect(themeId)
           }}
@@ -2105,8 +2407,11 @@ export default function App() {
 
       {isModelLoaderOpen ? (
         <ModelLoaderModal
+          serverKind={activeServer?.kind ?? null}
           models={activeServerModels}
           activeModelSlug={activeModel?.slug ?? null}
+          fitEstimate={activeLocalModelFit}
+          localRuntimeStatus={localRuntimeStatus}
           statusMessage={modelLoaderStatusMessage}
           statusKind={modelLoaderStatusKind}
           isBusy={isModelLoading}

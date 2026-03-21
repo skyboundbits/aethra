@@ -26,8 +26,16 @@ interface ModelParametersModalProps {
   onSaveParameters: (
     modelSlug: string,
     values: {
+      contextWindowTokens: number | null
       temperature: number | null
       topP: number | null
+      topK: number | null
+      repeatPenalty: number | null
+      gpuLayers: number | null
+      threads: number | null
+      batchSize: number | null
+      microBatchSize: number | null
+      flashAttention: boolean
       maxOutputTokens: number | null
       presencePenalty: number | null
       frequencyPenalty: number | null
@@ -47,8 +55,17 @@ export function ModelParametersModal({
   onClose,
   onSaveParameters,
 }: ModelParametersModalProps) {
+  const isLocalModel = model?.localPath !== undefined || model?.serverId === 'llama-cpp-local'
+  const [contextWindowValue, setContextWindowValue] = useState('')
   const [temperatureValue, setTemperatureValue] = useState('')
   const [topPValue, setTopPValue] = useState('')
+  const [topKValue, setTopKValue] = useState('')
+  const [repeatPenaltyValue, setRepeatPenaltyValue] = useState('')
+  const [gpuLayersValue, setGpuLayersValue] = useState('')
+  const [threadsValue, setThreadsValue] = useState('')
+  const [batchSizeValue, setBatchSizeValue] = useState('')
+  const [microBatchSizeValue, setMicroBatchSizeValue] = useState('')
+  const [flashAttentionEnabled, setFlashAttentionEnabled] = useState(true)
   const [maxOutputTokensValue, setMaxOutputTokensValue] = useState('')
   const [presencePenaltyValue, setPresencePenaltyValue] = useState('')
   const [frequencyPenaltyValue, setFrequencyPenaltyValue] = useState('')
@@ -57,8 +74,16 @@ export function ModelParametersModal({
    * Keep form fields aligned with the selected model preset.
    */
   useEffect(() => {
+    setContextWindowValue(model?.contextWindowTokens?.toString() ?? '')
     setTemperatureValue(model?.temperature?.toString() ?? '')
     setTopPValue(model?.topP?.toString() ?? '')
+    setTopKValue(model?.topK?.toString() ?? '')
+    setRepeatPenaltyValue(model?.repeatPenalty?.toString() ?? '')
+    setGpuLayersValue(model?.gpuLayers?.toString() ?? '')
+    setThreadsValue(model?.threads?.toString() ?? '')
+    setBatchSizeValue(model?.batchSize?.toString() ?? '')
+    setMicroBatchSizeValue(model?.microBatchSize?.toString() ?? '')
+    setFlashAttentionEnabled(model?.flashAttention ?? true)
     setMaxOutputTokensValue(model?.maxOutputTokens?.toString() ?? '')
     setPresencePenaltyValue(model?.presencePenalty?.toString() ?? '')
     setFrequencyPenaltyValue(model?.frequencyPenalty?.toString() ?? '')
@@ -84,8 +109,16 @@ export function ModelParametersModal({
     }
 
     await onSaveParameters(model.slug, {
+      contextWindowTokens: parseOptionalNumber(contextWindowValue),
       temperature: parseOptionalNumber(temperatureValue),
       topP: parseOptionalNumber(topPValue),
+      topK: parseOptionalNumber(topKValue),
+      repeatPenalty: parseOptionalNumber(repeatPenaltyValue),
+      gpuLayers: parseOptionalNumber(gpuLayersValue),
+      threads: parseOptionalNumber(threadsValue),
+      batchSize: parseOptionalNumber(batchSizeValue),
+      microBatchSize: parseOptionalNumber(microBatchSizeValue),
+      flashAttention: flashAttentionEnabled,
       maxOutputTokens: parseOptionalNumber(maxOutputTokensValue),
       presencePenalty: parseOptionalNumber(presencePenaltyValue),
       frequencyPenalty: parseOptionalNumber(frequencyPenaltyValue),
@@ -113,10 +146,20 @@ export function ModelParametersModal({
         {model ? (
           <>
             <div className="model-parameters__intro">
-              These settings apply to future chat requests for <strong>{model.name}</strong> and do not reload the model.
+              These settings are saved per model for <strong>{model.name}</strong>. Local llama.cpp load settings are reused the next time the model is started.
             </div>
 
             <div className="model-parameters__grid">
+              <ParameterField
+                id="model-parameters-context"
+                label="Context Length"
+                hint="Total context budget saved for this model."
+                value={contextWindowValue}
+                onChange={setContextWindowValue}
+                min="1"
+                step="1"
+                disabled={isBusy}
+              />
               <ParameterField
                 id="model-parameters-temperature"
                 label="Temperature"
@@ -137,6 +180,27 @@ export function ModelParametersModal({
                 min="0"
                 max="1"
                 step="0.01"
+                disabled={isBusy}
+              />
+              <ParameterField
+                id="model-parameters-top-k"
+                label="Top K"
+                hint="Limits token sampling to the highest-probability candidates."
+                value={topKValue}
+                onChange={setTopKValue}
+                min="0"
+                step="1"
+                disabled={isBusy}
+              />
+              <ParameterField
+                id="model-parameters-repeat-penalty"
+                label="Repeat Penalty"
+                hint="Discourages repeating the same text."
+                value={repeatPenaltyValue}
+                onChange={setRepeatPenaltyValue}
+                min="0"
+                max="5"
+                step="0.05"
                 disabled={isBusy}
               />
               <ParameterField
@@ -171,6 +235,68 @@ export function ModelParametersModal({
                 step="0.1"
                 disabled={isBusy}
               />
+              {isLocalModel ? (
+                <>
+                  <ParameterField
+                    id="model-parameters-gpu-layers"
+                    label="GPU Layers"
+                    hint="Saved llama.cpp GPU offload layer count. 999 means try to offload as much as possible."
+                    value={gpuLayersValue}
+                    onChange={setGpuLayersValue}
+                    min="0"
+                    step="1"
+                    disabled={isBusy}
+                  />
+                  <ParameterField
+                    id="model-parameters-threads"
+                    label="Threads"
+                    hint="CPU threads used by llama.cpp when loading this model."
+                    value={threadsValue}
+                    onChange={setThreadsValue}
+                    min="1"
+                    step="1"
+                    disabled={isBusy}
+                  />
+                  <ParameterField
+                    id="model-parameters-batch-size"
+                    label="Batch Size"
+                    hint="Prompt processing batch size used by llama.cpp."
+                    value={batchSizeValue}
+                    onChange={setBatchSizeValue}
+                    min="1"
+                    step="1"
+                    disabled={isBusy}
+                  />
+                  <ParameterField
+                    id="model-parameters-micro-batch-size"
+                    label="Micro-Batch Size"
+                    hint="Smaller inner batch used by llama.cpp to balance memory use."
+                    value={microBatchSizeValue}
+                    onChange={setMicroBatchSizeValue}
+                    min="1"
+                    step="1"
+                    disabled={isBusy}
+                  />
+                  <div className="model-parameters__field">
+                    <label className="model-parameters__label" htmlFor="model-parameters-flash-attn">
+                      Flash Attention
+                    </label>
+                    <label className="model-parameters__checkbox">
+                      <input
+                        id="model-parameters-flash-attn"
+                        type="checkbox"
+                        checked={flashAttentionEnabled}
+                        onChange={(event) => setFlashAttentionEnabled(event.target.checked)}
+                        disabled={isBusy}
+                      />
+                      <span>Enable flash attention for this local model</span>
+                    </label>
+                    <p className="model-parameters__field-hint">
+                      Disable this if your GPU/backend has compatibility issues.
+                    </p>
+                  </div>
+                </>
+              ) : null}
             </div>
 
             <div className="model-parameters__footer">

@@ -100,10 +100,23 @@
   gap: var(--space-4);
 }
 
+.settings-modal__split-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
 .settings-modal__field {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+.settings-modal__inline-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
 }
 
 .settings-modal__field-row {
@@ -303,6 +316,50 @@
   font-size: var(--font-size-label);
 }
 
+.settings-modal__download-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+}
+
+.settings-modal__hardware-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+}
+
+.settings-modal__hardware-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.settings-modal__hardware-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-modal__hardware-item strong {
+  font-size: var(--font-size-caption);
+  color: var(--text-color-secondary);
+}
+
+.settings-modal__hardware-item span {
+  font-size: var(--font-size-label);
+  color: var(--text-color-primary);
+  word-break: break-word;
+}
+
 .settings-modal__footer {
   display: flex;
   align-items: center;
@@ -369,6 +426,10 @@
     grid-template-columns: 1fr;
   }
 
+  .settings-modal__split-grid {
+    grid-template-columns: 1fr;
+  }
+
   .settings-modal__field-row {
     align-items: flex-start;
     flex-direction: column;
@@ -394,5 +455,14 @@
 
   .settings-modal__footer-btn {
     flex: 1;
+  }
+
+  .settings-modal__download-option {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-modal__hardware-grid {
+    grid-template-columns: 1fr;
   }
 }

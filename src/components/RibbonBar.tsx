@@ -95,7 +95,7 @@ export function RibbonBar({
           className="ribbon-nav__tab"
           onClick={onOpenModelLoader}
           disabled={!canLoadModel}
-          title={canLoadModel ? 'Load a model into text-generation-webui' : 'Model loading is available for text-generation-webui only'}
+          title={canLoadModel ? 'Load a model into the active runtime' : 'Select a provider that supports explicit model loading'}
         >
           <span className="ribbon-nav__tab-icon" aria-hidden="true"><SparklesIcon /></span>
           <span>Load Model</span>

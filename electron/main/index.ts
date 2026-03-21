@@ -13,9 +13,11 @@
  *   electron/main/defaults/servers.json + models.json
  */
 
-import { app, BrowserWindow, ipcMain, screen, shell } from 'electron'
-import { basename, join }                    from 'path'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs'
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_process'
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
+import { cpus, totalmem } from 'os'
+import { basename, dirname, extname, join, relative } from 'path'
 
 import type {
   AppSettings,
@@ -26,10 +28,16 @@ import type {
   CampaignSummary,
   ChatTextSize,
   CharacterProfile,
-  ServerProfile,
+  HardwareGpuInfo,
+  HardwareInfo,
+  HuggingFaceModelFile,
+  LocalRuntimeStatus,
+  ModelDownloadProgress,
   ModelPreset,
-  Session,
   ChatMessage,
+  ServerKind,
+  ServerProfile,
+  Session,
   TokenUsage,
   ThemeDefinition,
   WindowControlsState,
@@ -45,9 +53,31 @@ const DEFAULT_WINDOW_HEIGHT = 800
 const MIN_WINDOW_WIDTH = 800
 const MIN_WINDOW_HEIGHT = 600
 const MAX_AI_DEBUG_ENTRIES = 200
+const LOCAL_LLAMACPP_SERVER_ID = 'llama-cpp-local'
+const LOCAL_LLAMACPP_DEFAULT_HOST = '127.0.0.1'
+const LOCAL_LLAMACPP_DEFAULT_PORT = 3939
+const MODEL_SCAN_EXTENSIONS = new Set(['.gguf'])
 
 /** In-memory rolling log of AI transport debug events. */
 const aiDebugLog: AiDebugEntry[] = []
+
+/** Last hardware scan cached for reuse across renderer requests. */
+let cachedHardwareInfo: HardwareInfo | null = null
+
+/** Managed local llama.cpp server child process, when running. */
+let localRuntimeProcess: ChildProcessWithoutNullStreams | null = null
+
+/** Current managed local runtime status pushed to the renderer. */
+let localRuntimeStatus: LocalRuntimeStatus = {
+  state: 'stopped',
+  serverId: LOCAL_LLAMACPP_SERVER_ID,
+  modelSlug: null,
+  modelPath: null,
+  pid: null,
+  url: `http://${LOCAL_LLAMACPP_DEFAULT_HOST}:${LOCAL_LLAMACPP_DEFAULT_PORT}/v1`,
+  lastError: null,
+  startedAt: null,
+}
 
 /**
  * Persisted BrowserWindow placement and display state.
@@ -169,32 +199,178 @@ function broadcastWindowState(win: BrowserWindow): void {
 }
 
 /**
+ * Broadcast an IPC event to every open application window.
+ *
+ * @param channel - IPC channel name to publish.
+ * @param args - Serializable payload arguments to send.
+ */
+function broadcastToAllWindows(channel: string, ...args: unknown[]): void {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) {
+      win.webContents.send(channel, ...args)
+    }
+  })
+}
+
+/**
+ * Return the default writable models directory requested by the app.
+ *
+ * Defaults to a `models` folder inside the application directory rather than
+ * Electron's userData/AppData tree.
+ *
+ * @returns Absolute path to the default local model storage folder.
+ */
+function defaultLocalModelsDirectory(): string {
+  return app.isPackaged
+    ? join(dirname(app.getPath('exe')), 'models')
+    : join(app.getAppPath(), 'models')
+}
+
+/**
+ * Infer the provider kind for a partially persisted server profile.
+ *
+ * @param server - Raw server candidate loaded from disk.
+ * @returns Concrete provider kind for the server.
+ */
+function inferServerKind(server: Partial<ServerProfile> | null | undefined): ServerKind {
+  if (server?.kind === 'lmstudio' ||
+      server?.kind === 'text-generation-webui' ||
+      server?.kind === 'openai-compatible' ||
+      server?.kind === 'llama.cpp') {
+    return server.kind
+  }
+
+  const normalizedId = typeof server?.id === 'string' ? server.id.trim().toLowerCase() : ''
+  const normalizedName = typeof server?.name === 'string' ? server.name.trim().toLowerCase() : ''
+  if (normalizedId === LOCAL_LLAMACPP_SERVER_ID || normalizedName === 'local llama.cpp') {
+    return 'llama.cpp'
+  }
+  if (normalizedId === 'lmstudio-default' || normalizedName === 'lm studio') {
+    return 'lmstudio'
+  }
+  if (normalizedId === 'textgen-webui-default' || normalizedName === 'text-generation-webui') {
+    return 'text-generation-webui'
+  }
+
+  return 'openai-compatible'
+}
+
+/**
+ * Build the local base URL for a normalized llama.cpp server profile.
+ *
+ * @param server - Server profile whose host/port should be translated.
+ * @returns OpenAI-compatible base URL for the managed local runtime.
+ */
+function buildLocalServerBaseUrl(server: Pick<ServerProfile, 'host' | 'port'>): string {
+  const host = typeof server.host === 'string' && server.host.trim().length > 0
+    ? server.host.trim()
+    : LOCAL_LLAMACPP_DEFAULT_HOST
+  const port = typeof server.port === 'number' && Number.isFinite(server.port) && server.port > 0
+    ? Math.floor(server.port)
+    : LOCAL_LLAMACPP_DEFAULT_PORT
+
+  return `http://${host}:${port}/v1`
+}
+
+/**
+ * Normalize a persisted server profile so all required provider-specific
+ * fields exist and invalid legacy values are corrected.
+ *
+ * @param server - Raw server candidate loaded from disk.
+ * @returns Fully normalized server profile.
+ */
+function normalizeServer(server: Partial<ServerProfile>): ServerProfile {
+  const kind = inferServerKind(server)
+  const normalizedServer: ServerProfile = {
+    id: typeof server.id === 'string' && server.id.length > 0 ? server.id : uid(),
+    name: typeof server.name === 'string' && server.name.trim().length > 0 ? server.name.trim() : 'AI Server',
+    kind,
+    baseUrl: typeof server.baseUrl === 'string' && server.baseUrl.trim().length > 0
+      ? server.baseUrl.trim()
+      : 'http://localhost:1234/v1',
+    apiKey: typeof server.apiKey === 'string' && server.apiKey.length > 0
+      ? server.apiKey
+      : 'local',
+  }
+
+  if (kind === 'llama.cpp') {
+    normalizedServer.host =
+      typeof server.host === 'string' && server.host.trim().length > 0
+        ? server.host.trim()
+        : LOCAL_LLAMACPP_DEFAULT_HOST
+    normalizedServer.port =
+      typeof server.port === 'number' && Number.isFinite(server.port) && server.port > 0
+        ? Math.floor(server.port)
+        : LOCAL_LLAMACPP_DEFAULT_PORT
+    normalizedServer.modelsDirectory =
+      typeof server.modelsDirectory === 'string' && server.modelsDirectory.trim().length > 0
+        ? server.modelsDirectory.trim()
+        : defaultLocalModelsDirectory()
+    normalizedServer.executablePath =
+      typeof server.executablePath === 'string' && server.executablePath.trim().length > 0
+        ? server.executablePath.trim()
+        : null
+    normalizedServer.huggingFaceToken =
+      typeof server.huggingFaceToken === 'string'
+        ? server.huggingFaceToken
+        : ''
+    normalizedServer.baseUrl = buildLocalServerBaseUrl(normalizedServer)
+    normalizedServer.apiKey = normalizedServer.apiKey || 'llama.cpp'
+  }
+
+  return normalizedServer
+}
+
+/**
+ * Return the first configured local llama.cpp server profile, if present.
+ *
+ * @param settings - App settings to inspect.
+ * @returns Local server profile or null when none is configured.
+ */
+function getLocalServer(settings: AppSettings): ServerProfile | null {
+  return settings.servers.find((server) => server.kind === 'llama.cpp') ?? null
+}
+
+/**
  * Normalize settings loaded from disk so newer required fields always exist.
  *
  * @param raw - Parsed settings candidate from disk.
  * @returns A fully populated AppSettings object.
  */
 function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSettings {
-  const persistedServers = Array.isArray(raw?.servers) ? raw.servers : []
+  const persistedServers = Array.isArray(raw?.servers) ? raw.servers.map(normalizeServer) : []
   const persistedModels = Array.isArray(raw?.models) ? raw.models : []
   const mergedServers = [
     ...persistedServers,
     ...defaultServers.filter(
       (defaultServer) => !persistedServers.some((server) => server.id === defaultServer.id),
     ),
-  ]
+  ].map(normalizeServer)
   const mergedModels = [
     ...persistedModels,
     ...defaultModels.filter(
       (defaultModel) => !persistedModels.some((model) => model.id === defaultModel.id),
     ),
   ]
+  const activeServerId = mergedServers.some((server) => server.id === raw?.activeServerId)
+    ? raw?.activeServerId ?? null
+    : mergedServers[0]?.id ?? null
+  const activeServer = mergedServers.find((server) => server.id === activeServerId) ?? null
+  const activeModelSlug = activeServer
+    ? (
+      mergedModels.some((model) =>
+        model.serverId === activeServer.id && model.slug === raw?.activeModelSlug,
+      )
+        ? raw?.activeModelSlug ?? null
+        : (mergedModels.find((model) => model.serverId === activeServer.id)?.slug ?? null)
+    )
+    : null
 
   return {
     servers: mergedServers,
     models: mergedModels,
-    activeServerId: raw?.activeServerId ?? mergedServers[0]?.id ?? null,
-    activeModelSlug: raw?.activeModelSlug ?? mergedModels[0]?.slug ?? null,
+    activeServerId,
+    activeModelSlug,
     systemPrompt: typeof raw?.systemPrompt === 'string'
       ? raw.systemPrompt
       : 'You are a roleplaying agent responding naturally to the user.',
@@ -274,6 +450,230 @@ function loadModelProfile(serverId: string, modelSlug: string): Partial<ModelPre
 }
 
 /**
+ * Ensure the configured local llama.cpp model directory exists.
+ *
+ * @param server - Local server profile whose directory should be prepared.
+ * @returns Absolute local models directory path.
+ */
+function ensureLocalModelsDirectory(server: ServerProfile): string {
+  const dir = server.modelsDirectory?.trim() || defaultLocalModelsDirectory()
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  return dir
+}
+
+/**
+ * Build a deterministic model slug from a local GGUF path.
+ *
+ * @param server - Local server profile that owns the file.
+ * @param filePath - Absolute GGUF file path.
+ * @returns Stable slash-delimited slug relative to the configured models root.
+ */
+function buildLocalModelSlug(server: ServerProfile, filePath: string): string {
+  const modelsDirectory = ensureLocalModelsDirectory(server)
+  const relativePath = relative(modelsDirectory, filePath).replace(/\\/g, '/')
+  return relativePath.length > 0 ? relativePath : basename(filePath)
+}
+
+/**
+ * Parse lightweight model metadata from a GGUF filename.
+ *
+ * @param input - File name or repository path to inspect.
+ * @returns Parsed parameter-size and quantization hints.
+ */
+function parseModelMetadataHints(input: string): {
+  parameterSizeBillions?: number
+  quantization?: string
+} {
+  const normalized = input.toUpperCase()
+  const quantizationMatch = normalized.match(/(?:IQ\d(?:_[A-Z0-9]+)?|Q\d(?:_[A-Z0-9]+)?|BF16|F16|FP16|F32)/)
+  const parameterMatch = normalized.match(/(\d+(?:\.\d+)?)B\b/)
+
+  return {
+    parameterSizeBillions: parameterMatch ? Number(parameterMatch[1]) : undefined,
+    quantization: quantizationMatch?.[0],
+  }
+}
+
+/**
+ * Walk a directory tree and collect GGUF files.
+ *
+ * @param root - Directory to scan recursively.
+ * @returns Absolute GGUF file paths found under the directory.
+ */
+function collectLocalModelFiles(root: string): string[] {
+  if (!existsSync(root)) {
+    return []
+  }
+
+  const entries = readdirSync(root, { withFileTypes: true })
+  const results: string[] = []
+
+  entries.forEach((entry) => {
+    const fullPath = join(root, entry.name)
+    if (entry.isDirectory()) {
+      results.push(...collectLocalModelFiles(fullPath))
+      return
+    }
+
+    if (entry.isFile() && MODEL_SCAN_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+      results.push(fullPath)
+    }
+  })
+
+  return results
+}
+
+/**
+ * Apply sane local llama.cpp defaults to a model preset.
+ *
+ * @param model - Base model preset.
+ * @returns Model preset with concrete local-runtime defaults filled in.
+ */
+function applyLocalModelDefaults(model: ModelPreset): ModelPreset {
+  return {
+    ...model,
+    source: model.source ?? (model.localPath ? 'local-file' : 'remote'),
+    contextWindowTokens:
+      typeof model.contextWindowTokens === 'number' && model.contextWindowTokens > 0
+        ? Math.floor(model.contextWindowTokens)
+        : 8192,
+    gpuLayers:
+      typeof model.gpuLayers === 'number' && Number.isFinite(model.gpuLayers) && model.gpuLayers >= 0
+        ? Math.floor(model.gpuLayers)
+        : 999,
+    threads:
+      typeof model.threads === 'number' && Number.isFinite(model.threads) && model.threads > 0
+        ? Math.floor(model.threads)
+        : Math.max(1, cpus().length),
+    batchSize:
+      typeof model.batchSize === 'number' && Number.isFinite(model.batchSize) && model.batchSize > 0
+        ? Math.floor(model.batchSize)
+        : 512,
+    microBatchSize:
+      typeof model.microBatchSize === 'number' && Number.isFinite(model.microBatchSize) && model.microBatchSize > 0
+        ? Math.floor(model.microBatchSize)
+        : 128,
+    flashAttention: typeof model.flashAttention === 'boolean' ? model.flashAttention : true,
+    temperature:
+      typeof model.temperature === 'number' && Number.isFinite(model.temperature) && model.temperature >= 0
+        ? model.temperature
+        : 0.7,
+    topP:
+      typeof model.topP === 'number' && Number.isFinite(model.topP) && model.topP >= 0 && model.topP <= 1
+        ? model.topP
+        : 0.95,
+    topK:
+      typeof model.topK === 'number' && Number.isFinite(model.topK) && model.topK >= 0
+        ? Math.floor(model.topK)
+        : 40,
+    repeatPenalty:
+      typeof model.repeatPenalty === 'number' && Number.isFinite(model.repeatPenalty) && model.repeatPenalty >= 0
+        ? Number(model.repeatPenalty.toFixed(2))
+        : 1.1,
+    seed:
+      typeof model.seed === 'number' && Number.isFinite(model.seed)
+        ? Math.floor(model.seed)
+        : undefined,
+    maxOutputTokens:
+      typeof model.maxOutputTokens === 'number' && Number.isFinite(model.maxOutputTokens) && model.maxOutputTokens > 0
+        ? Math.floor(model.maxOutputTokens)
+        : 512,
+  }
+}
+
+/**
+ * Build a normalized local model preset from a GGUF file on disk.
+ *
+ * @param server - Local server profile that owns the file.
+ * @param filePath - Absolute GGUF path.
+ * @param existingModel - Existing preset metadata to merge, if any.
+ * @returns Fully normalized local model preset.
+ */
+function buildLocalModelPreset(
+  server: ServerProfile,
+  filePath: string,
+  existingModel?: ModelPreset,
+): ModelPreset {
+  const fileName = basename(filePath)
+  const stats = statSync(filePath)
+  const parsed = parseModelMetadataHints(existingModel?.huggingFaceFile ?? fileName)
+  const slug = buildLocalModelSlug(server, filePath)
+
+  return applyLocalModelDefaults(applyStoredModelProfile({
+    ...(existingModel ?? {}),
+    id: existingModel?.id ?? `${server.id}:${slug}`,
+    serverId: server.id,
+    name: existingModel?.name ?? fileName.replace(/\.gguf$/i, ''),
+    slug,
+    source: existingModel?.source ?? (existingModel?.huggingFaceRepo ? 'huggingface' : 'local-file'),
+    localPath: filePath,
+    fileSizeBytes: stats.size,
+    parameterSizeBillions: existingModel?.parameterSizeBillions ?? parsed.parameterSizeBillions,
+    quantization: existingModel?.quantization ?? parsed.quantization,
+  }))
+}
+
+/**
+ * Scan a local llama.cpp models directory and merge discovered GGUF files into
+ * the persisted settings model catalog.
+ *
+ * @param settings - Settings object to reconcile in memory.
+ * @returns Updated settings with local GGUF files reflected in `models`.
+ */
+function synchronizeLocalModels(settings: AppSettings): AppSettings {
+  const localServers = settings.servers.filter((server) => server.kind === 'llama.cpp')
+  if (localServers.length === 0) {
+    return settings
+  }
+
+  const nonLocalModels = settings.models.filter((model) =>
+    !localServers.some((server) => server.id === model.serverId),
+  )
+  const nextLocalModels: ModelPreset[] = []
+
+  localServers.forEach((server) => {
+    const existingModels = settings.models.filter((model) => model.serverId === server.id)
+    const byLocalPath = new Map(
+      existingModels
+        .filter((model): model is ModelPreset & { localPath: string } => typeof model.localPath === 'string' && model.localPath.length > 0)
+        .map((model) => [model.localPath, model] as const),
+    )
+    const bySlug = new Map(existingModels.map((model) => [model.slug, model] as const))
+    const files = collectLocalModelFiles(ensureLocalModelsDirectory(server))
+    files.forEach((filePath) => {
+      const existingModel = byLocalPath.get(filePath) ?? bySlug.get(buildLocalModelSlug(server, filePath))
+      nextLocalModels.push(buildLocalModelPreset(server, filePath, existingModel))
+    })
+  })
+
+  return {
+    ...settings,
+    models: [...nonLocalModels, ...nextLocalModels],
+    activeModelSlug:
+      settings.activeServerId && settings.servers.some((server) => server.id === settings.activeServerId && server.kind === 'llama.cpp')
+        ? (
+          nextLocalModels.some((model) => model.serverId === settings.activeServerId && model.slug === settings.activeModelSlug)
+            ? settings.activeModelSlug
+            : (nextLocalModels.find((model) => model.serverId === settings.activeServerId)?.slug ?? null)
+        )
+        : settings.activeModelSlug,
+  }
+}
+
+/**
+ * Determine whether a model preset belongs to the managed local llama.cpp flow.
+ *
+ * @param model - Model preset to inspect.
+ * @returns True when the preset should use local runtime defaults.
+ */
+function isLocalModelPreset(model: ModelPreset): boolean {
+  return model.serverId === LOCAL_LLAMACPP_SERVER_ID || typeof model.localPath === 'string'
+}
+
+/**
  * Build fallback runtime parameters for a model when the server does not
  * report explicit defaults.
  *
@@ -281,6 +681,10 @@ function loadModelProfile(serverId: string, modelSlug: string): Partial<ModelPre
  * @returns Model preset with concrete runtime defaults filled in.
  */
 function applyDefaultModelProfile(model: ModelPreset): ModelPreset {
+  if (isLocalModelPreset(model)) {
+    return applyLocalModelDefaults(model)
+  }
+
   const fallbackMaxOutputTokens =
     typeof model.contextWindowTokens === 'number' && model.contextWindowTokens > 0
       ? Math.max(1, Math.min(512, Math.floor(model.contextWindowTokens / 4)))
@@ -343,6 +747,18 @@ function applyStoredModelProfile(model: ModelPreset): ModelPreset {
       typeof stored.topP === 'number' && Number.isFinite(stored.topP) && stored.topP >= 0 && stored.topP <= 1
         ? stored.topP
         : model.topP,
+    topK:
+      typeof stored.topK === 'number' && Number.isFinite(stored.topK) && stored.topK >= 0
+        ? Math.floor(stored.topK)
+        : model.topK,
+    repeatPenalty:
+      typeof stored.repeatPenalty === 'number' && Number.isFinite(stored.repeatPenalty) && stored.repeatPenalty >= 0
+        ? Number(stored.repeatPenalty.toFixed(2))
+        : model.repeatPenalty,
+    seed:
+      typeof stored.seed === 'number' && Number.isFinite(stored.seed)
+        ? Math.floor(stored.seed)
+        : model.seed,
     maxOutputTokens:
       typeof stored.maxOutputTokens === 'number' && Number.isFinite(stored.maxOutputTokens) && stored.maxOutputTokens > 0
         ? Math.floor(stored.maxOutputTokens)
@@ -361,6 +777,53 @@ function applyStoredModelProfile(model: ModelPreset): ModelPreset {
       stored.frequencyPenalty <= 2
         ? stored.frequencyPenalty
         : model.frequencyPenalty,
+    gpuLayers:
+      typeof stored.gpuLayers === 'number' && Number.isFinite(stored.gpuLayers) && stored.gpuLayers >= 0
+        ? Math.floor(stored.gpuLayers)
+        : model.gpuLayers,
+    threads:
+      typeof stored.threads === 'number' && Number.isFinite(stored.threads) && stored.threads > 0
+        ? Math.floor(stored.threads)
+        : model.threads,
+    batchSize:
+      typeof stored.batchSize === 'number' && Number.isFinite(stored.batchSize) && stored.batchSize > 0
+        ? Math.floor(stored.batchSize)
+        : model.batchSize,
+    microBatchSize:
+      typeof stored.microBatchSize === 'number' && Number.isFinite(stored.microBatchSize) && stored.microBatchSize > 0
+        ? Math.floor(stored.microBatchSize)
+        : model.microBatchSize,
+    flashAttention:
+      typeof stored.flashAttention === 'boolean'
+        ? stored.flashAttention
+        : model.flashAttention,
+    source: stored.source ?? model.source,
+    localPath:
+      typeof stored.localPath === 'string' && stored.localPath.length > 0
+        ? stored.localPath
+        : model.localPath,
+    huggingFaceRepo:
+      typeof stored.huggingFaceRepo === 'string' && stored.huggingFaceRepo.length > 0
+        ? stored.huggingFaceRepo
+        : model.huggingFaceRepo,
+    huggingFaceFile:
+      typeof stored.huggingFaceFile === 'string' && stored.huggingFaceFile.length > 0
+        ? stored.huggingFaceFile
+        : model.huggingFaceFile,
+    fileSizeBytes:
+      typeof stored.fileSizeBytes === 'number' && Number.isFinite(stored.fileSizeBytes) && stored.fileSizeBytes > 0
+        ? stored.fileSizeBytes
+        : model.fileSizeBytes,
+    parameterSizeBillions:
+      typeof stored.parameterSizeBillions === 'number' &&
+      Number.isFinite(stored.parameterSizeBillions) &&
+      stored.parameterSizeBillions > 0
+        ? stored.parameterSizeBillions
+        : model.parameterSizeBillions,
+    quantization:
+      typeof stored.quantization === 'string' && stored.quantization.length > 0
+        ? stored.quantization
+        : model.quantization,
   })
 }
 
@@ -1274,25 +1737,31 @@ function settingsPath(): string {
 /**
  * Load settings from disk, falling back to built-in defaults on first run
  * or if the file is corrupted.
+ *
+ * @param options - Optional behavior flags controlling hydration work.
+ * @returns Fully normalized app settings.
  */
-function loadSettings(): AppSettings {
+function loadSettings(options?: { syncLocalModels?: boolean }): AppSettings {
+  const shouldSyncLocalModels = options?.syncLocalModels ?? true
   const path = settingsPath()
   if (existsSync(path)) {
     try {
       const normalized = normalizeSettings(JSON.parse(readFileSync(path, 'utf-8')) as Partial<AppSettings>)
-      return {
+      const hydrated = {
         ...normalized,
         models: normalized.models.map((model) => applyStoredModelProfile(model)),
       }
+      return shouldSyncLocalModels ? synchronizeLocalModels(hydrated) : hydrated
     } catch {
       // Corrupted — fall through to defaults
     }
   }
   const normalized = normalizeSettings(undefined)
-  return {
+  const hydrated = {
     ...normalized,
     models: normalized.models.map((model) => applyStoredModelProfile(model)),
   }
+  return shouldSyncLocalModels ? synchronizeLocalModels(hydrated) : hydrated
 }
 
 /**
@@ -1300,12 +1769,530 @@ function loadSettings(): AppSettings {
  * @param settings - The full settings object to save.
  */
 function saveSettings(settings: AppSettings): void {
+  const normalizedSettings = synchronizeLocalModels(normalizeSettings(settings))
   const dir = app.getPath('userData')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(settingsPath(), JSON.stringify(settings, null, 2), 'utf-8')
-  settings.models.forEach((model) => {
+  writeFileSync(settingsPath(), JSON.stringify(normalizedSettings, null, 2), 'utf-8')
+  normalizedSettings.models.forEach((model) => {
     saveModelProfile(model)
   })
+}
+
+/**
+ * Classify a GPU vendor from a best-effort device name.
+ *
+ * @param name - GPU/device name to inspect.
+ * @returns Vendor bucket used for fit guidance and backend suggestions.
+ */
+function classifyGpuVendor(name: string): HardwareGpuInfo['vendor'] {
+  const normalized = name.trim().toLowerCase()
+  if (normalized.includes('nvidia') || normalized.includes('geforce') || normalized.includes('quadro')) {
+    return 'nvidia'
+  }
+  if (normalized.includes('amd') || normalized.includes('radeon')) {
+    return 'amd'
+  }
+  if (normalized.includes('intel') || normalized.includes('arc')) {
+    return 'intel'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * Detect the host hardware inventory used for local llama.cpp guidance.
+ *
+ * @returns Hardware summary cached for subsequent requests.
+ */
+function detectHardwareInfo(): HardwareInfo {
+  if (cachedHardwareInfo) {
+    return cachedHardwareInfo
+  }
+
+  const gpuEntries: HardwareGpuInfo[] = []
+
+  if (process.platform === 'win32') {
+    const command = [
+      '$devices = Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion',
+      'if ($devices) { $devices | ConvertTo-Json -Compress } else { "[]" }',
+    ].join('; ')
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', command], {
+      encoding: 'utf-8',
+      windowsHide: true,
+    })
+
+    if (result.status === 0 && typeof result.stdout === 'string' && result.stdout.trim().length > 0) {
+      try {
+        const parsed = JSON.parse(result.stdout.trim()) as
+          | Array<{ Name?: string, AdapterRAM?: number | string, DriverVersion?: string }>
+          | { Name?: string, AdapterRAM?: number | string, DriverVersion?: string }
+        const entries = Array.isArray(parsed) ? parsed : [parsed]
+        entries.forEach((entry) => {
+          if (typeof entry.Name !== 'string' || entry.Name.trim().length === 0) {
+            return
+          }
+
+          const rawRam = typeof entry.AdapterRAM === 'string'
+            ? Number(entry.AdapterRAM)
+            : entry.AdapterRAM
+          gpuEntries.push({
+            name: entry.Name.trim(),
+            vendor: classifyGpuVendor(entry.Name),
+            vramBytes:
+              typeof rawRam === 'number' && Number.isFinite(rawRam) && rawRam > 0
+                ? rawRam
+                : null,
+            driverVersion: typeof entry.DriverVersion === 'string' && entry.DriverVersion.trim().length > 0
+              ? entry.DriverVersion.trim()
+              : null,
+          })
+        })
+      } catch {
+        // Ignore parse errors and fall back to CPU-only detection.
+      }
+    }
+  }
+
+  const recommendedBackend: HardwareInfo['recommendedBackend'] =
+    process.platform === 'darwin'
+      ? 'metal'
+      : gpuEntries.some((gpu) => gpu.vendor === 'nvidia')
+        ? 'cuda'
+        : gpuEntries.some((gpu) => gpu.vendor === 'amd' || gpu.vendor === 'intel')
+          ? 'vulkan'
+          : 'cpu'
+
+  cachedHardwareInfo = {
+    detectedAt: Date.now(),
+    platform: process.platform,
+    cpuModel: cpus()[0]?.model ?? 'Unknown CPU',
+    logicalCpuCount: cpus().length,
+    totalMemoryBytes: totalmem(),
+    gpus: gpuEntries,
+    recommendedBackend,
+  }
+
+  return cachedHardwareInfo
+}
+
+/**
+ * Detect whether a server profile should be treated as the managed local
+ * llama.cpp runtime.
+ *
+ * @param server - Server profile to inspect.
+ * @returns True when the server is the local runtime provider.
+ */
+function isLocalLlamaServer(server: ServerProfile): boolean {
+  return server.kind === 'llama.cpp'
+}
+
+/**
+ * Find a usable llama-server executable path for a local server profile.
+ *
+ * @param server - Local server profile that may include an explicit path.
+ * @returns Absolute executable path when found, or null otherwise.
+ */
+function resolveLlamaExecutablePath(server: ServerProfile): string | null {
+  const explicitPath = typeof server.executablePath === 'string' && server.executablePath.trim().length > 0
+    ? server.executablePath.trim()
+    : null
+  const fileName = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
+  const candidates = [
+    explicitPath,
+    join(app.getAppPath(), fileName),
+    join(app.getAppPath(), 'bin', fileName),
+    join(dirname(app.getPath('exe')), fileName),
+    join(dirname(app.getPath('exe')), 'llama.cpp', fileName),
+  ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0)
+
+  const existingCandidate = candidates.find((candidate) => existsSync(candidate))
+  if (existingCandidate) {
+    return existingCandidate
+  }
+
+  const lookupCommand = process.platform === 'win32' ? 'where.exe' : 'which'
+  const lookup = spawnSync(lookupCommand, [fileName], {
+    encoding: 'utf-8',
+    windowsHide: true,
+  })
+  if (lookup.status === 0 && typeof lookup.stdout === 'string') {
+    const resolved = lookup.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0 && existsSync(line))
+
+    if (resolved) {
+      return resolved
+    }
+  }
+
+  return null
+}
+
+/**
+ * Push the latest managed local runtime state into every open renderer.
+ */
+function broadcastLocalRuntimeStatus(): void {
+  broadcastToAllWindows('llama:runtime:status', localRuntimeStatus)
+}
+
+/**
+ * Update and broadcast the managed local runtime status.
+ *
+ * @param nextStatus - Partial status fields to merge into the current state.
+ */
+function setLocalRuntimeStatus(nextStatus: Partial<LocalRuntimeStatus>): void {
+  localRuntimeStatus = {
+    ...localRuntimeStatus,
+    ...nextStatus,
+  }
+  broadcastLocalRuntimeStatus()
+}
+
+/**
+ * Stop the managed local llama.cpp server if it is running.
+ */
+function stopLocalRuntime(): void {
+  if (localRuntimeProcess && !localRuntimeProcess.killed) {
+    localRuntimeProcess.kill()
+  }
+  localRuntimeProcess = null
+  setLocalRuntimeStatus({
+    state: 'stopped',
+    modelSlug: null,
+    modelPath: null,
+    pid: null,
+    lastError: null,
+    startedAt: null,
+  })
+}
+
+/**
+ * Poll a local HTTP endpoint until it begins responding or the timeout expires.
+ *
+ * @param url - URL to test.
+ * @param timeoutMs - Maximum time to wait in milliseconds.
+ */
+async function waitForLocalRuntime(url: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let lastError: string | null = null
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, { method: 'GET' })
+      if (response.ok) {
+        return
+      }
+      lastError = `HTTP ${response.status}`
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+
+  throw new Error(lastError ? `llama.cpp did not start in time (${lastError}).` : 'llama.cpp did not start in time.')
+}
+
+/**
+ * Start the managed local llama.cpp server for the requested model.
+ *
+ * @param server - Local server profile that owns the runtime.
+ * @param model - Local model preset to load.
+ * @returns Updated runtime status after startup completes.
+ */
+async function startLocalRuntime(server: ServerProfile, model: ModelPreset): Promise<LocalRuntimeStatus> {
+  if (!model.localPath) {
+    throw new Error('The selected local model does not have a GGUF file path.')
+  }
+
+  if (!existsSync(model.localPath)) {
+    throw new Error('The selected GGUF file no longer exists on disk.')
+  }
+
+  const executablePath = resolveLlamaExecutablePath(server)
+  if (!executablePath) {
+    throw new Error('Could not find llama-server. Configure its executable path in Settings or add it to PATH.')
+  }
+
+  stopLocalRuntime()
+
+  const host = server.host?.trim() || LOCAL_LLAMACPP_DEFAULT_HOST
+  const port = typeof server.port === 'number' && Number.isFinite(server.port) && server.port > 0
+    ? Math.floor(server.port)
+    : LOCAL_LLAMACPP_DEFAULT_PORT
+  const runtimeUrl = buildLocalServerBaseUrl({ host, port })
+  const args = [
+    '--model', model.localPath,
+    '--host', host,
+    '--port', port.toString(),
+    '--ctx-size', (model.contextWindowTokens ?? 8192).toString(),
+    '--threads', (model.threads ?? Math.max(1, cpus().length)).toString(),
+    '--batch-size', (model.batchSize ?? 512).toString(),
+    '--ubatch-size', (model.microBatchSize ?? 128).toString(),
+    '--n-gpu-layers', (model.gpuLayers ?? 999).toString(),
+  ]
+
+  if (model.flashAttention !== false) {
+    args.push('--flash-attn')
+  }
+
+  const child = spawn(executablePath, args, {
+    windowsHide: true,
+    stdio: 'pipe',
+  })
+  localRuntimeProcess = child
+  setLocalRuntimeStatus({
+    state: 'starting',
+    serverId: server.id,
+    modelSlug: model.slug,
+    modelPath: model.localPath,
+    pid: child.pid ?? null,
+    url: runtimeUrl,
+    lastError: null,
+    startedAt: null,
+  })
+
+  let stderrBuffer = ''
+  child.stderr.on('data', (chunk: Buffer) => {
+    stderrBuffer += chunk.toString()
+    if (stderrBuffer.length > 4000) {
+      stderrBuffer = stderrBuffer.slice(stderrBuffer.length - 4000)
+    }
+  })
+
+  child.on('exit', (code, signal) => {
+    if (localRuntimeProcess !== child) {
+      return
+    }
+
+    const wasStarting = localRuntimeStatus.state === 'starting'
+    const lastError = code === 0 && signal === null
+      ? null
+      : (stderrBuffer.trim() || `llama.cpp exited with code ${code ?? 'unknown'}${signal ? ` (${signal})` : ''}.`)
+
+    localRuntimeProcess = null
+    setLocalRuntimeStatus({
+      state: wasStarting && lastError ? 'error' : 'stopped',
+      pid: null,
+      startedAt: null,
+      lastError,
+      modelSlug: wasStarting ? null : localRuntimeStatus.modelSlug,
+      modelPath: wasStarting ? null : localRuntimeStatus.modelPath,
+    })
+  })
+
+  await waitForLocalRuntime(`${runtimeUrl}/models`, 60_000)
+  setLocalRuntimeStatus({
+    state: 'running',
+    startedAt: Date.now(),
+    url: runtimeUrl,
+    lastError: null,
+  })
+
+  return localRuntimeStatus
+}
+
+/**
+ * Encode each path segment in a repository-relative Hugging Face file path.
+ *
+ * @param path - Raw repository-relative file path.
+ * @returns Safely encoded URL path.
+ */
+function encodeRepositoryPath(path: string): string {
+  return path
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+}
+
+/**
+ * Read the GGUF files available in a Hugging Face repository.
+ *
+ * @param repoId - Repository identifier like `bartowski/Some-GGUF`.
+ * @param token - Optional Hugging Face access token.
+ * @returns GGUF files with lightweight metadata hints.
+ */
+async function browseHuggingFaceRepo(repoId: string, token?: string): Promise<HuggingFaceModelFile[]> {
+  const trimmedRepoId = repoId.trim()
+  if (!trimmedRepoId) {
+    throw new Error('Enter a Hugging Face repository id before browsing files.')
+  }
+
+  const response = await fetch(`https://huggingface.co/api/models/${trimmedRepoId}`, {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+
+  if (!response.ok) {
+    throw new Error(`Hugging Face returned HTTP ${response.status}: ${await response.text()}`)
+  }
+
+  const json = await response.json() as {
+    siblings?: Array<{ rfilename?: string, size?: number }>
+  }
+
+  return (json.siblings ?? [])
+    .filter((file): file is { rfilename: string, size?: number } =>
+      typeof file.rfilename === 'string' && file.rfilename.toLowerCase().endsWith('.gguf'),
+    )
+    .map((file) => {
+      const parsed = parseModelMetadataHints(file.rfilename)
+      return {
+        path: file.rfilename,
+        name: basename(file.rfilename),
+        sizeBytes: typeof file.size === 'number' && Number.isFinite(file.size) && file.size > 0 ? file.size : null,
+        parameterSizeBillions: parsed.parameterSizeBillions ?? null,
+        quantization: parsed.quantization ?? null,
+      }
+    })
+}
+
+/**
+ * Push a model download progress update into every open renderer.
+ *
+ * @param progress - Progress payload to broadcast.
+ */
+function broadcastModelDownloadProgress(progress: ModelDownloadProgress): void {
+  broadcastToAllWindows('llama:model-download:progress', progress)
+}
+
+/**
+ * Download a GGUF model from Hugging Face into the configured local models directory.
+ *
+ * @param server - Local server profile owning the models directory.
+ * @param repoId - Hugging Face repository identifier.
+ * @param fileName - Repository-relative GGUF path.
+ * @returns Persisted local model preset describing the downloaded file.
+ */
+async function downloadHuggingFaceModel(
+  server: ServerProfile,
+  repoId: string,
+  fileName: string,
+): Promise<ModelPreset> {
+  const trimmedRepoId = repoId.trim()
+  const trimmedFileName = fileName.trim()
+  if (!trimmedRepoId || !trimmedFileName) {
+    throw new Error('Both the Hugging Face repository and file name are required.')
+  }
+
+  const modelsRoot = ensureLocalModelsDirectory(server)
+  const destinationPath = join(modelsRoot, ...trimmedRepoId.split('/'), ...trimmedFileName.split('/'))
+  const tempPath = `${destinationPath}.partial`
+  const downloadId = uid()
+  const headers = server.huggingFaceToken
+    ? { Authorization: `Bearer ${server.huggingFaceToken}` }
+    : undefined
+  const url = `https://huggingface.co/${trimmedRepoId}/resolve/main/${encodeRepositoryPath(trimmedFileName)}?download=true`
+
+  if (existsSync(destinationPath)) {
+    const settings = loadSettings({ syncLocalModels: false })
+    const existingModel = settings.models.find((model) =>
+      model.serverId === server.id && model.localPath === destinationPath,
+    )
+    return buildLocalModelPreset(server, destinationPath, existingModel)
+  }
+
+  mkdirSync(dirname(destinationPath), { recursive: true })
+  broadcastModelDownloadProgress({
+    downloadId,
+    serverId: server.id,
+    repoId: trimmedRepoId,
+    fileName: trimmedFileName,
+    destinationPath,
+    status: 'starting',
+    bytesDownloaded: 0,
+    totalBytes: null,
+    percent: null,
+    message: null,
+  })
+
+  const response = await fetch(url, { method: 'GET', headers })
+  if (!response.ok || !response.body) {
+    throw new Error(`Hugging Face returned HTTP ${response.status}: ${await response.text()}`)
+  }
+
+  const totalHeader = response.headers.get('content-length')
+  const totalBytes = totalHeader ? Number(totalHeader) : null
+  const writer = createWriteStream(tempPath)
+  const reader = response.body.getReader()
+  let bytesDownloaded = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+
+      if (value) {
+        bytesDownloaded += value.byteLength
+        writer.write(Buffer.from(value))
+        broadcastModelDownloadProgress({
+          downloadId,
+          serverId: server.id,
+          repoId: trimmedRepoId,
+          fileName: trimmedFileName,
+          destinationPath,
+          status: 'downloading',
+          bytesDownloaded,
+          totalBytes: totalBytes && Number.isFinite(totalBytes) ? totalBytes : null,
+          percent: totalBytes && Number.isFinite(totalBytes) && totalBytes > 0
+            ? Math.min(100, Number(((bytesDownloaded / totalBytes) * 100).toFixed(1)))
+            : null,
+          message: null,
+        })
+      }
+    }
+  } catch (error) {
+    writer.close()
+    if (existsSync(tempPath)) {
+      unlinkSync(tempPath)
+    }
+    broadcastModelDownloadProgress({
+      downloadId,
+      serverId: server.id,
+      repoId: trimmedRepoId,
+      fileName: trimmedFileName,
+      destinationPath,
+      status: 'error',
+      bytesDownloaded,
+      totalBytes: totalBytes && Number.isFinite(totalBytes) ? totalBytes : null,
+      percent: null,
+      message: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    writer.once('error', reject)
+    writer.end(resolve)
+  })
+  renameSync(tempPath, destinationPath)
+  broadcastModelDownloadProgress({
+    downloadId,
+    serverId: server.id,
+    repoId: trimmedRepoId,
+    fileName: trimmedFileName,
+    destinationPath,
+    status: 'completed',
+    bytesDownloaded,
+    totalBytes: totalBytes && Number.isFinite(totalBytes) ? totalBytes : bytesDownloaded,
+    percent: 100,
+    message: null,
+  })
+
+  const settings = loadSettings({ syncLocalModels: false })
+  const existingModel = settings.models.find((model) =>
+    model.serverId === server.id && model.localPath === destinationPath,
+  )
+  const downloadedModel = buildLocalModelPreset(server, destinationPath, existingModel)
+  downloadedModel.source = 'huggingface'
+  downloadedModel.huggingFaceRepo = trimmedRepoId
+  downloadedModel.huggingFaceFile = trimmedFileName
+  saveModelProfile(downloadedModel)
+
+  return downloadedModel
 }
 
 /**
@@ -1315,7 +2302,7 @@ function saveSettings(settings: AppSettings): void {
  * @returns True when the native LM Studio transport should be used.
  */
 function isLmStudioServer(server: ServerProfile): boolean {
-  return server.id === 'lmstudio-default' || server.name.trim().toLowerCase() === 'lm studio'
+  return server.kind === 'lmstudio' || server.id === 'lmstudio-default' || server.name.trim().toLowerCase() === 'lm studio'
 }
 
 /**
@@ -1326,6 +2313,7 @@ function isLmStudioServer(server: ServerProfile): boolean {
  */
 function isTextGenerationWebUiServer(server: ServerProfile): boolean {
   return (
+    server.kind === 'text-generation-webui' ||
     server.id === 'textgen-webui-default' ||
     server.name.trim().toLowerCase() === 'text-generation-webui'
   )
@@ -1425,6 +2413,8 @@ async function* streamChat(
   contextWindowTokens: number | null,
   temperature: number | null,
   topP: number | null,
+  topK: number | null,
+  repeatPenalty: number | null,
   presencePenalty: number | null,
   frequencyPenalty: number | null,
   maxTokens: number | null,
@@ -1447,6 +2437,14 @@ async function* streamChat(
 
   if (typeof topP === 'number' && Number.isFinite(topP) && topP >= 0 && topP <= 1) {
     requestBody.top_p = topP
+  }
+
+  if (typeof topK === 'number' && Number.isFinite(topK) && topK >= 0) {
+    requestBody.top_k = Math.floor(topK)
+  }
+
+  if (typeof repeatPenalty === 'number' && Number.isFinite(repeatPenalty) && repeatPenalty >= 0) {
+    requestBody.repeat_penalty = Number(repeatPenalty.toFixed(2))
   }
 
   if (
@@ -1759,6 +2757,8 @@ async function* streamServerChat(
   contextWindowTokens: number | null,
   temperature: number | null,
   topP: number | null,
+  topK: number | null,
+  repeatPenalty: number | null,
   presencePenalty: number | null,
   frequencyPenalty: number | null,
   maxTokens: number | null,
@@ -1786,6 +2786,8 @@ async function* streamServerChat(
     contextWindowTokens,
     temperature,
     topP,
+    topK,
+    repeatPenalty,
     presencePenalty,
     frequencyPenalty,
     maxTokens,
@@ -1799,6 +2801,8 @@ async function* streamServerChat(
     contextWindowTokens,
     temperature,
     topP,
+    topK,
+    repeatPenalty,
     presencePenalty,
     frequencyPenalty,
     maxTokens,
@@ -1828,6 +2832,15 @@ function estimatePromptTokens(messages: ChatMessage[]): number {
  * @returns Discovered models normalized for the renderer.
  */
 async function browseServerModels(server: ServerProfile): Promise<AvailableModel[]> {
+  if (isLocalLlamaServer(server)) {
+    const settings = synchronizeLocalModels(loadSettings({ syncLocalModels: false }))
+    return settings.models
+      .filter((model) => model.serverId === server.id)
+      .map((model) => ({
+        ...model,
+      }))
+  }
+
   const endpoint = isLmStudioServer(server)
     ? toLmStudioModelsEndpoint(server.baseUrl)
     : isTextGenerationWebUiServer(server)
@@ -1886,6 +2899,14 @@ async function browseServerModels(server: ServerProfile): Promise<AvailableModel
         typeof model.top_p === 'number' && Number.isFinite(model.top_p) && model.top_p >= 0 && model.top_p <= 1
           ? model.top_p
           : undefined,
+      topK:
+        typeof model.top_k === 'number' && Number.isFinite(model.top_k) && model.top_k >= 0
+          ? Math.floor(model.top_k)
+          : undefined,
+      repeatPenalty:
+        typeof model.repeat_penalty === 'number' && Number.isFinite(model.repeat_penalty) && model.repeat_penalty >= 0
+          ? Number(model.repeat_penalty.toFixed(2))
+          : undefined,
     }))
 }
 
@@ -1933,6 +2954,13 @@ ipcMain.handle('settings:get', (): AppSettings => loadSettings())
 /** Settings: write */
 ipcMain.handle('settings:set', (_event, settings: AppSettings): void => {
   saveSettings(settings)
+  const localServer = getLocalServer(normalizeSettings(settings))
+  if (localServer) {
+    setLocalRuntimeStatus({
+      serverId: localServer.id,
+      url: localServer.baseUrl,
+    })
+  }
 })
 
 /**
@@ -1959,7 +2987,7 @@ ipcMain.handle('models:browse', async (_event, serverId: string): Promise<Availa
 ipcMain.handle(
   'models:load',
   async (_event, serverId: string, modelName: string, contextWindowTokens: number): Promise<void> => {
-    const settings = loadSettings()
+    const settings = loadSettings({ syncLocalModels: false })
     const server = settings.servers.find((candidate) => candidate.id === serverId)
 
     if (!server) {
@@ -1969,6 +2997,89 @@ ipcMain.handle(
     await loadServerModel(server, modelName, contextWindowTokens)
   },
 )
+
+/** Hardware: read local machine capabilities for llama.cpp guidance. */
+ipcMain.handle('hardware:get', (): HardwareInfo => {
+  return detectHardwareInfo()
+})
+
+/** Local llama.cpp: choose a models directory. */
+ipcMain.handle('llama:pick-models-directory', async (): Promise<string | null> => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory'],
+  })
+
+  return result.canceled ? null : (result.filePaths[0] ?? null)
+})
+
+/** Local llama.cpp: choose a llama-server executable. */
+ipcMain.handle('llama:pick-executable', async (): Promise<string | null> => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      {
+        name: 'llama-server',
+        extensions: process.platform === 'win32' ? ['exe'] : ['*'],
+      },
+    ],
+  })
+
+  return result.canceled ? null : (result.filePaths[0] ?? null)
+})
+
+/** Local llama.cpp: browse GGUF files in a Hugging Face repository. */
+ipcMain.handle('llama:hf:browse', async (_event, serverId: string, repoId: string): Promise<HuggingFaceModelFile[]> => {
+  const settings = loadSettings({ syncLocalModels: false })
+  const server = settings.servers.find((candidate) => candidate.id === serverId)
+
+  if (!server || !isLocalLlamaServer(server)) {
+    throw new Error('Select the local llama.cpp provider before browsing Hugging Face models.')
+  }
+
+  return browseHuggingFaceRepo(repoId, server.huggingFaceToken)
+})
+
+/** Local llama.cpp: download a GGUF file from Hugging Face. */
+ipcMain.handle('llama:hf:download', async (_event, serverId: string, repoId: string, fileName: string): Promise<ModelPreset> => {
+  const settings = loadSettings({ syncLocalModels: false })
+  const server = settings.servers.find((candidate) => candidate.id === serverId)
+
+  if (!server || !isLocalLlamaServer(server)) {
+    throw new Error('Select the local llama.cpp provider before downloading models.')
+  }
+
+  const downloadedModel = await downloadHuggingFaceModel(server, repoId, fileName)
+  const nextSettings = synchronizeLocalModels(loadSettings({ syncLocalModels: false }))
+  saveSettings(nextSettings)
+  return downloadedModel
+})
+
+/** Local llama.cpp: read the managed runtime status. */
+ipcMain.handle('llama:runtime:get-status', (): LocalRuntimeStatus => {
+  return localRuntimeStatus
+})
+
+/** Local llama.cpp: start or switch the managed runtime to the selected local model. */
+ipcMain.handle('llama:runtime:load', async (_event, serverId: string, modelSlug: string): Promise<LocalRuntimeStatus> => {
+  const settings = synchronizeLocalModels(loadSettings({ syncLocalModels: false }))
+  const server = settings.servers.find((candidate) => candidate.id === serverId)
+
+  if (!server || !isLocalLlamaServer(server)) {
+    throw new Error('Select the local llama.cpp provider before loading a local model.')
+  }
+
+  const model = settings.models.find((candidate) => candidate.serverId === server.id && candidate.slug === modelSlug)
+  if (!model) {
+    throw new Error('The selected local model could not be found.')
+  }
+
+  return startLocalRuntime(server, model)
+})
+
+/** Local llama.cpp: stop the managed runtime. */
+ipcMain.handle('llama:runtime:stop', (): void => {
+  stopLocalRuntime()
+})
 
 /** AI debug log: read */
 ipcMain.handle('ai:debug:get', (): AiDebugEntry[] => {
@@ -2094,7 +3205,7 @@ ipcMain.on('ai:stream', async (event, payload: {
   modelSlug:  string | null
 }) => {
   const { id, messages, serverId, modelSlug } = payload
-  const settings = loadSettings()
+  const settings = loadSettings({ syncLocalModels: false })
 
   const server =
     settings.servers.find((s) => s.id === serverId) ??
@@ -2103,6 +3214,11 @@ ipcMain.on('ai:stream', async (event, payload: {
 
   if (!server) {
     event.sender.send('ai:error', id, 'No server configured. Open Settings to add one.')
+    return
+  }
+
+  if (isLocalLlamaServer(server) && localRuntimeStatus.state !== 'running') {
+    event.sender.send('ai:error', id, 'The local llama.cpp model is not loaded. Open Load Model and start a local model first.')
     return
   }
 
@@ -2122,6 +3238,14 @@ ipcMain.on('ai:stream', async (event, payload: {
   const topP =
     typeof activeModel?.topP === 'number' && Number.isFinite(activeModel.topP) && activeModel.topP >= 0 && activeModel.topP <= 1
       ? activeModel.topP
+      : null
+  const topK =
+    typeof activeModel?.topK === 'number' && Number.isFinite(activeModel.topK) && activeModel.topK >= 0
+      ? Math.floor(activeModel.topK)
+      : null
+  const repeatPenalty =
+    typeof activeModel?.repeatPenalty === 'number' && Number.isFinite(activeModel.repeatPenalty) && activeModel.repeatPenalty >= 0
+      ? Number(activeModel.repeatPenalty.toFixed(2))
       : null
   const presencePenalty =
     typeof activeModel?.presencePenalty === 'number' &&
@@ -2163,6 +3287,8 @@ ipcMain.on('ai:stream', async (event, payload: {
     contextWindowTokens,
     temperature,
     topP,
+    topK,
+    repeatPenalty,
     presencePenalty,
     frequencyPenalty,
     configuredMaxOutputTokens,
@@ -2177,6 +3303,8 @@ ipcMain.on('ai:stream', async (event, payload: {
       contextWindowTokens,
       temperature,
       topP,
+      topK,
+      repeatPenalty,
       presencePenalty,
       frequencyPenalty,
       maxTokens,

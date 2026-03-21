@@ -67,6 +67,13 @@
   color: var(--text-color-primary);
 }
 
+.model-parameters__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-color-primary);
+}
+
 .model-parameters__footer {
   display: flex;
   align-items: center;

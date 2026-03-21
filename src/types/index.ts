@@ -186,6 +186,12 @@ export type ThemeMode = 'dark' | 'light'
 /** Supported chat bubble text size presets. */
 export type ChatTextSize = 'small' | 'medium' | 'large' | 'extra-large'
 
+/** Supported AI provider kinds. */
+export type ServerKind = 'lmstudio' | 'text-generation-webui' | 'openai-compatible' | 'llama.cpp'
+
+/** Origin of a persisted model preset. */
+export type ModelSource = 'remote' | 'huggingface' | 'local-file'
+
 /** Public theme token names allowed in built-in or imported theme files. */
 export type ThemeTokenName =
   | 'app-bg'
@@ -243,10 +249,22 @@ export interface ServerProfile {
   id: string
   /** Display name shown in the UI (e.g. "LM Studio"). */
   name: string
+  /** Provider/runtime kind used for transport and local management. */
+  kind: ServerKind
   /** Base URL of the OpenAI-compatible API (e.g. http://localhost:1234/v1). */
   baseUrl: string
   /** API key — most local servers accept any non-empty string. */
   apiKey: string
+  /** Absolute directory where local GGUF files are stored for llama.cpp. */
+  modelsDirectory?: string
+  /** Absolute path to the llama-server executable when configured manually. */
+  executablePath?: string | null
+  /** Host interface bound by the local llama.cpp server. */
+  host?: string
+  /** Port bound by the local llama.cpp server. */
+  port?: number
+  /** Optional Hugging Face token for gated/private model downloads. */
+  huggingFaceToken?: string
 }
 
 /**
@@ -261,12 +279,42 @@ export interface ModelPreset {
   name: string
   /** Model slug sent to the API (e.g. "llama3", "local-model"). */
   slug: string
+  /** Indicates whether this model comes from a remote catalog or a local file. */
+  source?: ModelSource
+  /** Absolute local filesystem path for llama.cpp-managed GGUF files. */
+  localPath?: string
+  /** Hugging Face repository id the model was downloaded from. */
+  huggingFaceRepo?: string
+  /** Hugging Face filename/path selected within the repository. */
+  huggingFaceFile?: string
+  /** Stored model file size in bytes, when known. */
+  fileSizeBytes?: number
+  /** Parsed parameter size hint in billions, when detectable. */
+  parameterSizeBillions?: number
+  /** Parsed quantization hint, such as Q4_K_M or Q8_0. */
+  quantization?: string
   /** Optional approximate context window size for UI budgeting. */
   contextWindowTokens?: number
+  /** Optional llama.cpp GPU layer count used when loading a local model. */
+  gpuLayers?: number
+  /** Optional llama.cpp CPU thread count used when loading a local model. */
+  threads?: number
+  /** Optional llama.cpp batch size used when loading a local model. */
+  batchSize?: number
+  /** Optional llama.cpp micro-batch size used when loading a local model. */
+  microBatchSize?: number
+  /** Optional llama.cpp flash-attention toggle used when loading a local model. */
+  flashAttention?: boolean
   /** Optional sampling temperature used for chat completions. */
   temperature?: number
   /** Optional nucleus sampling value used for chat completions. */
   topP?: number
+  /** Optional top-k sampling limit used for chat completions. */
+  topK?: number
+  /** Optional repetition penalty used for chat completions. */
+  repeatPenalty?: number
+  /** Optional RNG seed override used for chat completions. */
+  seed?: number
   /** Optional maximum number of tokens to generate per completion. */
   maxOutputTokens?: number
   /** Optional presence penalty used for chat completions. */
@@ -287,18 +335,162 @@ export interface AvailableModel {
   name: string
   /** Model slug sent to the API. */
   slug: string
+  /** Indicates whether this model comes from a remote catalog or a local file. */
+  source?: ModelSource
+  /** Absolute local filesystem path for llama.cpp-managed GGUF files. */
+  localPath?: string
+  /** Hugging Face repository id the model was downloaded from. */
+  huggingFaceRepo?: string
+  /** Hugging Face filename/path selected within the repository. */
+  huggingFaceFile?: string
+  /** Stored model file size in bytes, when known. */
+  fileSizeBytes?: number
+  /** Parsed parameter size hint in billions, when detectable. */
+  parameterSizeBillions?: number
+  /** Parsed quantization hint, such as Q4_K_M or Q8_0. */
+  quantization?: string
   /** Optional approximate context window size for UI budgeting. */
   contextWindowTokens?: number
+  /** Optional llama.cpp GPU layer count used when loading a local model. */
+  gpuLayers?: number
+  /** Optional llama.cpp CPU thread count used when loading a local model. */
+  threads?: number
+  /** Optional llama.cpp batch size used when loading a local model. */
+  batchSize?: number
+  /** Optional llama.cpp micro-batch size used when loading a local model. */
+  microBatchSize?: number
+  /** Optional llama.cpp flash-attention toggle used when loading a local model. */
+  flashAttention?: boolean
   /** Optional sampling temperature reported by the server. */
   temperature?: number
   /** Optional nucleus sampling value reported by the server. */
   topP?: number
+  /** Optional top-k sampling limit reported by the server. */
+  topK?: number
+  /** Optional repetition penalty reported by the server. */
+  repeatPenalty?: number
+  /** Optional RNG seed override reported by the server. */
+  seed?: number
   /** Optional maximum number of tokens to generate per completion. */
   maxOutputTokens?: number
   /** Optional presence penalty reported by the server. */
   presencePenalty?: number
   /** Optional frequency penalty reported by the server. */
   frequencyPenalty?: number
+}
+
+/**
+ * A single GPU/device entry detected on the host system.
+ */
+export interface HardwareGpuInfo {
+  /** Human-readable device name. */
+  name: string
+  /** Best-effort vendor classification derived from the device name. */
+  vendor: 'nvidia' | 'amd' | 'intel' | 'unknown'
+  /** Dedicated or advertised VRAM in bytes, when detectable. */
+  vramBytes: number | null
+  /** Best-effort driver version string, when available. */
+  driverVersion: string | null
+}
+
+/**
+ * Hardware summary used for local model fit guidance.
+ */
+export interface HardwareInfo {
+  /** Unix timestamp (ms) when the scan completed. */
+  detectedAt: number
+  /** Host platform string reported by Node.js. */
+  platform: string
+  /** CPU model string reported by Node.js. */
+  cpuModel: string
+  /** Logical CPU core count. */
+  logicalCpuCount: number
+  /** Total system memory in bytes. */
+  totalMemoryBytes: number
+  /** Best-effort GPU inventory. */
+  gpus: HardwareGpuInfo[]
+  /** Recommended llama.cpp acceleration backend for the detected system. */
+  recommendedBackend: 'cuda' | 'vulkan' | 'metal' | 'cpu'
+}
+
+/**
+ * Heuristic fit assessment for running a local GGUF model on the detected GPU.
+ */
+export interface ModelFitEstimate {
+  /** High-level severity bucket for the advice. */
+  level: 'good' | 'warning' | 'critical' | 'unknown'
+  /** Human-readable recommendation text. */
+  message: string
+  /** Estimated VRAM required for a mostly-GPU load, in bytes. */
+  estimatedVramBytes: number | null
+  /** Best available GPU VRAM reported by hardware detection, in bytes. */
+  availableVramBytes: number | null
+  /** True when the model is likely to fit mostly or fully into GPU memory. */
+  fitsFullyInGpu: boolean | null
+}
+
+/**
+ * A downloadable GGUF file discovered in a Hugging Face repository.
+ */
+export interface HuggingFaceModelFile {
+  /** Repository-relative file path. */
+  path: string
+  /** File name without directory segments. */
+  name: string
+  /** File size in bytes, when reported by Hugging Face. */
+  sizeBytes: number | null
+  /** Parsed parameter size hint in billions, when detectable. */
+  parameterSizeBillions: number | null
+  /** Parsed quantization hint, such as Q4_K_M or Q8_0. */
+  quantization: string | null
+}
+
+/**
+ * Progress update emitted while downloading a model from Hugging Face.
+ */
+export interface ModelDownloadProgress {
+  /** Stable identifier for the download operation. */
+  downloadId: string
+  /** Owning server/profile id. */
+  serverId: string
+  /** Hugging Face repository id being downloaded. */
+  repoId: string
+  /** Repository-relative model file path. */
+  fileName: string
+  /** Absolute destination path on disk. */
+  destinationPath: string
+  /** Current status of the download. */
+  status: 'starting' | 'downloading' | 'completed' | 'error'
+  /** Bytes written so far. */
+  bytesDownloaded: number
+  /** Expected total bytes, when reported by the server. */
+  totalBytes: number | null
+  /** Completion percentage, when the total size is known. */
+  percent: number | null
+  /** Optional user-facing error or status detail. */
+  message: string | null
+}
+
+/**
+ * Current state of the managed local llama.cpp server process.
+ */
+export interface LocalRuntimeStatus {
+  /** Lifecycle state for the managed process. */
+  state: 'stopped' | 'starting' | 'running' | 'error'
+  /** Server/profile id owning the runtime. */
+  serverId: string
+  /** Active model slug, when a model is loaded. */
+  modelSlug: string | null
+  /** Active model path, when a model is loaded. */
+  modelPath: string | null
+  /** Child process identifier, when running. */
+  pid: number | null
+  /** Base URL exposed by the local server. */
+  url: string
+  /** Optional last error recorded by the runtime manager. */
+  lastError: string | null
+  /** Unix timestamp (ms) when the current runtime started. */
+  startedAt: number | null
 }
 
 /**

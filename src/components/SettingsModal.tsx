@@ -1,16 +1,27 @@
 /**
  * src/components/SettingsModal.tsx
- * Modal dialog for app-level settings, including AI provider/model selection,
- * theme selection, and theme import.
+ * Modal dialog for app-level settings, including remote AI providers,
+ * local llama.cpp configuration, model browsing, and theme selection.
  */
 
 import { useEffect, useRef, useState } from 'react'
 import { Modal } from './Modal'
 import { PaletteIcon, SettingsIcon, SparklesIcon } from './icons'
+import { formatBytes } from '../services/modelFitService'
 import { BUILT_IN_THEMES } from '../services/themeService'
 import '../styles/settings.css'
 
-import type { AvailableModel, ChatTextSize, ModelPreset, ServerProfile, ThemeDefinition } from '../types'
+import type {
+  AvailableModel,
+  ChatTextSize,
+  HardwareInfo,
+  HuggingFaceModelFile,
+  LocalRuntimeStatus,
+  ModelDownloadProgress,
+  ModelPreset,
+  ServerProfile,
+  ThemeDefinition,
+} from '../types'
 
 type SettingsSectionId = 'interface' | 'ai'
 
@@ -48,8 +59,20 @@ interface SettingsModalProps {
   activeModelSlug: string | null
   /** Models discovered from the active server during this session. */
   availableModels: AvailableModel[]
-  /** True while the app is refreshing the remote model list. */
+  /** True while the app is refreshing the model list. */
   isBrowsingModels: boolean
+  /** Latest detected hardware info for local llama.cpp guidance. */
+  hardwareInfo: HardwareInfo | null
+  /** Current managed local runtime status. */
+  localRuntimeStatus: LocalRuntimeStatus | null
+  /** Latest Hugging Face model download progress update. */
+  modelDownloadProgress: ModelDownloadProgress | null
+  /** GGUF files currently listed from a Hugging Face repository. */
+  huggingFaceFiles: HuggingFaceModelFile[]
+  /** True while browsing a Hugging Face repository. */
+  isBrowsingHuggingFace: boolean
+  /** True while downloading a Hugging Face GGUF file. */
+  isDownloadingModel: boolean
   /** Currently active theme ID. */
   activeThemeId: string
   /** Currently active chat bubble text size preset. */
@@ -70,8 +93,27 @@ interface SettingsModalProps {
   onSaveModelContext: (modelSlug: string, contextWindowTokens: number | null) => Promise<void>
   /** Called when the user refreshes the model list for the active server. */
   onBrowseModels: () => void
-  /** Called when the user saves a manually edited server address. */
+  /** Called when the user saves a manually edited remote server address. */
   onSaveServerAddress: (serverId: string, baseUrl: string) => Promise<void>
+  /** Called when the user saves local llama.cpp-specific configuration. */
+  onSaveLocalServerConfig: (
+    serverId: string,
+    values: {
+      modelsDirectory: string
+      executablePath: string
+      host: string
+      port: number
+      huggingFaceToken: string
+    },
+  ) => Promise<void>
+  /** Opens a native folder picker for the models directory. */
+  onPickModelsDirectory: () => Promise<string | null>
+  /** Opens a native file picker for the llama-server executable. */
+  onPickLlamaExecutable: () => Promise<string | null>
+  /** Called when the user browses a Hugging Face repository. */
+  onBrowseHuggingFaceModels: (repoId: string) => void
+  /** Called when the user downloads a GGUF file from Hugging Face. */
+  onDownloadHuggingFaceModel: (repoId: string, fileName: string) => void
   /** Called when the user selects a theme. */
   onThemeSelect: (themeId: string) => void
   /** Called when the user selects a chat text size preset. */
@@ -81,8 +123,30 @@ interface SettingsModalProps {
 }
 
 /**
+ * Build concise secondary metadata for a model option row.
+ *
+ * @param model - Model option to summarize.
+ * @returns Human-readable description shown under the model name.
+ */
+function buildModelDescription(model: AvailableModel | ModelPreset): string {
+  const parts = [model.slug]
+
+  if (typeof model.fileSizeBytes === 'number' && model.fileSizeBytes > 0) {
+    parts.push(formatBytes(model.fileSizeBytes))
+  }
+  if (model.quantization) {
+    parts.push(model.quantization)
+  }
+  if (typeof model.contextWindowTokens === 'number' && model.contextWindowTokens > 0) {
+    parts.push(`${model.contextWindowTokens.toLocaleString()} ctx`)
+  }
+
+  return parts.join(' • ')
+}
+
+/**
  * SettingsModal
- * Renders theme settings for built-in and user-imported themes.
+ * Renders interface settings plus remote/local AI configuration in a single modal.
  */
 export function SettingsModal({
   servers,
@@ -91,6 +155,12 @@ export function SettingsModal({
   activeModelSlug,
   availableModels,
   isBrowsingModels,
+  hardwareInfo,
+  localRuntimeStatus,
+  modelDownloadProgress,
+  huggingFaceFiles,
+  isBrowsingHuggingFace,
+  isDownloadingModel,
   activeThemeId,
   chatTextSize,
   customThemes,
@@ -102,6 +172,11 @@ export function SettingsModal({
   onSaveModelContext,
   onBrowseModels,
   onSaveServerAddress,
+  onSaveLocalServerConfig,
+  onPickModelsDirectory,
+  onPickLlamaExecutable,
+  onBrowseHuggingFaceModels,
+  onDownloadHuggingFaceModel,
   onThemeSelect,
   onChatTextSizeSelect,
   onImportTheme,
@@ -110,20 +185,41 @@ export function SettingsModal({
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('interface')
   const [serverAddressValue, setServerAddressValue] = useState('')
   const [contextWindowValue, setContextWindowValue] = useState('')
+  const [modelsDirectoryValue, setModelsDirectoryValue] = useState('')
+  const [executablePathValue, setExecutablePathValue] = useState('')
+  const [hostValue, setHostValue] = useState('127.0.0.1')
+  const [portValue, setPortValue] = useState('3939')
+  const [huggingFaceTokenValue, setHuggingFaceTokenValue] = useState('')
+  const [huggingFaceRepoValue, setHuggingFaceRepoValue] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+
   const activeServer = servers.find((server) => server.id === activeServerId) ?? servers[0] ?? null
   const visibleModels = activeServer
     ? models.filter((model) => model.serverId === activeServer.id)
     : []
   const modelOptions = availableModels.length > 0 ? availableModels : visibleModels
   const activeModel = visibleModels.find((model) => model.slug === activeModelSlug) ?? null
+  const isLocalServer = activeServer?.kind === 'llama.cpp'
 
   /**
-   * Keep the manual address field synced with the selected server profile.
+   * Keep remote and local fields aligned with the selected server profile.
    */
   useEffect(() => {
     setServerAddressValue(activeServer?.baseUrl ?? '')
-  }, [activeServer?.baseUrl, activeServer?.id])
+    setModelsDirectoryValue(activeServer?.modelsDirectory ?? '')
+    setExecutablePathValue(activeServer?.executablePath ?? '')
+    setHostValue(activeServer?.host ?? '127.0.0.1')
+    setPortValue((activeServer?.port ?? 3939).toString())
+    setHuggingFaceTokenValue(activeServer?.huggingFaceToken ?? '')
+  }, [
+    activeServer?.baseUrl,
+    activeServer?.executablePath,
+    activeServer?.host,
+    activeServer?.huggingFaceToken,
+    activeServer?.id,
+    activeServer?.modelsDirectory,
+    activeServer?.port,
+  ])
 
   /**
    * Keep the context budget field synced with the selected model preset.
@@ -142,14 +238,36 @@ export function SettingsModal({
   /**
    * Handle file selection from the hidden theme import input.
    *
-   * @param e - File input change event.
+   * @param event - File input change event.
    */
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>): void {
-    const file = e.target.files?.[0]
-    if (!file) return
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>): void {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
 
     onImportTheme(file)
-    e.target.value = ''
+    event.target.value = ''
+  }
+
+  /**
+   * Open the native models-directory picker and mirror the result into local state.
+   */
+  async function handleChooseModelsDirectory(): Promise<void> {
+    const selectedPath = await onPickModelsDirectory()
+    if (selectedPath) {
+      setModelsDirectoryValue(selectedPath)
+    }
+  }
+
+  /**
+   * Open the native llama-server picker and mirror the result into local state.
+   */
+  async function handleChooseExecutable(): Promise<void> {
+    const selectedPath = await onPickLlamaExecutable()
+    if (selectedPath) {
+      setExecutablePathValue(selectedPath)
+    }
   }
 
   /**
@@ -162,14 +280,24 @@ export function SettingsModal({
   }
 
   /**
-   * Close the modal from the footer action row.
-   * Settings are already persisted as fields change.
+   * Persist the currently visible AI settings and close the modal.
    */
   async function handleSaveAndClose(): Promise<void> {
     if (activeSection === 'ai' && activeServer) {
       setIsSaving(true)
       try {
-        await onSaveServerAddress(activeServer.id, serverAddressValue)
+        if (isLocalServer) {
+          await onSaveLocalServerConfig(activeServer.id, {
+            modelsDirectory: modelsDirectoryValue,
+            executablePath: executablePathValue,
+            host: hostValue,
+            port: Number(portValue),
+            huggingFaceToken: huggingFaceTokenValue,
+          })
+        } else {
+          await onSaveServerAddress(activeServer.id, serverAddressValue)
+        }
+
         if (activeModel) {
           const trimmedValue = contextWindowValue.trim()
           await onSaveModelContext(
@@ -210,7 +338,7 @@ export function SettingsModal({
             <SettingsSectionTab
               id="ai"
               label="AI"
-              description="Local server and model"
+              description="Remote and local models"
               icon={<SparklesIcon />}
               activeSection={activeSection}
               onSelect={handleSectionSelect}
@@ -223,7 +351,6 @@ export function SettingsModal({
                 {statusMessage}
               </div>
             ) : null}
-
             {activeSection === 'interface' ? (
               <section className="settings-modal__section">
                 <div className="settings-modal__heading-row">
@@ -298,7 +425,6 @@ export function SettingsModal({
                           id={theme.id}
                           name={theme.name}
                           description={`Imported ${theme.mode} theme`}
-                          swatches={undefined}
                           checked={activeThemeId === theme.id}
                           onSelect={onThemeSelect}
                         />
@@ -312,14 +438,14 @@ export function SettingsModal({
                 <div>
                   <h2 className="settings-modal__heading">AI</h2>
                   <p className="settings-modal__subheading">
-                    Choose the local server and default model used for new completions.
+                    Switch between remote servers and a managed local llama.cpp runtime.
                   </p>
                 </div>
 
                 <div className="settings-modal__field-grid">
                   <div className="settings-modal__field">
                     <label className="settings-modal__label" htmlFor="settings-server-select">
-                      Server
+                      Provider
                     </label>
                     <select
                       id="settings-server-select"
@@ -340,28 +466,194 @@ export function SettingsModal({
                     </select>
                   </div>
 
-                  <div className="settings-modal__field">
-                    <label className="settings-modal__label" htmlFor="settings-server-address">
-                      Server Address
-                    </label>
-                    <input
-                      id="settings-server-address"
-                      className="settings-modal__select"
-                      type="text"
-                      placeholder="http://localhost:1234/v1"
-                      value={serverAddressValue}
-                      onChange={(event) => setServerAddressValue(event.target.value)}
-                      disabled={!activeServer}
-                    />
-                    <p className="settings-modal__field-hint">
-                      Enter the server base URL. LM Studio uses its native chat API automatically when selected; other servers use the OpenAI-compatible endpoints.
-                    </p>
-                  </div>
+                  {isLocalServer ? (
+                    <>
+                      <div className="settings-modal__field">
+                        <label className="settings-modal__label" htmlFor="settings-models-directory">
+                          Models Directory
+                        </label>
+                        <div className="settings-modal__inline-input">
+                          <input
+                            id="settings-models-directory"
+                            className="settings-modal__select"
+                            type="text"
+                            value={modelsDirectoryValue}
+                            onChange={(event) => setModelsDirectoryValue(event.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="settings-modal__refresh-btn"
+                            onClick={() => {
+                              void handleChooseModelsDirectory()
+                            }}
+                          >
+                            Choose
+                          </button>
+                        </div>
+                        <p className="settings-modal__field-hint">
+                          Defaults to a `models` folder inside the application directory, not AppData.
+                        </p>
+                      </div>
+
+                      <div className="settings-modal__field">
+                        <label className="settings-modal__label" htmlFor="settings-llama-executable">
+                          llama-server Executable
+                        </label>
+                        <div className="settings-modal__inline-input">
+                          <input
+                            id="settings-llama-executable"
+                            className="settings-modal__select"
+                            type="text"
+                            value={executablePathValue}
+                            onChange={(event) => setExecutablePathValue(event.target.value)}
+                            placeholder="Optional if llama-server is already on PATH"
+                          />
+                          <button
+                            type="button"
+                            className="settings-modal__refresh-btn"
+                            onClick={() => {
+                              void handleChooseExecutable()
+                            }}
+                          >
+                            Choose
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="settings-modal__split-grid">
+                        <div className="settings-modal__field">
+                          <label className="settings-modal__label" htmlFor="settings-llama-host">
+                            Host
+                          </label>
+                          <input
+                            id="settings-llama-host"
+                            className="settings-modal__select"
+                            type="text"
+                            value={hostValue}
+                            onChange={(event) => setHostValue(event.target.value)}
+                          />
+                        </div>
+                        <div className="settings-modal__field">
+                          <label className="settings-modal__label" htmlFor="settings-llama-port">
+                            Port
+                          </label>
+                          <input
+                            id="settings-llama-port"
+                            className="settings-modal__select"
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={portValue}
+                            onChange={(event) => setPortValue(event.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="settings-modal__field">
+                        <label className="settings-modal__label" htmlFor="settings-hf-token">
+                          Hugging Face Token
+                        </label>
+                        <input
+                          id="settings-hf-token"
+                          className="settings-modal__select"
+                          type="password"
+                          value={huggingFaceTokenValue}
+                          onChange={(event) => setHuggingFaceTokenValue(event.target.value)}
+                          placeholder="Optional, only needed for gated/private repos"
+                        />
+                      </div>
+
+                      <HardwareCard hardwareInfo={hardwareInfo} runtimeStatus={localRuntimeStatus} />
+                      <div className="settings-modal__group">
+                        <div className="settings-modal__field-row">
+                          <div className="settings-modal__group-title">Hugging Face</div>
+                          <button
+                            type="button"
+                            className="settings-modal__refresh-btn"
+                            onClick={() => onBrowseHuggingFaceModels(huggingFaceRepoValue)}
+                            disabled={isBrowsingHuggingFace || huggingFaceRepoValue.trim().length === 0}
+                          >
+                            {isBrowsingHuggingFace ? 'Browsing...' : 'Browse Repo'}
+                          </button>
+                        </div>
+
+                        <div className="settings-modal__field">
+                          <label className="settings-modal__label" htmlFor="settings-hf-repo">
+                            Repository
+                          </label>
+                          <input
+                            id="settings-hf-repo"
+                            className="settings-modal__select"
+                            type="text"
+                            placeholder="e.g. bartowski/Llama-3.2-3B-Instruct-GGUF"
+                            value={huggingFaceRepoValue}
+                            onChange={(event) => setHuggingFaceRepoValue(event.target.value)}
+                          />
+                        </div>
+
+                        {modelDownloadProgress ? (
+                          <div className="settings-modal__status">
+                            {modelDownloadProgress.status === 'downloading'
+                              ? `Downloading ${modelDownloadProgress.fileName}... ${modelDownloadProgress.percent ?? 0}%`
+                              : modelDownloadProgress.status === 'completed'
+                                ? `Downloaded ${modelDownloadProgress.fileName}.`
+                                : modelDownloadProgress.message ?? 'Download update'}
+                          </div>
+                        ) : null}
+
+                        {huggingFaceFiles.length === 0 ? (
+                          <p className="settings-modal__empty">
+                            Browse a repository to list GGUF files available for download.
+                          </p>
+                        ) : (
+                          <div className="settings-modal__model-list" role="list" aria-label="Hugging Face GGUF files">
+                            {huggingFaceFiles.map((file) => (
+                              <div key={file.path} className="settings-modal__download-option" role="listitem">
+                                <div className="settings-modal__option-body">
+                                  <span className="settings-modal__option-name">{file.name}</span>
+                                  <span className="settings-modal__option-description">{file.path}</span>
+                                  <span className="settings-modal__option-description">
+                                    {formatBytes(file.sizeBytes)}{file.quantization ? ` • ${file.quantization}` : ''}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="settings-modal__refresh-btn"
+                                  onClick={() => onDownloadHuggingFaceModel(huggingFaceRepoValue, file.path)}
+                                  disabled={isDownloadingModel}
+                                >
+                                  {isDownloadingModel ? 'Downloading...' : 'Download'}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="settings-modal__field">
+                      <label className="settings-modal__label" htmlFor="settings-server-address">
+                        Server Address
+                      </label>
+                      <input
+                        id="settings-server-address"
+                        className="settings-modal__select"
+                        type="text"
+                        placeholder="http://localhost:1234/v1"
+                        value={serverAddressValue}
+                        onChange={(event) => setServerAddressValue(event.target.value)}
+                        disabled={!activeServer}
+                      />
+                      <p className="settings-modal__field-hint">
+                        LM Studio uses its native chat API automatically when selected; other servers use OpenAI-compatible endpoints.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="settings-modal__field">
                     <div className="settings-modal__field-row">
                       <label className="settings-modal__label" htmlFor="settings-model-list">
-                        Models
+                        {isLocalServer ? 'Local Models' : 'Models'}
                       </label>
                       <button
                         type="button"
@@ -369,7 +661,7 @@ export function SettingsModal({
                         onClick={onBrowseModels}
                         disabled={!activeServer || isBrowsingModels}
                       >
-                        {isBrowsingModels ? 'Refreshing...' : 'Browse Models'}
+                        {isBrowsingModels ? 'Refreshing...' : isLocalServer ? 'Scan Models' : 'Browse Models'}
                       </button>
                     </div>
                     <div
@@ -380,7 +672,9 @@ export function SettingsModal({
                     >
                       {modelOptions.length === 0 ? (
                         <p className="settings-modal__empty">
-                          No models loaded yet. Browse the active server to fetch its available models.
+                          {isLocalServer
+                            ? 'No local GGUF files found yet. Scan the models directory or download one from Hugging Face.'
+                            : 'No models loaded yet. Browse the active server to fetch its available models.'}
                         </p>
                       ) : (
                         modelOptions.map((model) => (
@@ -388,7 +682,7 @@ export function SettingsModal({
                             key={model.id}
                             id={model.slug}
                             name={model.name}
-                            description={model.slug}
+                            description={buildModelDescription(model)}
                             checked={activeModelSlug === model.slug}
                             onSelect={onModelSelect}
                           />
@@ -413,7 +707,7 @@ export function SettingsModal({
                       disabled={!activeModel}
                     />
                     <p className="settings-modal__field-hint">
-                      Override the selected model&apos;s total context window in tokens. Leave blank to keep the discovered value.
+                      Override the selected model&apos;s total context window in tokens.
                     </p>
                   </div>
                 </div>
@@ -424,7 +718,7 @@ export function SettingsModal({
 
         <div className="settings-modal__footer">
           <p className="settings-modal__footer-note">
-            Theme, server, and model selections apply immediately. Save Settings stores the server address and closes this dialog.
+            Settings apply immediately. Save Settings persists the current AI configuration and closes this dialog.
           </p>
           <div className="settings-modal__footer-actions">
             <button type="button" className="settings-modal__footer-btn" onClick={onClose}>
@@ -447,6 +741,7 @@ export function SettingsModal({
   )
 }
 
+/** Props accepted by the ModelOption component. */
 interface ModelOptionProps {
   /** Model slug used as the control value. */
   id: string
@@ -489,6 +784,7 @@ function ModelOption({ id, name, description, checked, onSelect }: ModelOptionPr
   )
 }
 
+/** Props accepted by the SettingsSectionTab component. */
 interface SettingsSectionTabProps {
   /** Section identifier. */
   id: SettingsSectionId
@@ -591,5 +887,61 @@ function ThemeOption({ id, name, description, swatches, checked, onSelect }: The
         ) : null}
       </span>
     </label>
+  )
+}
+
+/** Props accepted by the HardwareCard component. */
+interface HardwareCardProps {
+  /** Latest detected hardware inventory. */
+  hardwareInfo: HardwareInfo | null
+  /** Current managed local runtime status. */
+  runtimeStatus: LocalRuntimeStatus | null
+}
+
+/**
+ * HardwareCard
+ * Compact host-hardware summary used by the local llama.cpp settings panel.
+ */
+function HardwareCard({ hardwareInfo, runtimeStatus }: HardwareCardProps) {
+  return (
+    <div className="settings-modal__hardware-card">
+      <div className="settings-modal__group-title">Hardware</div>
+      {hardwareInfo ? (
+        <div className="settings-modal__hardware-grid">
+          <div className="settings-modal__hardware-item">
+            <strong>CPU</strong>
+            <span>{hardwareInfo.cpuModel}</span>
+          </div>
+          <div className="settings-modal__hardware-item">
+            <strong>System RAM</strong>
+            <span>{formatBytes(hardwareInfo.totalMemoryBytes)}</span>
+          </div>
+          <div className="settings-modal__hardware-item">
+            <strong>Recommended Backend</strong>
+            <span>{hardwareInfo.recommendedBackend.toUpperCase()}</span>
+          </div>
+          <div className="settings-modal__hardware-item">
+            <strong>GPU</strong>
+            <span>
+              {hardwareInfo.gpus.length > 0
+                ? hardwareInfo.gpus.map((gpu) => `${gpu.name}${gpu.vramBytes ? ` (${formatBytes(gpu.vramBytes)})` : ''}`).join(', ')
+                : 'No GPU detected'}
+            </span>
+          </div>
+          <div className="settings-modal__hardware-item">
+            <strong>Runtime</strong>
+            <span>
+              {runtimeStatus
+                ? `${runtimeStatus.state}${runtimeStatus.modelSlug ? ` • ${runtimeStatus.modelSlug}` : ''}`
+                : 'Unknown'}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <p className="settings-modal__empty">
+          Hardware detection is unavailable right now.
+        </p>
+      )}
+    </div>
   )
 }

@@ -9,7 +9,7 @@
  *
  * The modal renders into a portal attached to document.body so it
  * sits above all panel z-indices without inheriting their stacking context.
- * Clicking the backdrop or pressing Escape also closes it.
+ * Pressing Escape or the close button closes it.
  */
 
 import { useEffect, useCallback } from 'react'
@@ -44,13 +44,13 @@ export function Modal({ title, onClose, className, children }: ModalProps) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
-  /** Stop clicks inside the card from propagating to the backdrop. */
+  /** Keep clicks inside the card isolated from the overlay container. */
   function handleCardClick(e: React.MouseEvent) {
     e.stopPropagation()
   }
 
   return createPortal(
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div
         className={className ? `modal ${className}` : 'modal'}
         role="dialog"

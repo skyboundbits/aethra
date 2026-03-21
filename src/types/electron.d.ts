@@ -16,6 +16,11 @@ import type {
   CampaignSummary,
   CharacterProfile,
   ChatMessage,
+  HardwareInfo,
+  HuggingFaceModelFile,
+  LocalRuntimeStatus,
+  ModelDownloadProgress,
+  ModelPreset,
   TokenUsage,
   WindowControlsState,
 } from './index'
@@ -76,6 +81,71 @@ declare global {
        * @param contextWindowTokens - Requested context window size in tokens.
        */
       loadModel: (serverId: string, modelName: string, contextWindowTokens: number) => Promise<void>
+
+      /**
+       * Read the detected local hardware inventory used for llama.cpp guidance.
+       * @returns Promise resolving to the latest hardware summary.
+       */
+      getHardwareInfo: () => Promise<HardwareInfo>
+
+      /**
+       * Open a native folder picker for the local models directory.
+       * @returns Promise resolving to the chosen directory, or null when cancelled.
+       */
+      pickModelsDirectory: () => Promise<string | null>
+
+      /**
+       * Open a native file picker for the llama-server executable.
+       * @returns Promise resolving to the chosen executable, or null when cancelled.
+       */
+      pickLlamaExecutable: () => Promise<string | null>
+
+      /**
+       * Browse GGUF files in a Hugging Face repository.
+       * @param serverId - Local llama.cpp server profile id.
+       * @param repoId - Hugging Face repository identifier.
+       */
+      browseHuggingFaceModels: (serverId: string, repoId: string) => Promise<HuggingFaceModelFile[]>
+
+      /**
+       * Download a GGUF file from Hugging Face into the configured models directory.
+       * @param serverId - Local llama.cpp server profile id.
+       * @param repoId - Hugging Face repository identifier.
+       * @param fileName - Repository-relative GGUF path.
+       */
+      downloadHuggingFaceModel: (serverId: string, repoId: string, fileName: string) => Promise<ModelPreset>
+
+      /**
+       * Subscribe to model download progress updates.
+       * @param listener - Called whenever download progress changes.
+       * @returns Cleanup function to remove the listener.
+       */
+      onModelDownloadProgress: (listener: (progress: ModelDownloadProgress) => void) => () => void
+
+      /**
+       * Read the current managed local llama.cpp runtime state.
+       * @returns Promise resolving to the runtime status.
+       */
+      getLocalRuntimeStatus: () => Promise<LocalRuntimeStatus>
+
+      /**
+       * Start the managed local llama.cpp runtime for a selected model.
+       * @param serverId - Local llama.cpp server profile id.
+       * @param modelSlug - Local model slug to load.
+       */
+      loadLocalModel: (serverId: string, modelSlug: string) => Promise<LocalRuntimeStatus>
+
+      /**
+       * Stop the managed local llama.cpp runtime.
+       */
+      stopLocalModel: () => Promise<void>
+
+      /**
+       * Subscribe to local runtime status updates from the main process.
+       * @param listener - Called whenever the runtime status changes.
+       * @returns Cleanup function to remove the listener.
+       */
+      onLocalRuntimeStatus: (listener: (status: LocalRuntimeStatus) => void) => () => void
 
       /**
        * Read the current in-memory AI debug log.

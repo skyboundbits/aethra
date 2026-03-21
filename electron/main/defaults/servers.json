@@ -2,13 +2,27 @@
   {
     "id": "lmstudio-default",
     "name": "LM Studio",
+    "kind": "lmstudio",
     "baseUrl": "http://localhost:1234/v1",
     "apiKey": "lm-studio"
   },
   {
     "id": "textgen-webui-default",
     "name": "text-generation-webui",
+    "kind": "text-generation-webui",
     "baseUrl": "http://localhost:5000/v1",
     "apiKey": "text-generation-webui"
+  },
+  {
+    "id": "llama-cpp-local",
+    "name": "Local llama.cpp",
+    "kind": "llama.cpp",
+    "baseUrl": "http://127.0.0.1:3939/v1",
+    "apiKey": "llama.cpp",
+    "host": "127.0.0.1",
+    "port": 3939,
+    "modelsDirectory": "",
+    "executablePath": null,
+    "huggingFaceToken": ""
   }
 ]

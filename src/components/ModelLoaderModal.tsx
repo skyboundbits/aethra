@@ -6,19 +6,26 @@
 import { useEffect, useState } from 'react'
 import { Modal } from './Modal'
 import { SparklesIcon } from './icons'
+import { formatBytes } from '../services/modelFitService'
 import '../styles/model-loader.css'
 
-import type { ModelPreset } from '../types'
+import type { LocalRuntimeStatus, ModelFitEstimate, ModelPreset, ServerKind } from '../types'
 
 const CONTEXT_WINDOW_OPTIONS = [4096, 8192, 16384, 32768, 65536, 131072]
 const TEMPERATURE_OPTIONS = ['0.1', '0.3', '0.5', '0.7', '0.9', '1.0', '1.2', '1.5']
 
 /** Props accepted by the ModelLoaderModal component. */
 interface ModelLoaderModalProps {
+  /** Provider kind for the currently selected server. */
+  serverKind: ServerKind | null
   /** Models available for the selected server. */
   models: ModelPreset[]
   /** Currently active model slug, if one is selected. */
   activeModelSlug: string | null
+  /** Current heuristic fit guidance for the active local model. */
+  fitEstimate: ModelFitEstimate | null
+  /** Current managed local runtime state. */
+  localRuntimeStatus: LocalRuntimeStatus | null
   /** Optional status text shown above the form. */
   statusMessage: string | null
   /** Visual state of the status message. */
@@ -36,14 +43,18 @@ interface ModelLoaderModalProps {
  * Renders a focused form for selecting a text-generation-webui model and context size.
  */
 export function ModelLoaderModal({
+  serverKind,
   models,
   activeModelSlug,
+  fitEstimate,
+  localRuntimeStatus,
   statusMessage,
   statusKind,
   isBusy,
   onClose,
   onLoadModel,
 }: ModelLoaderModalProps) {
+  const isLocalProvider = serverKind === 'llama.cpp'
   const [selectedModelSlug, setSelectedModelSlug] = useState(activeModelSlug ?? models[0]?.slug ?? '')
   const [selectedContextWindow, setSelectedContextWindow] = useState('8192')
   const [selectedTemperature, setSelectedTemperature] = useState('0.7')
@@ -106,8 +117,16 @@ export function ModelLoaderModal({
         ) : (
           <>
             <div className="model-loader__intro">
-              Pick a text-generation-webui model to load into memory and choose the context size to request.
+              {isLocalProvider
+                ? 'Pick a local GGUF model to start in llama.cpp. Saved per-model load settings are reused when the runtime starts.'
+                : 'Pick a text-generation-webui model to load into memory and choose the context size to request.'}
             </div>
+
+            {isLocalProvider && localRuntimeStatus ? (
+              <div className="model-loader__runtime">
+                Runtime: {localRuntimeStatus.state}{localRuntimeStatus.modelSlug ? ` • ${localRuntimeStatus.modelSlug}` : ''}
+              </div>
+            ) : null}
 
             <div className="model-loader__field">
               <label className="model-loader__label" htmlFor="model-loader-model">
@@ -181,9 +200,23 @@ export function ModelLoaderModal({
               </select>
             </div>
 
+            {isLocalProvider && fitEstimate ? (
+              <div className={`model-loader__fit model-loader__fit--${fitEstimate.level}`}>
+                <strong>GPU Fit Estimate</strong>
+                <span>{fitEstimate.message}</span>
+                {fitEstimate.estimatedVramBytes !== null || fitEstimate.availableVramBytes !== null ? (
+                  <span>
+                    Est. VRAM: {formatBytes(fitEstimate.estimatedVramBytes)} / Available: {formatBytes(fitEstimate.availableVramBytes)}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="model-loader__footer">
               <p className="model-loader__hint">
-                The selected context length is sent during model load, and the saved temperature is used for future chat completions.
+                {isLocalProvider
+                  ? 'The selected context length and saved local parameters are used when starting llama.cpp. Temperature still applies to future chat completions.'
+                  : 'The selected context length is sent during model load, and the saved temperature is used for future chat completions.'}
               </p>
               <div className="model-loader__actions">
                 <button type="button" className="model-loader__button" onClick={onClose}>
