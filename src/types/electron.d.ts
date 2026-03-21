@@ -11,6 +11,7 @@ import type {
   AppSettings,
   AiDebugEntry,
   AvailableModel,
+  BinaryInstallProgress,
   Campaign,
   CampaignFileHandle,
   CampaignSummary,
@@ -170,6 +171,37 @@ declare global {
        * @returns Cleanup function to remove the listener.
        */
       onAiDebugEntry: (listener: (entry: AiDebugEntry) => void) => () => void
+
+      /**
+       * Check whether a usable llama-server binary exists for a local server profile.
+       * @param serverId - Local llama.cpp server profile id.
+       * @returns Detection result including found status, path, backend, and estimated size.
+       */
+      checkLlamaBinary: (serverId: string) => Promise<{
+        found: boolean
+        path: string | null
+        detectedBackend: 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'
+        estimatedSizeMb: number
+      }>
+
+      /**
+       * Download and install the llama-server binary for a local server profile.
+       * Progress is broadcast via onBinaryInstallProgress. Returns when complete or on error.
+       * @param serverId - Local llama.cpp server profile id.
+       * @returns Result with success flag and resolved executable path.
+       */
+      installLlamaBinary: (serverId: string) => Promise<{
+        success: boolean
+        executablePath: string | null
+        error?: string
+      }>
+
+      /**
+       * Subscribe to binary install progress updates from the main process.
+       * @param listener - Called whenever install progress changes.
+       * @returns Cleanup function to remove the listener.
+       */
+      onBinaryInstallProgress: (listener: (progress: BinaryInstallProgress) => void) => () => void
 
       /**
        * Create a new campaign folder and initial campaign.json payload.

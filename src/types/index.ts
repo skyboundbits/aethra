@@ -472,6 +472,21 @@ export interface ModelDownloadProgress {
 }
 
 /**
+ * Progress update broadcast during an automatic llama-server binary install.
+ * Sent via the `llama:binary:install:progress` IPC channel.
+ */
+export interface BinaryInstallProgress {
+  /** Current phase of the install operation. */
+  status: 'detecting' | 'downloading' | 'extracting' | 'complete' | 'error'
+  /** Download completion 0–100; null during non-download phases. */
+  percent: number | null
+  /** Human-readable status line for display in the UI. */
+  message: string
+  /** Display name of the detected backend; null during the detecting phase. */
+  backend: 'CUDA' | 'Vulkan' | 'Metal' | 'CPU' | null
+}
+
+/**
  * Current state of the managed local llama.cpp server process.
  */
 export interface LocalRuntimeStatus {
