@@ -3284,6 +3284,46 @@ ipcMain.handle('llama:runtime:stop', (): void => {
   stopLocalRuntime()
 })
 
+/** Local llama.cpp: check whether the llama-server binary is present and detect backend. */
+ipcMain.handle('llama:binary:check', (_event, serverId: string): {
+  found: boolean
+  path: string | null
+  detectedBackend: 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'
+  estimatedSizeMb: number
+} => {
+  const settings = loadSettings({ syncLocalModels: false })
+  const server = settings.servers.find((s) => s.id === serverId) ?? null
+  const resolved = server ? resolveLlamaExecutablePath(server) : null
+  const { display, sizeMb } = detectLlamaBinaryBackend()
+  return {
+    found: resolved !== null,
+    path: resolved,
+    detectedBackend: display,
+    estimatedSizeMb: sizeMb,
+  }
+})
+
+/** Local llama.cpp: download and install the llama-server binary. */
+ipcMain.handle('llama:binary:install', async (_event, _serverId: string): Promise<{
+  success: boolean
+  executablePath: string | null
+  error?: string
+}> => {
+  if (isBinaryInstalling) {
+    return { success: false, executablePath: null, error: 'Install already in progress.' }
+  }
+  isBinaryInstalling = true
+  try {
+    const executablePath = await installLlamaBinary()
+    return { success: true, executablePath }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { success: false, executablePath: null, error: message }
+  } finally {
+    isBinaryInstalling = false
+  }
+})
+
 /** AI debug log: read */
 ipcMain.handle('ai:debug:get', (): AiDebugEntry[] => {
   return [...aiDebugLog]
