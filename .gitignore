@@ -27,6 +27,7 @@ release/
 
 #large files
 models/
+llama.cpp/
 
 # Logs
 npm-debug.log*
