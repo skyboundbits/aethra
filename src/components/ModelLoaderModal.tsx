@@ -3,13 +3,14 @@
  * Modal dialog for loading a model into text-generation-webui with chosen runtime options.
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Modal } from './Modal'
 import { SparklesIcon } from './icons'
 import { formatBytes } from '../services/modelFitService'
+import { LlamaBinaryBanner } from './LlamaBinaryBanner'
 import '../styles/model-loader.css'
 
-import type { LocalRuntimeStatus, ModelFitEstimate, ModelPreset, ServerKind } from '../types'
+import type { BinaryInstallProgress, LocalRuntimeStatus, ModelFitEstimate, ModelPreset, ServerKind } from '../types'
 
 const CONTEXT_WINDOW_OPTIONS = [4096, 8192, 16384, 32768, 65536, 131072]
 const TEMPERATURE_OPTIONS = ['0.1', '0.3', '0.5', '0.7', '0.9', '1.0', '1.2', '1.5']
@@ -36,6 +37,16 @@ interface ModelLoaderModalProps {
   onClose: () => void
   /** Called when the user requests a model load. */
   onLoadModel: (modelSlug: string, contextWindowTokens: number, temperature: number) => Promise<void>
+  /** Current llama-server binary install progress, or null. */
+  binaryInstallProgress: BinaryInstallProgress | null
+  /** Called when the user requests a binary install from within this modal. */
+  onInstallBinary: () => void
+  /** Binary check result for the active server — null if not a local llama.cpp server. */
+  binaryCheckResult: {
+    found: boolean
+    detectedBackend: 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'
+    estimatedSizeMb: number
+  } | null
 }
 
 /**
@@ -53,11 +64,15 @@ export function ModelLoaderModal({
   isBusy,
   onClose,
   onLoadModel,
+  binaryInstallProgress,
+  onInstallBinary,
+  binaryCheckResult,
 }: ModelLoaderModalProps) {
   const isLocalProvider = serverKind === 'llama.cpp'
   const [selectedModelSlug, setSelectedModelSlug] = useState(activeModelSlug ?? models[0]?.slug ?? '')
   const [selectedContextWindow, setSelectedContextWindow] = useState('8192')
   const [selectedTemperature, setSelectedTemperature] = useState('0.7')
+  const [showBinaryBanner, setShowBinaryBanner] = useState(false)
 
   /**
    * Keep the model field synced with the current server/model selection.
@@ -85,12 +100,34 @@ export function ModelLoaderModal({
 
   /**
    * Submit the model load request.
+   * Intercepts the "Could not find llama-server" error to show the binary install banner
+   * instead of propagating it to the outer error handler.
    */
-  async function handleSubmit(): Promise<void> {
+  const handleLoad = useCallback(async (): Promise<void> => {
+    setShowBinaryBanner(false)
     const normalizedContextWindow = Number(selectedContextWindow)
     const normalizedTemperature = Number(selectedTemperature)
-    await onLoadModel(selectedModelSlug, normalizedContextWindow, normalizedTemperature)
-  }
+    try {
+      await onLoadModel(selectedModelSlug, normalizedContextWindow, normalizedTemperature)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (message.includes('Could not find llama-server')) {
+        setShowBinaryBanner(true)
+        return
+      }
+      throw err
+    }
+  }, [onLoadModel, selectedModelSlug, selectedContextWindow, selectedTemperature])
+
+  /**
+   * Auto-retry the load once a binary install completes successfully.
+   */
+  useEffect(() => {
+    if (binaryInstallProgress?.status !== 'complete') return
+    if (!showBinaryBanner) return
+    setShowBinaryBanner(false)
+    void handleLoad()
+  }, [binaryInstallProgress?.status, showBinaryBanner, handleLoad])
 
   return (
     <Modal
@@ -212,6 +249,15 @@ export function ModelLoaderModal({
               </div>
             ) : null}
 
+            {showBinaryBanner && binaryCheckResult ? (
+              <LlamaBinaryBanner
+                detectedBackend={binaryCheckResult.detectedBackend}
+                estimatedSizeMb={binaryCheckResult.estimatedSizeMb}
+                progress={binaryInstallProgress}
+                onInstall={onInstallBinary}
+              />
+            ) : null}
+
             <div className="model-loader__footer">
               <p className="model-loader__hint">
                 {isLocalProvider
@@ -226,9 +272,17 @@ export function ModelLoaderModal({
                   type="button"
                   className="model-loader__button model-loader__button--primary"
                   onClick={() => {
-                    void handleSubmit()
+                    void handleLoad()
                   }}
-                  disabled={isBusy || selectedModelSlug.length === 0}
+                  disabled={
+                    isBusy ||
+                    selectedModelSlug.length === 0 ||
+                    (showBinaryBanner &&
+                      binaryInstallProgress != null &&
+                      (binaryInstallProgress.status === 'detecting' ||
+                        binaryInstallProgress.status === 'downloading' ||
+                        binaryInstallProgress.status === 'extracting'))
+                  }
                 >
                   {isBusy ? 'Loading...' : 'Load Model'}
                 </button>
