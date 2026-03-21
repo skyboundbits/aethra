@@ -180,17 +180,20 @@ function detectLlamaBinaryBackend(): { key: string; display: 'CUDA' | 'Vulkan' |
   const backend = cachedHardwareInfo?.recommendedBackend ?? 'cpu'
   const platform = process.platform // 'win32' | 'darwin' | 'linux'
 
-  // On macOS, differentiate Apple Silicon (arm64) from Intel (x64)
+  // On macOS, Metal is always the backend regardless of recommendedBackend value.
+  // Differentiate Apple Silicon (arm64) from Intel (x64) for the asset filename.
   let key: string
+  let display: 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'
   if (platform === 'darwin') {
     const arch = process.arch === 'x64' ? 'x64' : 'arm64'
     key = `darwin-metal-${arch}`
+    display = 'Metal'
   } else {
     key = `${platform}-${backend}`
+    display = BACKEND_DISPLAY[backend] ?? 'CPU'
   }
 
   const asset = LLAMA_CPP_ASSETS[key] ?? LLAMA_CPP_ASSETS[`${platform}-cpu`]
-  const display = BACKEND_DISPLAY[backend] ?? 'CPU'
   return { key, display, sizeMb: asset?.sizeMb ?? 0 }
 }
 ```
