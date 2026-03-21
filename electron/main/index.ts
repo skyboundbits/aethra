@@ -1940,8 +1940,13 @@ function detectLlamaBinaryBackend(): { key: string; display: 'CUDA' | 'Vulkan' |
     key = `darwin-metal-${arch}`
     display = 'Metal'
   } else {
-    key = `${platform}-${backend}`
-    display = BACKEND_DISPLAY[backend] ?? 'CPU'
+    let resolvedBackend = backend
+    // No Linux CUDA build for this release — fall back to Vulkan
+    if (platform === 'linux' && backend === 'cuda') {
+      resolvedBackend = 'vulkan'
+    }
+    key = `${platform}-${resolvedBackend}`
+    display = BACKEND_DISPLAY[resolvedBackend] ?? 'CPU'
   }
 
   const asset = LLAMA_CPP_ASSETS[key] ?? LLAMA_CPP_ASSETS[`${platform}-cpu`]
@@ -2103,7 +2108,7 @@ function resolveLlamaExecutablePath(server: ServerProfile): string | null {
     explicitPath,
     join(app.getAppPath(), fileName),
     join(app.getAppPath(), 'bin', fileName),
-    join(app.getAppPath(), 'llama.cpp', fileName),   // dev-mode install destination
+    join(app.getAppPath(), 'llama.cpp', fileName),   // app-root llama.cpp subdir (dev-mode install target)
     join(dirname(app.getPath('exe')), fileName),
     join(dirname(app.getPath('exe')), 'llama.cpp', fileName),
   ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0)

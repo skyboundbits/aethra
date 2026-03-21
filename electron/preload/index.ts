@@ -6,9 +6,12 @@
  * (window.api) without granting direct Node.js / Electron access.
  *
  * Exposed API:
- *   window.api.streamCompletion  — start a streaming AI request
- *   window.api.getSettings       — read persisted AppSettings
- *   window.api.saveSettings      — write AppSettings to disk
+ *   window.api.streamCompletion       — start a streaming AI request
+ *   window.api.getSettings            — read persisted AppSettings
+ *   window.api.saveSettings           — write AppSettings to disk
+ *   window.api.checkLlamaBinary       — check if llama-server binary is present
+ *   window.api.installLlamaBinary     — download and install llama-server binary
+ *   window.api.onBinaryInstallProgress — subscribe to binary install progress
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
@@ -243,7 +246,12 @@ contextBridge.exposeInMainWorld('api', {
    * @returns Detection result including found status, path, backend, and estimated size.
    */
   checkLlamaBinary(serverId: string) {
-    return ipcRenderer.invoke('llama:binary:check', serverId)
+    return ipcRenderer.invoke('llama:binary:check', serverId) as Promise<{
+      found: boolean
+      path: string | null
+      detectedBackend: 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'
+      estimatedSizeMb: number
+    }>
   },
 
   /**
@@ -253,7 +261,11 @@ contextBridge.exposeInMainWorld('api', {
    * @returns Result with success flag and resolved executable path.
    */
   installLlamaBinary(serverId: string) {
-    return ipcRenderer.invoke('llama:binary:install', serverId)
+    return ipcRenderer.invoke('llama:binary:install', serverId) as Promise<{
+      success: boolean
+      executablePath: string | null
+      error?: string
+    }>
   },
 
   /**
