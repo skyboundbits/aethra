@@ -15,7 +15,8 @@
 
 import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_process'
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
+import { chmodSync, copyFileSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'fs'
+import { get as httpsGet } from 'https'
 import { cpus, totalmem } from 'os'
 import { basename, dirname, extname, join, relative } from 'path'
 
@@ -1945,6 +1946,146 @@ function detectLlamaBinaryBackend(): { key: string; display: 'CUDA' | 'Vulkan' |
 
   const asset = LLAMA_CPP_ASSETS[key] ?? LLAMA_CPP_ASSETS[`${platform}-cpu`]
   return { key, display, sizeMb: asset?.sizeMb ?? 0 }
+}
+
+/**
+ * Download and extract the llama-server binary for the current platform.
+ *
+ * Broadcasts BinaryInstallProgress updates throughout. On success, returns the
+ * absolute path to the installed executable. On failure, broadcasts an error
+ * status and re-throws with a human-readable message.
+ *
+ * @returns Resolved absolute path to the installed llama-server executable.
+ */
+async function installLlamaBinary(): Promise<string> {
+  const { key, display } = detectLlamaBinaryBackend()
+  const asset = LLAMA_CPP_ASSETS[key] ?? LLAMA_CPP_ASSETS[`${process.platform}-cpu`]
+  if (!asset) {
+    throw new Error(`No llama.cpp asset available for platform '${process.platform}'.`)
+  }
+
+  // Destination: next to exe in packaged builds; next to app root in dev mode
+  const destination = app.isPackaged
+    ? join(dirname(app.getPath('exe')), 'llama.cpp')
+    : join(app.getAppPath(), 'llama.cpp')
+
+  const fileName = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
+  const destBinary = join(destination, fileName)
+
+  const tempDir = app.getPath('temp')
+  const archivePath = join(tempDir, `llama-cpp-${LLAMA_CPP_RELEASE}.zip`)
+  const extractDir = join(tempDir, `llama-cpp-extract-${LLAMA_CPP_RELEASE}`)
+
+  /** Remove temp archive and extract dir, swallowing errors. */
+  const cleanupTemp = (): void => {
+    try { if (existsSync(archivePath)) rmSync(archivePath) } catch { /* ignore */ }
+    try { if (existsSync(extractDir)) rmSync(extractDir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+
+  /** Broadcast a BinaryInstallProgress update to all renderer windows. */
+  const broadcast = (status: BinaryInstallProgress['status'], percent: number | null, message: string): void => {
+    const progress: BinaryInstallProgress = {
+      status,
+      percent,
+      message,
+      backend: status === 'detecting' ? null : display,
+    }
+    broadcastToAllWindows('llama:binary:install:progress', progress)
+  }
+
+  try {
+    // Phase 0: detecting
+    broadcast('detecting', null, 'Detecting platform and backend…')
+
+    const url = `https://github.com/ggerganov/llama.cpp/releases/download/${LLAMA_CPP_RELEASE}/${asset.fileName}`
+
+    // Ensure destination directory exists
+    mkdirSync(destination, { recursive: true })
+
+    // Phase 1: download
+    broadcast('downloading', 0, `Downloading llama-server (${display})…`)
+
+    await new Promise<void>((resolve, reject) => {
+      /** Follow HTTP redirects (GitHub releases always redirect). */
+      const follow = (redirectUrl: string): void => {
+        httpsGet(redirectUrl, (res) => {
+          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            follow(res.headers.location)
+            return
+          }
+          if (res.statusCode !== 200) {
+            reject(new Error(`HTTP ${res.statusCode} downloading llama-server binary.`))
+            return
+          }
+          const total = res.headers['content-length'] ? parseInt(res.headers['content-length'], 10) : null
+          let downloaded = 0
+          const out = createWriteStream(archivePath)
+          res.on('data', (chunk: Buffer) => {
+            downloaded += chunk.length
+            const pct = total ? Math.round((downloaded / total) * 100) : null
+            broadcast('downloading', pct, `Downloading llama-server (${display})…${pct != null ? `  ${pct}%` : ''}`)
+          })
+          res.pipe(out)
+          out.on('finish', resolve)
+          out.on('error', reject)
+          res.on('error', reject)
+        }).on('error', reject)
+      }
+      follow(url)
+    })
+
+    // Phase 2: extract
+    broadcast('extracting', null, 'Extracting…')
+    mkdirSync(extractDir, { recursive: true })
+
+    const extractResult = process.platform === 'win32'
+      ? spawnSync('powershell.exe', [
+          '-NoProfile', '-NonInteractive', '-Command',
+          `Expand-Archive -Path '${archivePath}' -DestinationPath '${extractDir}' -Force`,
+        ], { encoding: 'utf-8', windowsHide: true, timeout: 120_000 })
+      : spawnSync('unzip', ['-o', archivePath, '-d', extractDir],
+          { encoding: 'utf-8', timeout: 120_000 })
+
+    if (extractResult.status !== 0) {
+      const stderr = typeof extractResult.stderr === 'string' ? extractResult.stderr.trim() : ''
+      throw new Error(`Extraction failed: ${stderr || 'unknown error'}`)
+    }
+
+    // Locate source root — zips may contain a single named subdirectory
+    let sourceRoot = extractDir
+    const topLevel = readdirSync(extractDir, { withFileTypes: true }).filter((e) => e.isDirectory())
+    if (topLevel.length === 1) {
+      sourceRoot = join(extractDir, topLevel[0].name)
+    }
+
+    // Copy binary
+    const sourceBinary = join(sourceRoot, fileName)
+    if (!existsSync(sourceBinary)) {
+      throw new Error(`llama-server binary not found in extracted archive at '${sourceBinary}'.`)
+    }
+    copyFileSync(sourceBinary, destBinary)
+
+    if (process.platform === 'win32') {
+      // Copy all DLLs from source root (required runtime dependencies)
+      readdirSync(sourceRoot)
+        .filter((f) => f.toLowerCase().endsWith('.dll'))
+        .forEach((dll) => copyFileSync(join(sourceRoot, dll), join(destination, dll)))
+    } else {
+      // Ensure the binary is executable on macOS and Linux
+      chmodSync(destBinary, 0o755)
+    }
+
+    // Cleanup and finish
+    cleanupTemp()
+    broadcast('complete', null, 'llama-server installed successfully.')
+    return destBinary
+
+  } catch (err) {
+    cleanupTemp()
+    const message = err instanceof Error ? err.message : String(err)
+    broadcast('error', null, message)
+    throw err
+  }
 }
 
 /**
