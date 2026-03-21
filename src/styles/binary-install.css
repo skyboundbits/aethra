@@ -1,0 +1,69 @@
+/**
+ * src/styles/binary-install.css
+ * Styles for the LlamaBinaryBanner component shown when the llama-server binary
+ * is missing. Used by SettingsModal and ModelLoaderModal.
+ */
+
+.binary-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--surface-bg);
+  margin-bottom: var(--space-3);
+}
+
+.binary-banner--error {
+  border-color: var(--status-border-error);
+}
+
+.binary-banner__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.binary-banner__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-color-primary);
+}
+
+.binary-banner__subtitle {
+  font-size: 0.8rem;
+  color: var(--text-color-secondary);
+}
+
+.binary-banner__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.binary-banner__message {
+  font-size: 0.82rem;
+  color: var(--text-color-secondary);
+}
+
+.binary-banner__message--error {
+  color: var(--status-color-error);
+}
+
+/* Progress bar track */
+.binary-install-progress {
+  height: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-bg-emphasis);
+  overflow: hidden;
+}
+
+/* Progress bar fill */
+.binary-install-progress__bar {
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--surface-bg-accent);
+  transition: width 0.2s ease;
+}
