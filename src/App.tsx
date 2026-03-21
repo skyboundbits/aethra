@@ -41,6 +41,7 @@ import type {
   AppSettings,
   AvailableModel,
   AiDebugEntry,
+  BinaryInstallProgress,
   Campaign,
   CampaignSummary,
   CharacterProfile,
@@ -388,6 +389,9 @@ export default function App() {
   /** Most recent Hugging Face model download progress update. */
   const [modelDownloadProgress, setModelDownloadProgress] = useState<ModelDownloadProgress | null>(null)
 
+  /** Current binary installation progress (llama-server or similar). */
+  const [binaryInstallProgress, setBinaryInstallProgress] = useState<BinaryInstallProgress | null>(null)
+
   /** GGUF files currently listed from the selected Hugging Face repository. */
   const [huggingFaceFiles, setHuggingFaceFiles] = useState<HuggingFaceModelFile[]>([])
 
@@ -544,11 +548,15 @@ export default function App() {
         setIsDownloadingModel(false)
       }
     })
+    const disposeBinaryInstallListener = window.api.onBinaryInstallProgress((progress) => {
+      setBinaryInstallProgress(progress)
+    })
 
     return () => {
       cancelled = true
       disposeRuntimeListener()
       disposeDownloadListener()
+      disposeBinaryInstallListener()
     }
   }, [])
 
@@ -2354,6 +2362,7 @@ export default function App() {
           hardwareInfo={hardwareInfo}
           localRuntimeStatus={localRuntimeStatus}
           modelDownloadProgress={modelDownloadProgress}
+          binaryInstallProgress={binaryInstallProgress}
           huggingFaceFiles={huggingFaceFiles}
           isBrowsingHuggingFace={isBrowsingHuggingFace}
           isDownloadingModel={isDownloadingModel}
@@ -2412,6 +2421,7 @@ export default function App() {
           activeModelSlug={activeModel?.slug ?? null}
           fitEstimate={activeLocalModelFit}
           localRuntimeStatus={localRuntimeStatus}
+          binaryInstallProgress={binaryInstallProgress}
           statusMessage={modelLoaderStatusMessage}
           statusKind={modelLoaderStatusKind}
           isBusy={isModelLoading}
