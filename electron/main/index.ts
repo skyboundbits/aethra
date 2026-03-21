@@ -23,6 +23,7 @@ import type {
   AppSettings,
   AiDebugEntry,
   AvailableModel,
+  BinaryInstallProgress,
   Campaign,
   CampaignFileHandle,
   CampaignSummary,
@@ -57,6 +58,36 @@ const LOCAL_LLAMACPP_SERVER_ID = 'llama-cpp-local'
 const LOCAL_LLAMACPP_DEFAULT_HOST = '127.0.0.1'
 const LOCAL_LLAMACPP_DEFAULT_PORT = 3939
 const MODEL_SCAN_EXTENSIONS = new Set(['.gguf'])
+
+/** Pinned llama.cpp GitHub release tag used for binary auto-download. */
+const LLAMA_CPP_RELEASE = 'b5616'
+
+/**
+ * Static asset lookup table for the pinned llama.cpp release.
+ * Key format: `{platform}-{backend}` or `darwin-metal-{arch}`.
+ * Update LLAMA_CPP_RELEASE and this table together when bumping the bundled version.
+ */
+const LLAMA_CPP_ASSETS: Record<string, { fileName: string; sizeMb: number; ext: 'zip' }> = {
+  'win32-cuda':         { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-win-cuda-12.4-x64.zip`,    sizeMb: 126, ext: 'zip' },
+  'win32-vulkan':       { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-win-vulkan-x64.zip`,        sizeMb: 21,  ext: 'zip' },
+  'win32-cpu':          { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-win-cpu-x64.zip`,           sizeMb: 14,  ext: 'zip' },
+  'darwin-metal-arm64': { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-macos-arm64.zip`,           sizeMb: 10,  ext: 'zip' },
+  'darwin-metal-x64':   { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-macos-x64.zip`,            sizeMb: 25,  ext: 'zip' },
+  'linux-cuda':         { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-ubuntu-vulkan-x64.zip`,     sizeMb: 20,  ext: 'zip' }, // no linux cuda build; fall back to vulkan
+  'linux-vulkan':       { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-ubuntu-vulkan-x64.zip`,     sizeMb: 20,  ext: 'zip' },
+  'linux-cpu':          { fileName: `llama-${LLAMA_CPP_RELEASE}-bin-ubuntu-x64.zip`,            sizeMb: 12,  ext: 'zip' },
+}
+
+/** Display name mapping for recommendedBackend values. */
+const BACKEND_DISPLAY: Record<string, 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'> = {
+  cuda:   'CUDA',
+  vulkan: 'Vulkan',
+  metal:  'Metal',
+  cpu:    'CPU',
+}
+
+/** In-flight binary install guard — prevents concurrent installs. */
+let isBinaryInstalling = false
 
 /** In-memory rolling log of AI transport debug events. */
 const aiDebugLog: AiDebugEntry[] = []
@@ -1887,6 +1918,36 @@ function isLocalLlamaServer(server: ServerProfile): boolean {
 }
 
 /**
+ * Detect the best llama.cpp backend for the current machine and return
+ * the asset lookup key, display name, and estimated download size.
+ *
+ * On macOS, Metal is always used; the arch (arm64/x64) determines the asset.
+ * On Windows/Linux, the recommendedBackend from hardware detection is used.
+ *
+ * @returns Object with asset key, display name, and size in MB.
+ */
+function detectLlamaBinaryBackend(): { key: string; display: 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'; sizeMb: number } {
+  const backend = cachedHardwareInfo?.recommendedBackend ?? 'cpu'
+  const platform = process.platform
+
+  // On macOS, Metal is always the backend regardless of recommendedBackend value.
+  // Differentiate Apple Silicon (arm64) from Intel (x64) for the asset filename.
+  let key: string
+  let display: 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'
+  if (platform === 'darwin') {
+    const arch = process.arch === 'x64' ? 'x64' : 'arm64'
+    key = `darwin-metal-${arch}`
+    display = 'Metal'
+  } else {
+    key = `${platform}-${backend}`
+    display = BACKEND_DISPLAY[backend] ?? 'CPU'
+  }
+
+  const asset = LLAMA_CPP_ASSETS[key] ?? LLAMA_CPP_ASSETS[`${platform}-cpu`]
+  return { key, display, sizeMb: asset?.sizeMb ?? 0 }
+}
+
+/**
  * Find a usable llama-server executable path for a local server profile.
  *
  * @param server - Local server profile that may include an explicit path.
@@ -1901,6 +1962,7 @@ function resolveLlamaExecutablePath(server: ServerProfile): string | null {
     explicitPath,
     join(app.getAppPath(), fileName),
     join(app.getAppPath(), 'bin', fileName),
+    join(app.getAppPath(), 'llama.cpp', fileName),   // dev-mode install destination
     join(dirname(app.getPath('exe')), fileName),
     join(dirname(app.getPath('exe')), 'llama.cpp', fileName),
   ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0)
