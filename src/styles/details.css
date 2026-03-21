@@ -1,27 +1,47 @@
 /**
  * src/styles/details.css
  * Styles for the DetailsPanel component (right panel).
- * Will eventually display character sheets, scene descriptions, and settings.
- * For the initial version it renders a placeholder layout.
+ * Provides a compact dashboard for campaign state, active session stats,
+ * rolling continuity, and runtime information.
  */
-
-/* ─── Panel header ───────────────────────────────────────────────────────── */
 
 .details__header {
   padding: var(--panel-padding);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.details__eyebrow {
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-color-muted);
+  margin-bottom: var(--space-1);
 }
 
 .details__title {
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-title);
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-color-secondary);
+  color: var(--text-color-primary);
 }
 
-/* ─── Scrollable body ────────────────────────────────────────────────────── */
+.details__header-badge {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-bg-emphasis);
+  border: 1px solid var(--border-color);
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 
 .details__body {
   flex: 1;
@@ -32,21 +52,20 @@
   gap: var(--space-4);
 }
 
-/* ─── Placeholder card ───────────────────────────────────────────────────── */
-
 .details__card {
   background-color: var(--surface-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
-.details__card-header {
+.details__stack {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-2);
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .details__card-label {
@@ -55,7 +74,12 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-color-muted);
-  margin-bottom: var(--space-2);
+}
+
+.details__headline {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color-primary);
 }
 
 .details__card-placeholder {
@@ -71,16 +95,77 @@
   white-space: pre-wrap;
 }
 
-.details__action-btn {
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background-color: var(--panel-bg);
-  color: var(--text-color-primary);
-  transition: border-color var(--motion-base), background-color var(--motion-base);
+.details__meta {
+  font-size: var(--font-size-label);
+  color: var(--text-color-secondary);
 }
 
-.details__action-btn:hover {
+.details__meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--font-size-label);
+  color: var(--text-color-secondary);
+}
+
+.details__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.details__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background-color: var(--panel-bg);
+  border: 1px solid var(--border-color);
+}
+
+.details__stat strong,
+.details__meta-list strong {
+  color: var(--text-color-primary);
+  font-size: 14px;
+}
+
+.details__stat-label {
+  font-size: var(--font-size-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-color-muted);
+}
+
+.details__pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.details__pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background-color: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-color-primary);
+  font-size: var(--font-size-label);
+}
+
+.details__pill--player {
+  background-color: var(--surface-bg-user-message);
   border-color: var(--border-color-accent);
-  background-color: var(--surface-bg-emphasis);
+}
+
+@media (max-width: 1200px) {
+  .panel--details {
+    width: min(320px, 34vw);
+  }
+
+  .details__stats {
+    grid-template-columns: 1fr;
+  }
 }

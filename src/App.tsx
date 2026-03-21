@@ -323,6 +323,7 @@ function buildRequestMessages(
   settings: AppSettings,
   session: Session,
   pendingMessages: Message[] = [],
+  trailingInstructions: ChatMessage[] = [],
 ): ChatMessage[] {
   return [
     ...buildSystemContext(
@@ -332,6 +333,7 @@ function buildRequestMessages(
       getPromptSceneSummary(session, settings.enableRollingSummaries),
     ),
     ...toApiMessages(getPromptWindowMessages(session, settings.enableRollingSummaries, pendingMessages)),
+    ...trailingInstructions,
   ]
 }
 
@@ -1112,8 +1114,8 @@ export default function App() {
     [apiMessages, systemContextMessages],
   )
 
-  /** Tokens shown in the UI, preferring full request usage from the last completed response. */
-  const usedTokens = lastTokenUsage?.totalTokens ?? estimatedPromptTokens
+  /** Tokens shown in the UI, preferring exact prompt usage from the last completed response. */
+  const usedTokens = lastTokenUsage?.promptTokens ?? estimatedPromptTokens
 
   /** Remaining context budget for the selected model, if known. */
   const remainingTokens = activeModel?.contextWindowTokens
@@ -2977,7 +2979,7 @@ export default function App() {
       createdAt: userMessage.timestamp,
       updatedAt: userMessage.timestamp,
     }
-    const historySnapshot = buildRequestMessages(
+    const baseHistorySnapshot = buildRequestMessages(
       campaign,
       characters,
       appSettingsRef.current,
@@ -3059,6 +3061,19 @@ export default function App() {
      */
     function streamAssistantAttempt(attemptNumber: number): void {
       accumulated = ''
+      const historySnapshot = attemptNumber === 1
+        ? baseHistorySnapshot
+        : buildRequestMessages(
+          campaign,
+          characters,
+          appSettingsRef.current,
+          sessionForPrompt,
+          [userMessage],
+          [{
+            role: 'user',
+            content: 'Your previous reply was invalid. Retry and output only lines beginning with [Name]. Every line must start with [Scene] or the exact name of an AI-controlled character. Do not write any content for player-controlled characters.',
+          }],
+        )
 
       streamCompletion(
         historySnapshot,
@@ -3094,10 +3109,26 @@ export default function App() {
           }
 
           console.error('[Aethra] AI stream error:', err)
-          upsertMessage(sessionId, {
-            ...assistantMessage,
-            content: `${TRANSIENT_ERROR_MARKER} Could not reach the selected AI server. Check that it is running and the server address is correct.`,
-          })
+          updateCampaign((prev) => ({
+            ...prev,
+            sessions: prev.sessions.map((session) => {
+              if (session.id !== sessionId) {
+                return session
+              }
+
+              return {
+                ...session,
+                messages: [
+                  ...session.messages.filter((message) => !assistantIds.includes(message.id)),
+                  {
+                    ...assistantMessage,
+                    content: `${TRANSIENT_ERROR_MARKER} Could not reach the selected AI server. Check that it is running and the server address is correct.`,
+                  },
+                ],
+                updatedAt: Date.now(),
+              }
+            }),
+          }))
           setIsStreaming(false)
         },
       )
@@ -3168,7 +3199,9 @@ export default function App() {
 
           {/* Right column: session details */}
           <DetailsPanel
+            campaign={campaign}
             activeSession={activeSession}
+            characters={characters}
             activeServerName={activeServer?.name ?? null}
             activeModelName={activeModel?.name ?? null}
           />
