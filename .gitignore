@@ -25,6 +25,9 @@ release/
 # Claude Code
 .claude/
 
+#large files
+models/
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
