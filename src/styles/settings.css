@@ -162,28 +162,7 @@
 }
 
 .settings-modal__select {
-  width: 100%;
-  padding: 12px 40px 12px 14px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background-color: var(--surface-bg);
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--text-color-secondary) 50%),
-    linear-gradient(135deg, var(--text-color-secondary) 50%, transparent 50%);
-  background-position:
-    calc(100% - 18px) calc(50% - 2px),
-    calc(100% - 12px) calc(50% - 2px);
-  background-repeat: no-repeat;
-  background-size: 6px 6px, 6px 6px;
-  color: var(--text-color-primary);
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-}
-
-.settings-modal__select:focus {
-  outline: none;
-  border-color: var(--border-color-accent);
+  min-height: 46px;
 }
 
 .settings-modal__field-hint {

@@ -67,3 +67,22 @@
   background: var(--surface-bg-accent);
   transition: width 0.2s ease;
 }
+
+.binary-install-progress__bar--indeterminate {
+  width: 35%;
+  animation: binary-install-progress-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes binary-install-progress-indeterminate {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  50% {
+    transform: translateX(60%);
+  }
+
+  100% {
+    transform: translateX(260%);
+  }
+}

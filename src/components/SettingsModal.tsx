@@ -11,6 +11,7 @@ import { Modal } from './Modal'
 import { MessageCircleMoreIcon, PaletteIcon, SettingsIcon, SparkleIcon, SparklesIcon, WandSparklesIcon, SwordsIcon, ListMinusIcon, ChessKnightIcon } from './icons'
 import {
   DEFAULT_CAMPAIGN_BASE_PROMPT,
+  DEFAULT_CHAT_FORMATTING_RULES,
   DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
 } from '../prompts/campaignPrompts'
 import { formatBytes } from '../services/modelFitService'
@@ -252,6 +253,8 @@ interface SettingsModalProps {
   assistantResponseRevealDelayMs: number
   /** Base campaign roleplay instruction template. */
   campaignBasePrompt: string
+  /** Chat formatting rules appended to the campaign prompt. */
+  formattingRules: string
   /** Rolling summary system instruction template. */
   rollingSummarySystemPrompt: string
   /** Whether prompts should use rolling summaries plus a recent chat window. */
@@ -304,6 +307,7 @@ interface SettingsModalProps {
   /** Called when the user saves edited prompt templates. */
   onSavePromptTemplates: (prompts: {
     campaignBasePrompt: string
+    formattingRules: string
     rollingSummarySystemPrompt: string
   }) => Promise<void>
   /** Called when the modal should publish a footer status update. */
@@ -380,6 +384,7 @@ export function SettingsModal({
   chatTextSize,
   assistantResponseRevealDelayMs,
   campaignBasePrompt,
+  formattingRules,
   rollingSummarySystemPrompt,
   enableRollingSummaries,
   binaryInstallProgress,
@@ -419,6 +424,7 @@ export function SettingsModal({
   const [huggingFaceTokenValue, setHuggingFaceTokenValue] = useState('')
   const [huggingFaceRepoValue, setHuggingFaceRepoValue] = useState('')
   const [campaignBasePromptValue, setCampaignBasePromptValue] = useState(campaignBasePrompt)
+  const [formattingRulesValue, setFormattingRulesValue] = useState(formattingRules)
   const [rollingSummarySystemPromptValue, setRollingSummarySystemPromptValue] = useState(rollingSummarySystemPrompt)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -474,6 +480,13 @@ export function SettingsModal({
   useEffect(() => {
     setCampaignBasePromptValue(campaignBasePrompt)
   }, [campaignBasePrompt])
+
+  /**
+   * Keep the formatting-rules editor aligned with persisted settings.
+   */
+  useEffect(() => {
+    setFormattingRulesValue(formattingRules)
+  }, [formattingRules])
 
   /**
    * Keep the rolling-summary prompt editor aligned with persisted settings.
@@ -604,6 +617,7 @@ export function SettingsModal({
     try {
       await onSavePromptTemplates({
         campaignBasePrompt: campaignBasePromptValue,
+        formattingRules: formattingRulesValue,
         rollingSummarySystemPrompt: rollingSummarySystemPromptValue,
       })
     } finally {
@@ -616,10 +630,14 @@ export function SettingsModal({
    *
    * @param promptId - Template to restore.
    */
-  async function handlePromptReset(promptId: 'campaignBasePrompt' | 'rollingSummarySystemPrompt'): Promise<void> {
+  async function handlePromptReset(
+    promptId: 'campaignBasePrompt' | 'formattingRules' | 'rollingSummarySystemPrompt',
+  ): Promise<void> {
     const nextPrompts = {
       campaignBasePrompt:
         promptId === 'campaignBasePrompt' ? DEFAULT_CAMPAIGN_BASE_PROMPT : campaignBasePromptValue,
+      formattingRules:
+        promptId === 'formattingRules' ? DEFAULT_CHAT_FORMATTING_RULES : formattingRulesValue,
       rollingSummarySystemPrompt:
         promptId === 'rollingSummarySystemPrompt'
           ? DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT
@@ -627,6 +645,7 @@ export function SettingsModal({
     }
 
     setCampaignBasePromptValue(nextPrompts.campaignBasePrompt)
+    setFormattingRulesValue(nextPrompts.formattingRules)
     setRollingSummarySystemPromptValue(nextPrompts.rollingSummarySystemPrompt)
     setIsSaving(true)
     try {
@@ -756,7 +775,7 @@ export function SettingsModal({
                   </p>
                 </div>
 
-                <div className="settings-modal__field-grid">
+                  <div className="settings-modal__field-grid">
                   <PromptTemplateEditor
                     id="settings-campaign-base-prompt"
                     label="Campaign Base Prompt"
@@ -841,7 +860,7 @@ export function SettingsModal({
                 <div>
                   <h2 className="settings-modal__heading">Chat</h2>
                   <p className="settings-modal__subheading">
-                    Chat appearance settings.
+                    Chat appearance and output formatting settings.
                   </p>
                 </div>
 
@@ -852,7 +871,7 @@ export function SettingsModal({
                     </label>
                     <select
                       id="settings-chat-text-size"
-                      className="settings-modal__select"
+                      className="settings-modal__select app-select"
                       value={chatTextSize}
                       onChange={(event) => onChatTextSizeSelect(event.target.value as ChatTextSize)}
                     >
@@ -864,6 +883,20 @@ export function SettingsModal({
                     <p className="settings-modal__field-hint">
                       Adjusts the text size used inside chat bubbles.
                     </p>
+                  </div>
+                  <div className="settings-modal__field">
+                    <PromptTemplateEditor
+                      id="settings-formatting-rules"
+                      label="Formatting Rules"
+                      hint="Appended to the campaign prompt last, so these rules can override the default chat output format."
+                      value={formattingRulesValue}
+                      defaultValue={DEFAULT_CHAT_FORMATTING_RULES}
+                      disabled={isSaving}
+                      onChange={setFormattingRulesValue}
+                      onReset={() => {
+                        void handlePromptReset('formattingRules')
+                      }}
+                    />
                   </div>
                   <div className="settings-modal__field">
                     <div className="settings-modal__field-row">
@@ -901,6 +934,18 @@ export function SettingsModal({
                     </p>
                   </div>
                 </div>
+                <div className="settings-modal__prompt-actions">
+                  <button
+                    type="button"
+                    className="modal-footer__button modal-footer__button--primary"
+                    onClick={() => {
+                      void handlePromptTemplatesSave()
+                    }}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? 'Saving...' : 'Save Chat Settings'}
+                  </button>
+                </div>
               </section>
             ) : activeSection === 'remote-ai' ? (
               <section className="settings-modal__section">
@@ -931,7 +976,7 @@ export function SettingsModal({
                     </label>
                     <select
                       id="settings-server-select"
-                      className="settings-modal__select"
+                      className="settings-modal__select app-select"
                       value={activeServer?.id ?? ''}
                       onChange={(event) => onServerSelect(event.target.value)}
                       disabled={localAiServers.length === 0}
@@ -1042,7 +1087,7 @@ export function SettingsModal({
                     </label>
                     <select
                       id="settings-server-select"
-                      className="settings-modal__select"
+                      className="settings-modal__select app-select"
                       value={activeServer?.id ?? ''}
                       onChange={(event) => onServerSelect(event.target.value)}
                       disabled={embeddedAiServers.length === 0}

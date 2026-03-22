@@ -146,6 +146,58 @@ export interface CharacterAvatarCrop {
 }
 
 /**
+ * A reusable avatar stored globally and available across campaigns.
+ */
+export interface ReusableAvatar {
+  /** Unique identifier for the saved avatar. */
+  id: string
+  /** Display name shown in the avatar library. */
+  name: string
+  /** Uploaded avatar image stored as a data URL. */
+  imageData: string
+  /** Manual circle crop state used to frame the avatar. */
+  crop: CharacterAvatarCrop
+  /** Unix timestamp (ms) when the avatar was created. */
+  createdAt: number
+  /** Unix timestamp (ms) when the avatar was last updated. */
+  updatedAt: number
+}
+
+/**
+ * A reusable character stored globally and available across campaigns.
+ */
+export interface ReusableCharacter {
+  /** Unique identifier for the saved character. */
+  id: string
+  /** Display name shown in the character library. */
+  name: string
+  /** Character role or archetype shown in lists. */
+  role: string
+  /** Character gender identity used in prompts and editor defaults. */
+  gender: 'male' | 'female' | 'non-specific'
+  /** Character pronouns used in prompts and editor defaults. */
+  pronouns: 'he/him' | 'she/her' | 'they/them'
+  /** Physical description and presentation details. */
+  description: string
+  /** Personality traits and temperament notes. */
+  personality: string
+  /** Guidance for the way this character speaks. */
+  speakingStyle: string
+  /** Current objectives, motivations, or priorities. */
+  goals: string
+  /** Uploaded avatar image stored as a data URL, if one has been chosen. */
+  avatarImageData: string | null
+  /** Manual circle crop state used to frame the avatar in chat. */
+  avatarCrop: CharacterAvatarCrop
+  /** Which participant controls this character in play. */
+  controlledBy: 'ai' | 'user'
+  /** Unix timestamp (ms) when the character was created. */
+  createdAt: number
+  /** Unix timestamp (ms) when the character was last updated. */
+  updatedAt: number
+}
+
+/**
  * A single message in the format expected by OpenAI-compatible chat APIs.
  * Used when building the payload sent to the AI server.
  */
@@ -515,6 +567,18 @@ export interface LocalRuntimeStatus {
 }
 
 /**
+ * Progress update emitted while the managed local llama.cpp runtime is starting.
+ */
+export interface LocalRuntimeLoadProgress {
+  /** Current startup phase for the local runtime. */
+  status: 'starting' | 'loading-model' | 'ready' | 'error'
+  /** Completion percentage when it can be inferred from startup logs. */
+  percent: number | null
+  /** Human-readable progress text for the UI. */
+  message: string
+}
+
+/**
  * Persisted application settings.
  * Loaded from / saved to <userData>/settings.json by the main process.
  */
@@ -531,6 +595,8 @@ export interface AppSettings {
   systemPrompt: string
   /** Base campaign roleplay instruction used before dynamic campaign context. */
   campaignBasePrompt: string
+  /** Final formatting rules appended to campaign prompts and editable from Chat settings. */
+  formattingRules: string
   /** System instruction used when generating or rebuilding rolling summaries. */
   rollingSummarySystemPrompt: string
   /** Whether campaign chats should send a rolling summary plus the most recent messages. */

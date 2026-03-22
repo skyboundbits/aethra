@@ -1,0 +1,113 @@
+/**
+ * src/styles/avatar-crop-editor.css
+ * Shared styles for the reusable avatar crop editor.
+ */
+
+.avatar-crop-editor {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.avatar-crop-editor__cropper {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  user-select: none;
+}
+
+.avatar-crop-editor__cropper--ready {
+  cursor: grab;
+}
+
+.avatar-crop-editor__cropper--dragging {
+  cursor: grabbing;
+}
+
+.avatar-crop-editor__viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-bg-accent) 20%, transparent), transparent),
+    var(--surface-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-color-primary) 10%, transparent);
+}
+
+.avatar-crop-editor__preview {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background-repeat: no-repeat;
+}
+
+.avatar-crop-editor__empty {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-label);
+}
+
+.avatar-crop-editor__controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.avatar-crop-editor__upload {
+  display: none;
+}
+
+.avatar-crop-editor__button {
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+  transition: border-color var(--motion-base), background-color var(--motion-base);
+}
+
+.avatar-crop-editor__button:hover {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-emphasis);
+}
+
+.avatar-crop-editor__button:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.avatar-crop-editor__label {
+  font-size: var(--font-size-label);
+  color: var(--text-color-secondary);
+}
+
+.avatar-crop-editor__slider {
+  width: 100%;
+  accent-color: var(--surface-bg-accent);
+}
+
+.avatar-crop-editor__help {
+  font-size: var(--font-size-label);
+  color: var(--text-color-muted);
+}
+
+@media (max-width: 720px) {
+  .avatar-crop-editor {
+    grid-template-columns: 1fr;
+  }
+}

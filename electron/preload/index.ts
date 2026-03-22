@@ -27,10 +27,13 @@ import type {
   CharacterProfile,
   ChatMessage,
   HardwareInfo,
+  ReusableAvatar,
   HuggingFaceModelFile,
+  LocalRuntimeLoadProgress,
   LocalRuntimeStatus,
   ModelDownloadProgress,
   ModelPreset,
+  ReusableCharacter,
   TokenUsage,
   WindowControlsState,
 } from '../../src/types'
@@ -241,6 +244,23 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   /**
+   * Subscribe to local llama.cpp startup progress updates.
+   *
+   * @param listener - Called whenever model startup progress changes.
+   * @returns Cleanup function that removes the IPC listener.
+   */
+  onLocalRuntimeLoadProgress(listener: (progress: LocalRuntimeLoadProgress | null) => void): () => void {
+    function onProgress(_: IpcRendererEvent, progress: LocalRuntimeLoadProgress | null) {
+      listener(progress)
+    }
+
+    ipcRenderer.on('llama:runtime:load-progress', onProgress)
+    return () => {
+      ipcRenderer.off('llama:runtime:load-progress', onProgress)
+    }
+  },
+
+  /**
    * Check whether a usable llama-server binary exists for a local server profile.
    * @param serverId - Local llama.cpp server profile id.
    * @returns Detection result including found status, path, backend, and estimated size.
@@ -401,6 +421,72 @@ contextBridge.exposeInMainWorld('api', {
    */
   saveCharacter(campaignPath: string, character: CharacterProfile): Promise<CharacterProfile> {
     return ipcRenderer.invoke('characters:save', campaignPath, character) as Promise<CharacterProfile>
+  },
+
+  /**
+   * Delete a stored character from the active campaign.
+   *
+   * @param campaignPath - Absolute path to the active campaign folder.
+   * @param characterId - Stable character identifier to remove.
+   */
+  deleteCharacter(campaignPath: string, characterId: string): Promise<void> {
+    return ipcRenderer.invoke('characters:delete', campaignPath, characterId) as Promise<void>
+  },
+
+  /**
+   * Load the global reusable avatar library.
+   *
+   * @returns Promise resolving to saved reusable avatars.
+   */
+  listReusableAvatars(): Promise<ReusableAvatar[]> {
+    return ipcRenderer.invoke('avatars:list') as Promise<ReusableAvatar[]>
+  },
+
+  /**
+   * Persist a reusable avatar in the global avatar library.
+   *
+   * @param avatar - Avatar record to create or update.
+   * @returns Promise resolving to the saved avatar.
+   */
+  saveReusableAvatar(avatar: ReusableAvatar): Promise<ReusableAvatar> {
+    return ipcRenderer.invoke('avatars:save', avatar) as Promise<ReusableAvatar>
+  },
+
+  /**
+   * Delete one reusable avatar from the global avatar library.
+   *
+   * @param avatarId - Stable avatar identifier to remove.
+   */
+  deleteReusableAvatar(avatarId: string): Promise<void> {
+    return ipcRenderer.invoke('avatars:delete', avatarId) as Promise<void>
+  },
+
+  /**
+   * Load the global reusable character library.
+   *
+   * @returns Promise resolving to saved reusable characters.
+   */
+  listReusableCharacters(): Promise<ReusableCharacter[]> {
+    return ipcRenderer.invoke('characters:reusable:list') as Promise<ReusableCharacter[]>
+  },
+
+  /**
+   * Persist a reusable character in the global character library.
+   *
+   * @param character - Character record to create or update.
+   * @returns Promise resolving to the saved character.
+   */
+  saveReusableCharacter(character: ReusableCharacter): Promise<ReusableCharacter> {
+    return ipcRenderer.invoke('characters:reusable:save', character) as Promise<ReusableCharacter>
+  },
+
+  /**
+   * Delete one reusable character from the global character library.
+   *
+   * @param characterId - Stable character identifier to remove.
+   */
+  deleteReusableCharacter(characterId: string): Promise<void> {
+    return ipcRenderer.invoke('characters:reusable:delete', characterId) as Promise<void>
   },
 
   /**

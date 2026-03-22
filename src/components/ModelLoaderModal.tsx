@@ -11,11 +11,17 @@ import { formatBytes } from '../services/modelFitService'
 import { LlamaBinaryBanner } from './LlamaBinaryBanner'
 import '../styles/model-loader.css'
 
-import type { BinaryInstallProgress, LocalRuntimeStatus, ModelFitEstimate, ModelPreset, ServerKind, ServerProfile } from '../types'
+import type {
+  BinaryInstallProgress,
+  LocalRuntimeLoadProgress,
+  LocalRuntimeStatus,
+  ModelFitEstimate,
+  ModelPreset,
+  ServerKind,
+  ServerProfile,
+} from '../types'
 
 const CONTEXT_WINDOW_OPTIONS = [4096, 8192, 16384, 32768, 65536, 131072]
-const TEMPERATURE_OPTIONS = ['0.1', '0.3', '0.5', '0.7', '0.9', '1.0', '1.2', '1.5']
-
 /** Props accepted by the ModelLoaderModal component. */
 interface ModelLoaderModalProps {
   /** Compatible model sources shown in the dropdown. */
@@ -36,6 +42,8 @@ interface ModelLoaderModalProps {
   fitEstimate: ModelFitEstimate | null
   /** Current managed local runtime state. */
   localRuntimeStatus: LocalRuntimeStatus | null
+  /** Current startup progress for the managed local llama.cpp runtime. */
+  localRuntimeLoadProgress: LocalRuntimeLoadProgress | null
   /** Optional status text shown above the form. */
   statusMessage: string | null
   /** Visual state of the status message. */
@@ -45,7 +53,7 @@ interface ModelLoaderModalProps {
   /** Close handler for the modal. */
   onClose: () => void
   /** Called when the user requests a model load. */
-  onLoadModel: (modelSlug: string, contextWindowTokens: number, temperature: number) => Promise<void>
+  onLoadModel: (modelSlug: string, contextWindowTokens: number) => Promise<void>
   /** Current llama-server binary install progress, or null. */
   binaryInstallProgress: BinaryInstallProgress | null
   /** Called when the user requests a binary install from within this modal. */
@@ -72,6 +80,7 @@ export function ModelLoaderModal({
   hasLoadedModel,
   fitEstimate,
   localRuntimeStatus,
+  localRuntimeLoadProgress,
   statusMessage,
   statusKind,
   isBusy,
@@ -83,9 +92,12 @@ export function ModelLoaderModal({
 }: ModelLoaderModalProps) {
   const isLocalProvider = serverKind === 'llama.cpp'
   const isLmStudioProvider = serverKind === 'lmstudio'
+  const isLocalRuntimeLoading =
+    isLocalProvider &&
+    localRuntimeLoadProgress !== null &&
+    (localRuntimeLoadProgress.status === 'starting' || localRuntimeLoadProgress.status === 'loading-model')
   const [selectedModelSlug, setSelectedModelSlug] = useState(currentModelSlug ?? models[0]?.slug ?? '')
   const [selectedContextWindow, setSelectedContextWindow] = useState('8192')
-  const [selectedTemperature, setSelectedTemperature] = useState('0.7')
   const [showBinaryBanner, setShowBinaryBanner] = useState(false)
 
   /**
@@ -136,15 +148,6 @@ export function ModelLoaderModal({
   }, [currentModelSlug, models, selectedModelSlug])
 
   /**
-   * Keep the temperature field aligned with the current model, falling back to
-   * the default chat sampling temperature.
-   */
-  useEffect(() => {
-    const activeModel = models.find((model) => model.slug === (currentModelSlug ?? selectedModelSlug))
-    setSelectedTemperature((activeModel?.temperature ?? 0.7).toString())
-  }, [currentModelSlug, models, selectedModelSlug])
-
-  /**
    * Submit the model load request.
    * Intercepts the "Could not find llama-server" error to show the binary install banner
    * instead of propagating it to the outer error handler.
@@ -152,9 +155,8 @@ export function ModelLoaderModal({
   const handleLoad = useCallback(async (): Promise<void> => {
     setShowBinaryBanner(false)
     const normalizedContextWindow = Number(selectedContextWindow)
-    const normalizedTemperature = Number(selectedTemperature)
     try {
-      await onLoadModel(selectedModelSlug, normalizedContextWindow, normalizedTemperature)
+      await onLoadModel(selectedModelSlug, normalizedContextWindow)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (message.includes('Could not find llama-server')) {
@@ -163,7 +165,7 @@ export function ModelLoaderModal({
       }
       throw err
     }
-  }, [onLoadModel, selectedModelSlug, selectedContextWindow, selectedTemperature])
+  }, [onLoadModel, selectedModelSlug, selectedContextWindow])
 
   /**
    * Auto-retry the load once a binary install completes successfully.
@@ -197,12 +199,6 @@ export function ModelLoaderModal({
       <ModalFormLayout
         body={(
           <div className="model-loader">
-            {statusMessage ? (
-              <div className={`model-loader__status model-loader__status--${statusKind ?? 'success'}`}>
-                {statusMessage}
-              </div>
-            ) : null}
-
             {servers.length === 0 ? (
               <div className="model-loader__empty">
                 No compatible model sources are configured yet.
@@ -215,7 +211,7 @@ export function ModelLoaderModal({
                   </label>
                   <select
                     id="model-loader-source"
-                    className="model-loader__input"
+                    className="model-loader__input app-select"
                     value={selectedServerId ?? ''}
                     onChange={(event) => onSelectServer(event.target.value)}
                     disabled={isBusy}
@@ -234,30 +230,13 @@ export function ModelLoaderModal({
                   </div>
                 ) : (
                   <>
-                <div className="model-loader__intro">
-                  {isLmStudioProvider
-                    ? 'Pick a model exposed by LM Studio. Aethra will switch to it here, but loading still happens inside LM Studio.'
-                    : isLocalProvider
-                    ? 'Pick a local GGUF model to start in llama.cpp. Saved per-model load settings are reused when the runtime starts.'
-                    : 'Pick a text-generation-webui model to load into memory and choose the context size to request.'}
-                </div>
-
-                {isLocalProvider && localRuntimeStatus ? (
-                  <div className={`model-loader__runtime${localRuntimeStatus.state === 'error' ? ' model-loader__runtime--error' : ''}`}>
-                    Runtime: {localRuntimeStatus.state}{localRuntimeStatus.modelSlug ? ` • ${localRuntimeStatus.modelSlug}` : ''}
-                    {localRuntimeStatus.state === 'error' && localRuntimeStatus.lastError ? (
-                      <span className="model-loader__runtime-error"> — {localRuntimeStatus.lastError}</span>
-                    ) : null}
-                  </div>
-                ) : null}
-
                 <div className="model-loader__field">
                   <label className="model-loader__label" htmlFor="model-loader-model">
                     Model
                   </label>
                   <select
                     id="model-loader-model"
-                    className="model-loader__input"
+                    className="model-loader__input app-select"
                     value={selectedModelSlug}
                     onChange={(event) => setSelectedModelSlug(event.target.value)}
                     disabled={isBusy}
@@ -270,13 +249,25 @@ export function ModelLoaderModal({
                   </select>
                 </div>
 
+                {isLocalProvider && fitEstimate ? (
+                  <div className={`model-loader__fit model-loader__fit--${fitEstimate.level}`}>
+                    <strong>GPU Fit Estimate</strong>
+                    <span>{fitEstimate.message}</span>
+                    {fitEstimate.estimatedVramBytes !== null || fitEstimate.availableVramBytes !== null ? (
+                      <span>
+                        Est. VRAM: {formatBytes(fitEstimate.estimatedVramBytes)} / Available: {formatBytes(fitEstimate.availableVramBytes)}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <div className="model-loader__field">
                   <label className="model-loader__label" htmlFor="model-loader-context">
                     Context Length
                   </label>
                   <select
                     id="model-loader-context"
-                    className="model-loader__input"
+                    className="model-loader__input app-select"
                     value={selectedContextWindow}
                     onChange={(event) => setSelectedContextWindow(event.target.value)}
                     disabled={isBusy}
@@ -296,45 +287,6 @@ export function ModelLoaderModal({
                   </select>
                 </div>
 
-                <div className="model-loader__field">
-                  <label className="model-loader__label" htmlFor="model-loader-temperature">
-                    Temperature
-                  </label>
-                  <select
-                    id="model-loader-temperature"
-                    className="model-loader__input"
-                    value={selectedTemperature}
-                    onChange={(event) => setSelectedTemperature(event.target.value)}
-                    disabled={isBusy}
-                  >
-                    {Array.from(new Set([
-                      ...TEMPERATURE_OPTIONS,
-                      ...models
-                        .map((model) => model.temperature)
-                        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0)
-                        .map((value) => value.toString()),
-                    ]))
-                      .sort((left, right) => Number(left) - Number(right))
-                      .map((value) => (
-                        <option key={value} value={value}>
-                          {Number(value).toFixed(1)}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                {isLocalProvider && fitEstimate ? (
-                  <div className={`model-loader__fit model-loader__fit--${fitEstimate.level}`}>
-                    <strong>GPU Fit Estimate</strong>
-                    <span>{fitEstimate.message}</span>
-                    {fitEstimate.estimatedVramBytes !== null || fitEstimate.availableVramBytes !== null ? (
-                      <span>
-                        Est. VRAM: {formatBytes(fitEstimate.estimatedVramBytes)} / Available: {formatBytes(fitEstimate.availableVramBytes)}
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-
                 {showBinaryBanner && binaryCheckResult ? (
                   <LlamaBinaryBanner
                     detectedBackend={binaryCheckResult.detectedBackend}
@@ -342,6 +294,30 @@ export function ModelLoaderModal({
                     progress={binaryInstallProgress}
                     onInstall={onInstallBinary}
                   />
+                ) : null}
+
+                {isLocalProvider && localRuntimeStatus ? (
+                  <div className={`model-loader__runtime${localRuntimeStatus.state === 'error' ? ' model-loader__runtime--error' : ''}`}>
+                    Runtime: {localRuntimeStatus.state}{localRuntimeStatus.modelSlug ? ` • ${localRuntimeStatus.modelSlug}` : ''}
+                    {localRuntimeStatus.state === 'error' && localRuntimeStatus.lastError ? (
+                      <span className="model-loader__runtime-error"> — {localRuntimeStatus.lastError}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {isLocalRuntimeLoading ? (
+                  <div className="model-loader__progress" aria-live="polite">
+                    <div className="model-loader__progress-label">
+                      {localRuntimeLoadProgress.message}
+                      {localRuntimeLoadProgress.percent != null ? ` ${localRuntimeLoadProgress.percent}%` : ''}
+                    </div>
+                    <div className="binary-install-progress">
+                      <div
+                        className={`binary-install-progress__bar${localRuntimeLoadProgress.percent == null ? ' binary-install-progress__bar--indeterminate' : ''}`}
+                        style={{ width: localRuntimeLoadProgress.percent != null ? `${localRuntimeLoadProgress.percent}%` : undefined }}
+                      />
+                    </div>
+                  </div>
                 ) : null}
                   </>
                 )}
@@ -351,6 +327,11 @@ export function ModelLoaderModal({
         )}
         footer={(
           <ModalFooter
+            status={statusMessage ? (
+              <div className={`model-loader__status model-loader__status--${statusKind ?? 'success'}`}>
+                {statusMessage}
+              </div>
+            ) : null}
             actions={(
               <>
                 <button type="button" className="modal-footer__button" onClick={onClose}>

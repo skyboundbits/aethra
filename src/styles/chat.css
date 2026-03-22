@@ -295,8 +295,26 @@
   white-space: pre-wrap;
 }
 
+.message__content--segmented {
+  display: block;
+}
+
 .message__content--typing {
   min-width: 56px;
+}
+
+.message__segment {
+  display: inline;
+}
+
+.message__segment--speech {
+  color: var(--text-color-primary);
+  font-weight: 600;
+}
+
+.message__segment--action {
+  color: var(--text-color-muted);
+  font-style: italic;
 }
 
 .message__typing {
@@ -447,18 +465,6 @@
 
 .input-bar__character-select {
   min-height: 44px;
-  padding: 0 12px;
-  background-color: var(--surface-bg);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-color-primary);
-  font-size: var(--font-size-body);
-  outline: none;
-  transition: border-color var(--motion-base), background-color var(--motion-base);
-}
-
-.input-bar__character-select:focus {
-  border-color: var(--border-color-accent);
 }
 
 .input-bar__textarea {

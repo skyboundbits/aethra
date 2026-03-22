@@ -18,10 +18,13 @@ import type {
   CharacterProfile,
   ChatMessage,
   HardwareInfo,
-  HuggingFaceModelFile,
-  LocalRuntimeStatus,
+  ReusableAvatar,
+      HuggingFaceModelFile,
+      LocalRuntimeLoadProgress,
+      LocalRuntimeStatus,
   ModelDownloadProgress,
   ModelPreset,
+  ReusableCharacter,
   TokenUsage,
   WindowControlsState,
 } from './index'
@@ -149,6 +152,13 @@ declare global {
       onLocalRuntimeStatus: (listener: (status: LocalRuntimeStatus) => void) => () => void
 
       /**
+       * Subscribe to local llama.cpp startup progress updates.
+       * @param listener - Called whenever model-load startup progress changes.
+       * @returns Cleanup function to remove the listener.
+       */
+      onLocalRuntimeLoadProgress: (listener: (progress: LocalRuntimeLoadProgress | null) => void) => () => void
+
+      /**
        * Read the current in-memory AI debug log.
        * @returns Promise resolving to the most recent AI debug entries.
        */
@@ -256,6 +266,47 @@ declare global {
        * @param character - Character profile to save.
        */
       saveCharacter: (campaignPath: string, character: CharacterProfile) => Promise<CharacterProfile>
+
+      /**
+       * Delete a character profile from the active campaign.
+       * @param campaignPath - Absolute path to the active campaign folder.
+       * @param characterId - Stable character identifier to delete.
+       */
+      deleteCharacter: (campaignPath: string, characterId: string) => Promise<void>
+
+      /**
+       * Load the global reusable avatar library.
+       */
+      listReusableAvatars: () => Promise<ReusableAvatar[]>
+
+      /**
+       * Persist a reusable avatar in the global avatar library.
+       * @param avatar - Avatar record to create or update.
+       */
+      saveReusableAvatar: (avatar: ReusableAvatar) => Promise<ReusableAvatar>
+
+      /**
+       * Delete a reusable avatar from the global avatar library.
+       * @param avatarId - Stable avatar identifier to delete.
+       */
+      deleteReusableAvatar: (avatarId: string) => Promise<void>
+
+      /**
+       * Load the global reusable character library.
+       */
+      listReusableCharacters: () => Promise<ReusableCharacter[]>
+
+      /**
+       * Persist a reusable character in the global character library.
+       * @param character - Character record to create or update.
+       */
+      saveReusableCharacter: (character: ReusableCharacter) => Promise<ReusableCharacter>
+
+      /**
+       * Delete a reusable character from the global character library.
+       * @param characterId - Stable character identifier to delete.
+       */
+      deleteReusableCharacter: (characterId: string) => Promise<void>
 
       /**
        * Read the current platform and maximize state for the focused window.

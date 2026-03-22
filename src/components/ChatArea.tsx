@@ -4,7 +4,7 @@
  * Automatically scrolls to the latest message whenever the message list changes.
  */
 
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { Fragment, memo, useEffect, useMemo, useRef } from 'react'
 import type { ReactNode } from 'react'
 import '../styles/chat.css'
 import { Trash2Icon } from './icons'
@@ -270,40 +270,226 @@ function getCharacterInitials(characterName?: string): string | null {
 }
 
 /**
- * Remove bracketed tags from message text for on-screen display while keeping
- * the stored transcript content unchanged.
+ * Remove bracketed speaker tags from message text for on-screen display while
+ * keeping the stored transcript content unchanged.
  *
  * @param content - Raw persisted message content.
- * @returns Message content with bracketed tags removed for display.
+ * @returns Message content with speaker markers removed for display.
  */
 function getDisplayContent(content: string): string {
   return content
+    .replace(/\\"/g, '"')
     .replace(/\[[^\]\r\n]*\]/g, '')
+    .replace(/[ \t]*\.[ \t]*/g, '. ')
+    .replace(/[ \t]{2,}/g, ' ')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
-    .replace(/ {2,}/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
     .replace(/\s+([,.;!?])/g, '$1')
     .trim()
 }
 
 /**
- * Render inline message content, converting `*italic*` spans into emphasis.
+ * Render inline text, converting `*italic*` spans into emphasis.
  *
- * @param content - Raw message content to display.
- * @returns Renderable inline nodes for the message bubble.
+ * @param content - Raw inline text to display.
+ * @param keyPrefix - Stable key prefix for generated nodes.
+ * @returns Renderable inline nodes.
  */
-function renderMessageContent(content: string): ReactNode[] {
-  const parts = getDisplayContent(content).split(/(\*[^*\n]+\*)/g)
+function renderInlineText(content: string, keyPrefix: string): ReactNode[] {
+  const parts = content.split(/(\*[^*\n]+\*)/g)
 
   return parts
     .filter((part) => part.length > 0)
     .map((part, index) => {
       if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
-        return <em key={`${part}-${index}`}>{part.slice(1, -1)}</em>
+        return <em key={`${keyPrefix}-${index}`}>{part.slice(1, -1)}</em>
       }
 
-      return part
+      return <Fragment key={`${keyPrefix}-${index}`}>{part}</Fragment>
     })
+}
+
+type InlineSegmentType = 'speech' | 'action'
+
+interface InlineSegment {
+  type: InlineSegmentType
+  content: string
+}
+
+/**
+ * Parse supported inline markers from persisted transcript content.
+ *
+ * @param content - Raw message content to inspect.
+ * @returns Ordered list of parsed segments plus bare-text fallback runs.
+ */
+function parseInlineSegments(content: string): Array<InlineSegment | string> {
+  const source = getDisplayContent(content)
+  const matches = Array.from(source.matchAll(/(\*([^*\n]+)\*|"([^"\n]+)")/g))
+
+  if (matches.length === 0) {
+    return [source]
+  }
+
+  const segments: Array<InlineSegment | string> = []
+  let previousIndex = 0
+
+  for (const match of matches) {
+    const [rawMatch, , actionContent, speechContent] = match
+    const startIndex = match.index ?? 0
+
+    if (startIndex > previousIndex) {
+      const leading = source.slice(previousIndex, startIndex)
+      if (leading.trim().length > 0) {
+        segments.push(leading)
+      }
+    }
+
+    segments.push({
+      type: actionContent ? 'action' : 'speech',
+      content: (actionContent ?? speechContent ?? '').trim(),
+    })
+
+    previousIndex = startIndex + rawMatch.length
+  }
+
+  if (previousIndex < source.length) {
+    const trailing = source.slice(previousIndex)
+    if (trailing.trim().length > 0) {
+      segments.push(trailing)
+    }
+  }
+
+  return segments.length > 0 ? segments : [source]
+}
+
+/**
+ * Recover action and speech segments from loosely formatted character lines.
+ * This is used as a fallback when the model emits prose plus quoted dialogue
+ * instead of explicit `*action*` / `"speech"` formatting.
+ *
+ * @param content - Raw message content to inspect.
+ * @returns Recovered segments plus bare-text fallback runs.
+ */
+function parseLooseCharacterSegments(content: string): Array<InlineSegment | string> {
+  const source = getDisplayContent(content)
+  const matches = Array.from(source.matchAll(/"([^"\n]+)"/g))
+
+  if (matches.length === 0) {
+    return source.trim().length > 0
+      ? [{ type: 'speech', content: source.trim() }]
+      : []
+  }
+
+  const segments: Array<InlineSegment | string> = []
+  let previousIndex = 0
+
+  for (const match of matches) {
+    const [rawMatch, speechContent] = match
+    const startIndex = match.index ?? 0
+
+    if (startIndex > previousIndex) {
+      const leading = source.slice(previousIndex, startIndex).trim()
+      if (leading.length > 0) {
+        segments.push({ type: 'speech', content: leading })
+      }
+    }
+
+    segments.push({ type: 'speech', content: speechContent.trim() })
+    previousIndex = startIndex + rawMatch.length
+  }
+
+  if (previousIndex < source.length) {
+    const trailing = source.slice(previousIndex).trim()
+    if (trailing.length > 0) {
+      segments.push({ type: 'speech', content: trailing })
+    }
+  }
+
+  return segments
+}
+
+/**
+ * Render inline message content, converting supported segment markers into
+ * styled spans while preserving plain-text fallback for older content.
+ *
+ * @param content - Raw message content to display.
+ * @returns Renderable inline nodes for the message bubble.
+ */
+function renderMessageContent(content: string, speakerName?: string): ReactNode[] {
+  const isSceneSpeaker = speakerName?.trim().toLocaleLowerCase() === 'scene'
+  const isNamedSpeaker = typeof speakerName === 'string' && speakerName.trim().length > 0
+
+  if (isSceneSpeaker) {
+    return [
+      <span key="scene-action" className="message__segment message__segment--action">
+        {renderInlineText(getDisplayContent(content), 'scene-action')}
+      </span>,
+    ]
+  }
+
+  const parsedSegments = parseInlineSegments(content)
+  const recoveredSegments =
+    isNamedSpeaker && !hasInlineSegments(content)
+      ? parseLooseCharacterSegments(content)
+      : parsedSegments
+
+  return recoveredSegments.flatMap((segment, index) => {
+    const nodes: ReactNode[] = []
+
+    if (index > 0) {
+      nodes.push(<Fragment key={`space-${index}`}> </Fragment>)
+    }
+
+    if (typeof segment === 'string') {
+      const plainText = segment.trim()
+      if (plainText.length === 0) {
+        return nodes
+      }
+
+      nodes.push(
+        <span key={`speech-${index}`} className="message__segment message__segment--speech">
+          {renderInlineText(plainText, `speech-${index}`)}
+        </span>,
+      )
+      return nodes
+    }
+
+    nodes.push(
+      <span
+        key={`${segment.type}-${index}`}
+        className={`message__segment message__segment--${segment.type}`}
+      >
+        {renderInlineText(segment.content, `${segment.type}-${index}`)}
+      </span>,
+    )
+
+    return nodes
+  })
+}
+
+/**
+ * Determine whether a rendered content string contains structured inline
+ * segments and should use segmented bubble layout rules.
+ *
+ * @param content - Raw message content to inspect.
+ * @returns True when the message includes supported inline markers.
+ */
+function hasInlineSegments(content: string): boolean {
+  return /(\*[^*\n]+\*|"[^"\n]+")/.test(getDisplayContent(content))
+}
+
+/**
+ * Determine whether a message contains only structured inline segments with no
+ * plain prose between them.
+ *
+ * @param content - Raw message content to inspect.
+ * @returns True when all visible text is covered by supported segment markers.
+ */
+function hasOnlyInlineSegments(content: string): boolean {
+  const source = getDisplayContent(content)
+  const remainder = source.replace(/(\*[^*\n]+\*|"[^"\n]+")/g, '').trim()
+  return remainder.length === 0 && hasInlineSegments(content)
 }
 
 /**
@@ -349,6 +535,8 @@ function MessageBubble({ message, messageId, character, textSize, onDeleteMessag
     : undefined
   const isTypingPlaceholder =
     message.role === 'assistant' && isBusy && message.content.trim().length === 0
+  const isSegmentedMessage = hasInlineSegments(message.content)
+  const isStrictSegmentedMessage = hasOnlyInlineSegments(message.content)
 
   return (
     <div className={`message message--${message.role} message--text-${textSize}`}>
@@ -370,8 +558,14 @@ function MessageBubble({ message, messageId, character, textSize, onDeleteMessag
                 <div className="message__author">{message.characterName}</div>
               </div>
             ) : null}
-            <div className={`message__content${isTypingPlaceholder ? ' message__content--typing' : ''}`}>
-              {isTypingPlaceholder ? renderTypingIndicator() : renderMessageContent(message.content)}
+            <div
+              className={
+                `message__content${isTypingPlaceholder ? ' message__content--typing' : ''}` +
+                `${isSegmentedMessage ? ' message__content--segmented' : ''}` +
+                `${isStrictSegmentedMessage ? ' message__content--segments-only' : ''}`
+              }
+            >
+              {isTypingPlaceholder ? renderTypingIndicator() : renderMessageContent(message.content, message.characterName)}
             </div>
             <div className="message__meta">
               <div className="message__time">{formatTime(message.timestamp)}</div>

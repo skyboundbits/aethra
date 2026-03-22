@@ -32,6 +32,7 @@ import { AiDebugModal } from './components/AiDebugModal'
 import { ModelLoaderModal } from './components/ModelLoaderModal'
 import { ModelParametersModal } from './components/ModelParametersModal'
 import { Modal } from './components/Modal'
+import { NewSessionModal } from './components/NewSessionModal'
 import { SessionCharactersModal } from './components/SessionCharactersModal'
 
 import { streamCompletion } from './services/aiService'
@@ -40,6 +41,7 @@ import {
   buildCampaignBasePrompt,
   buildRollingSummarySystemPrompt,
   DEFAULT_CAMPAIGN_BASE_PROMPT,
+  DEFAULT_CHAT_FORMATTING_RULES,
   DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
 } from './prompts/campaignPrompts'
 import { applyTheme, parseImportedTheme, upsertCustomTheme } from './services/themeService'
@@ -54,11 +56,14 @@ import type {
   CharacterProfile,
   HardwareInfo,
   HuggingFaceModelFile,
+  LocalRuntimeLoadProgress,
   LocalRuntimeStatus,
   Message,
   ChatMessage,
   ModelDownloadProgress,
   ModelPreset,
+  ReusableAvatar,
+  ReusableCharacter,
   Session,
   TokenUsage,
 } from './types'
@@ -76,6 +81,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   activeModelSlug: null,
   systemPrompt: 'You are a roleplaying agent responding naturally to the user.',
   campaignBasePrompt: DEFAULT_CAMPAIGN_BASE_PROMPT,
+  formattingRules: DEFAULT_CHAT_FORMATTING_RULES,
   rollingSummarySystemPrompt: DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
   enableRollingSummaries: false,
   chatTextSize: 'small',
@@ -221,6 +227,7 @@ function buildSessionTitle(input: string): string {
  * @param campaign - Active campaign metadata.
  * @param characters - Characters available in the active campaign.
  * @param campaignBasePrompt - Persisted base prompt template for campaign play.
+ * @param formattingRules - Persisted formatting rules appended after the base prompt.
  * @param customSystemPrompt - User-configured system prompt text.
  * @param sceneSummary - Rolling scene summary, if one exists for the session.
  */
@@ -228,15 +235,18 @@ function buildSystemContext(
   campaign: Campaign,
   characters: CharacterProfile[],
   campaignBasePrompt: string,
+  formattingRules: string,
   customSystemPrompt: string,
   sceneSummary: string | null,
 ): ChatMessage[] {
   const normalizedCampaignBasePrompt =
     typeof campaignBasePrompt === 'string' ? campaignBasePrompt : DEFAULT_CAMPAIGN_BASE_PROMPT
+  const normalizedFormattingRules =
+    typeof formattingRules === 'string' ? formattingRules : DEFAULT_CHAT_FORMATTING_RULES
   const normalizedCustomSystemPrompt = typeof customSystemPrompt === 'string' ? customSystemPrompt : ''
   const baseInstruction: ChatMessage = {
     role: 'system',
-    content: buildCampaignBasePrompt(normalizedCampaignBasePrompt),
+    content: buildCampaignBasePrompt(normalizedCampaignBasePrompt, normalizedFormattingRules),
   }
 
   const customInstruction = normalizedCustomSystemPrompt.trim()
@@ -332,6 +342,21 @@ function getEnabledSessionCharacters(
 }
 
 /**
+ * Determine whether a character appears anywhere in a session transcript.
+ *
+ * @param session - Session to inspect.
+ * @param character - Campaign character to match.
+ * @returns True when the character appears in that session.
+ */
+function hasCharacterAppearedInSession(session: Session, character: CharacterProfile): boolean {
+  const normalizedCharacterName = character.name.trim().toLocaleLowerCase()
+  return session.messages.some((message) => (
+    message.characterId === character.id ||
+    message.characterName?.trim().toLocaleLowerCase() === normalizedCharacterName
+  ))
+}
+
+/**
  * Estimate token usage for the outbound request payload.
  * This is a rough UI hint, not an exact tokenizer count.
  *
@@ -382,6 +407,7 @@ function buildRequestMessages(
       campaign,
       characters,
       settings.campaignBasePrompt,
+      settings.formattingRules,
       settings.systemPrompt,
       getPromptSceneSummary(session, settings.enableRollingSummaries),
     ),
@@ -952,6 +978,8 @@ export default function App() {
   const charactersRef = useRef<CharacterProfile[]>([])
   /** Ref holding the current streaming state for idle summary scheduling. */
   const isStreamingRef = useRef(false)
+  /** Tracks whether any modal or confirmation dialog was open in the previous render. */
+  const wasModalOpenRef = useRef(false)
   /** Per-session delayed summary timers. */
   const summaryTimeoutsRef = useRef<Record<string, number | undefined>>({})
   /** Sessions currently being summarized in the background. */
@@ -972,6 +1000,9 @@ export default function App() {
 
   /** Current managed local llama.cpp runtime status. */
   const [localRuntimeStatus, setLocalRuntimeStatus] = useState<LocalRuntimeStatus | null>(null)
+
+  /** Current startup progress for the managed local llama.cpp runtime. */
+  const [localRuntimeLoadProgress, setLocalRuntimeLoadProgress] = useState<LocalRuntimeLoadProgress | null>(null)
 
   /** Most recent Hugging Face model download progress update. */
   const [modelDownloadProgress, setModelDownloadProgress] = useState<ModelDownloadProgress | null>(null)
@@ -1034,6 +1065,10 @@ export default function App() {
 
   /** Characters available for the active campaign. */
   const [characters, setCharacters] = useState<CharacterProfile[]>([])
+  /** Globally saved avatars available across campaigns. */
+  const [reusableAvatars, setReusableAvatars] = useState<ReusableAvatar[]>([])
+  /** Globally saved characters available across campaigns. */
+  const [reusableCharacters, setReusableCharacters] = useState<ReusableCharacter[]>([])
 
   /** Currently selected character in the characters modal. */
   const [activeCharacterId, setActiveCharacterId] = useState<string | null>(null)
@@ -1057,6 +1092,24 @@ export default function App() {
 
   /** True while a character file operation is in progress. */
   const [isCharactersBusy, setIsCharactersBusy] = useState(false)
+  /** Status message shown in the avatar library modal. */
+  const [avatarLibraryStatusMessage, setAvatarLibraryStatusMessage] = useState<string | null>(null)
+  /** Visual state of the avatar library status message. */
+  const [avatarLibraryStatusKind, setAvatarLibraryStatusKind] = useState<'error' | 'success' | null>(null)
+  /** True while a reusable avatar operation is in progress. */
+  const [isAvatarLibraryBusy, setIsAvatarLibraryBusy] = useState(false)
+  /** Status message shown in the character library modal sections. */
+  const [characterLibraryStatusMessage, setCharacterLibraryStatusMessage] = useState<string | null>(null)
+  /** Visual state of the character library status text. */
+  const [characterLibraryStatusKind, setCharacterLibraryStatusKind] = useState<'error' | 'success' | null>(null)
+  /** True while a reusable character operation is in progress. */
+  const [isCharacterLibraryBusy, setIsCharacterLibraryBusy] = useState(false)
+  /** Status message shown in the new-session character picker. */
+  const [newSessionStatusMessage, setNewSessionStatusMessage] = useState<string | null>(null)
+  /** Visual state of the new-session status message. */
+  const [newSessionStatusKind, setNewSessionStatusKind] = useState<'error' | 'success' | null>(null)
+  /** True while importing characters and creating a new session. */
+  const [isStartingSession, setIsStartingSession] = useState(false)
 
   /** True while the create campaign modal is open. */
   const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false)
@@ -1064,6 +1117,8 @@ export default function App() {
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false)
   /** True while the model loader modal is open. */
   const [isModelLoaderOpen, setIsModelLoaderOpen] = useState(false)
+  /** True while the new-session character picker modal is open. */
+  const [isNewSessionModalOpen, setIsNewSessionModalOpen] = useState(false)
   /** Server/source currently selected in the model loader modal. */
   const [modelLoaderServerId, setModelLoaderServerId] = useState<string | null>(null)
   /** True while the runtime model parameters modal is open. */
@@ -1146,6 +1201,9 @@ export default function App() {
     const disposeRuntimeListener = window.api.onLocalRuntimeStatus((status) => {
       setLocalRuntimeStatus(status)
     })
+    const disposeRuntimeLoadProgressListener = window.api.onLocalRuntimeLoadProgress((progress) => {
+      setLocalRuntimeLoadProgress(progress)
+    })
     const disposeDownloadListener = window.api.onModelDownloadProgress((progress) => {
       setModelDownloadProgress(progress)
       if (progress.status === 'completed' || progress.status === 'error') {
@@ -1168,6 +1226,7 @@ export default function App() {
     return () => {
       cancelled = true
       disposeRuntimeListener()
+      disposeRuntimeLoadProgressListener()
       disposeDownloadListener()
       disposeBinaryInstallListener()
     }
@@ -1191,6 +1250,8 @@ export default function App() {
    */
   useEffect(() => {
     void refreshCampaigns()
+    void refreshReusableAvatars()
+    void refreshReusableCharacters()
   }, [])
 
   /**
@@ -1214,6 +1275,31 @@ export default function App() {
 
   /** The full session object for the active session (or null). */
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null
+  /** True when any modal or confirmation dialog is currently covering the workspace. */
+  const isAnyModalOpen =
+    isSettingsOpen ||
+    isCharactersOpen ||
+    isNewSessionModalOpen ||
+    isSessionCharactersOpen ||
+    isSummaryModalOpen ||
+    isCreateCampaignOpen ||
+    isCampaignModalOpen ||
+    isModelLoaderOpen ||
+    isModelParametersOpen ||
+    isAiDebugOpen ||
+    pendingDeleteMessageId !== null ||
+    pendingDeleteSessionId !== null
+
+  /**
+   * Restore composer focus once the last open modal or confirmation dialog closes.
+   */
+  useEffect(() => {
+    if (wasModalOpenRef.current && !isAnyModalOpen) {
+      setComposerFocusRequestKey((prev) => prev + 1)
+    }
+
+    wasModalOpenRef.current = isAnyModalOpen
+  }, [isAnyModalOpen])
 
   /** Messages belonging to the active session. */
   const messages: Message[] = activeSession?.messages ?? []
@@ -1398,12 +1484,16 @@ export default function App() {
     return buildSystemContext(
       campaign,
       enabledSessionCharacters,
+      appSettings.campaignBasePrompt,
+      appSettings.formattingRules,
       appSettings.systemPrompt,
       getPromptSceneSummary(activeSession, appSettings.enableRollingSummaries),
     )
   }, [
     activeSession,
+    appSettings.campaignBasePrompt,
     appSettings.enableRollingSummaries,
+    appSettings.formattingRules,
     appSettings.systemPrompt,
     campaign,
     enabledSessionCharacters,
@@ -1779,23 +1869,9 @@ export default function App() {
    * Create a new empty session, add it to the list, and make it active.
    */
   function handleNewSession(): void {
-    const now = Date.now()
-    const newSession: Session = {
-      id:        uid(),
-      title:     `Session ${sessions.length + 1}`,
-      disabledCharacterIds: [],
-      messages:  [],
-      rollingSummary: '',
-      summarizedMessageCount: 0,
-      createdAt: now,
-      updatedAt: now,
-    }
-    updateCampaign((prev) => ({
-      ...prev,
-      sessions: [newSession, ...prev.sessions],
-    }))
-    setActiveSessionId(newSession.id)
-    setSelectedSessionId(newSession.id)
+    setNewSessionStatusKind(null)
+    setNewSessionStatusMessage(null)
+    setIsNewSessionModalOpen(true)
   }
 
   /**
@@ -2159,6 +2235,10 @@ export default function App() {
     if (tabId === 'characters') {
       setCharactersStatusKind(null)
       setCharactersStatusMessage(null)
+      setAvatarLibraryStatusKind(null)
+      setAvatarLibraryStatusMessage(null)
+      setCharacterLibraryStatusKind(null)
+      setCharacterLibraryStatusMessage(null)
       setIsCharactersOpen(true)
       return
     }
@@ -2185,6 +2265,19 @@ export default function App() {
    */
   function handleCloseCharacters(): void {
     setIsCharactersOpen(false)
+  }
+
+  /**
+   * Close the new-session character picker modal.
+   */
+  function handleCloseNewSessionModal(): void {
+    if (isStartingSession) {
+      return
+    }
+
+    setIsNewSessionModalOpen(false)
+    setNewSessionStatusKind(null)
+    setNewSessionStatusMessage(null)
   }
 
   /**
@@ -2550,6 +2643,32 @@ export default function App() {
   }
 
   /**
+   * Refresh the global reusable avatar library.
+   */
+  async function refreshReusableAvatars(): Promise<void> {
+    try {
+      setReusableAvatars(await window.api.listReusableAvatars())
+    } catch (err) {
+      console.error('[Aethra] Could not load reusable avatars:', err)
+      setAvatarLibraryStatusKind('error')
+      setAvatarLibraryStatusMessage('Could not load saved avatars.')
+    }
+  }
+
+  /**
+   * Refresh the global reusable character library.
+   */
+  async function refreshReusableCharacters(): Promise<void> {
+    try {
+      setReusableCharacters(await window.api.listReusableCharacters())
+    } catch (err) {
+      console.error('[Aethra] Could not load reusable characters:', err)
+      setCharacterLibraryStatusKind('error')
+      setCharacterLibraryStatusMessage('Could not load saved characters.')
+    }
+  }
+
+  /**
    * Persist the minimum assistant-response reveal delay.
    *
    * @param delayMs - Delay in milliseconds before assistant text may appear.
@@ -2613,11 +2732,13 @@ export default function App() {
    */
   async function handlePromptTemplatesSave(prompts: {
     campaignBasePrompt: string
+    formattingRules: string
     rollingSummarySystemPrompt: string
   }): Promise<void> {
     const nextSettings: AppSettings = {
       ...appSettings,
       campaignBasePrompt: prompts.campaignBasePrompt,
+      formattingRules: prompts.formattingRules,
       rollingSummarySystemPrompt: prompts.rollingSummarySystemPrompt,
     }
 
@@ -3031,9 +3152,8 @@ export default function App() {
    *
    * @param modelSlug - Selected model slug to load.
    * @param contextWindowTokens - Requested context window size in tokens.
-   * @param temperature - Sampling temperature used for future completions.
    */
-  async function handleLoadModel(modelSlug: string, contextWindowTokens: number, temperature: number): Promise<void> {
+  async function handleLoadModel(modelSlug: string, contextWindowTokens: number): Promise<void> {
     if (!modelLoaderServer || !canLoadModel) {
       setModelLoaderStatusKind('error')
       setModelLoaderStatusMessage('Model loading is not available for the selected source.')
@@ -3053,20 +3173,13 @@ export default function App() {
       return
     }
 
-    if (!Number.isFinite(temperature) || temperature < 0) {
-      setModelLoaderStatusKind('error')
-      setModelLoaderStatusMessage('Temperature must be zero or greater.')
-      return
-    }
-
     const normalizedContextWindowTokens = Math.floor(contextWindowTokens)
-    const normalizedTemperature = Number(temperature.toFixed(2))
     setIsModelLoading(true)
 
     try {
       const nextModels = appSettings.models.map((model) =>
         model.serverId === selectedModel.serverId && model.slug === selectedModel.slug
-          ? { ...model, contextWindowTokens: normalizedContextWindowTokens, temperature: normalizedTemperature }
+          ? { ...model, contextWindowTokens: normalizedContextWindowTokens }
           : model,
       )
       const nextSettings: AppSettings = {
@@ -3082,7 +3195,6 @@ export default function App() {
         baseUrl: modelLoaderServer.baseUrl,
         modelSlug: selectedModel.slug,
         contextWindowTokens: normalizedContextWindowTokens,
-        temperature: normalizedTemperature,
       })
 
       await persistSettings(nextSettings)
@@ -3099,7 +3211,6 @@ export default function App() {
         serverId: modelLoaderServer.id,
         modelSlug: selectedModel.slug,
         contextWindowTokens: normalizedContextWindowTokens,
-        temperature: normalizedTemperature,
       })
       setModelLoaderStatusKind('success')
       setModelLoaderStatusMessage(
@@ -3107,13 +3218,12 @@ export default function App() {
           ? `Started ${selectedModel.name} in llama.cpp with ${normalizedContextWindowTokens.toLocaleString()} tokens.`
           : modelLoaderServer.kind === 'lmstudio'
             ? `Selected ${selectedModel.name} from LM Studio. Start or switch the model in LM Studio if it is not already active.`
-            : `Loaded ${selectedModel.name} with ${normalizedContextWindowTokens.toLocaleString()} tokens and temperature ${normalizedTemperature.toFixed(1)}.`,
+            : `Loaded ${selectedModel.name} with ${normalizedContextWindowTokens.toLocaleString()} tokens.`,
       )
     } catch (err) {
       await appendAiDebugEntry('error', 'ai.model.load.error', {
         serverId: modelLoaderServer.id,
         modelSlug: selectedModel.slug,
-        temperature: normalizedTemperature,
         message: err instanceof Error ? err.message : String(err),
       })
       console.error('[Aethra] Could not load model:', err)
@@ -3412,6 +3522,311 @@ export default function App() {
       setCharactersStatusMessage(err instanceof Error ? err.message : 'Could not save character.')
     } finally {
       setIsCharactersBusy(false)
+    }
+  }
+
+  /**
+   * Delete one campaign-scoped character from the active campaign.
+   *
+   * @param characterId - Stable character identifier to remove.
+   */
+  async function handleDeleteCharacter(characterId: string): Promise<void> {
+    if (!campaignPath || !campaign) {
+      setCharactersStatusKind('error')
+      setCharactersStatusMessage('Open a campaign before deleting characters.')
+      return
+    }
+
+    const characterToDelete = characters.find((character) => character.id === characterId) ?? null
+    if (!characterToDelete) {
+      setCharactersStatusKind('error')
+      setCharactersStatusMessage('Could not find the selected character.')
+      return
+    }
+
+    const affectedSessions = campaign.sessions.filter((session) => hasCharacterAppearedInSession(session, characterToDelete))
+    const confirmed = affectedSessions.length > 0
+      ? window.confirm(
+        `Delete ${characterToDelete.name} from this campaign?\n\nWarning: this character appears in ${affectedSessions.length} session${affectedSessions.length === 1 ? '' : 's'}. Deleting the character will also permanently delete those session${affectedSessions.length === 1 ? '' : 's'}.`,
+      )
+      : window.confirm(`Delete ${characterToDelete.name} from this campaign?`)
+
+    if (!confirmed) {
+      return
+    }
+
+    setIsCharactersBusy(true)
+
+    try {
+      await window.api.deleteCharacter(campaignPath, characterId)
+      const nextCharacters = characters.filter((character) => character.id !== characterId)
+      const removedSessionIds = new Set(affectedSessions.map((session) => session.id))
+      if (removedSessionIds.size > 0) {
+        updateCampaign((prev) => ({
+          ...prev,
+          sessions: prev.sessions.filter((session) => !removedSessionIds.has(session.id)),
+        }))
+      }
+      setCharacters(nextCharacters)
+      setActiveCharacterId(nextCharacters[0]?.id ?? null)
+      setComposerCharacterId((prev) => prev === characterId ? null : prev)
+      if (removedSessionIds.size > 0) {
+        const survivingSessions = campaign.sessions.filter((session) => !removedSessionIds.has(session.id))
+        const nextSessionId = survivingSessions[0]?.id ?? null
+        setActiveSessionId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSessionId)
+        setSelectedSessionId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSessionId)
+      }
+      setCharactersStatusKind('success')
+      setCharactersStatusMessage(
+        removedSessionIds.size > 0
+          ? `Character deleted from this campaign along with ${removedSessionIds.size} affected session${removedSessionIds.size === 1 ? '' : 's'}.`
+          : 'Character deleted from this campaign.',
+      )
+    } catch (err) {
+      console.error('[Aethra] Could not delete character:', err)
+      setCharactersStatusKind('error')
+      setCharactersStatusMessage(err instanceof Error ? err.message : 'Could not delete character.')
+    } finally {
+      setIsCharactersBusy(false)
+    }
+  }
+
+  /**
+   * Persist one reusable avatar in the global avatar library.
+   *
+   * @param avatar - Avatar to save.
+   */
+  async function handleSaveReusableAvatar(avatar: ReusableAvatar): Promise<void> {
+    if (!avatar.imageData) {
+      setAvatarLibraryStatusKind('error')
+      setAvatarLibraryStatusMessage('Upload an image before saving an avatar.')
+      return
+    }
+
+    setIsAvatarLibraryBusy(true)
+
+    try {
+      const savedAvatar = await window.api.saveReusableAvatar(avatar)
+      setReusableAvatars((prev) =>
+        [savedAvatar, ...prev.filter((candidate) => candidate.id !== savedAvatar.id)]
+          .sort((first, second) => second.updatedAt - first.updatedAt),
+      )
+      setAvatarLibraryStatusKind('success')
+      setAvatarLibraryStatusMessage(`Saved ${savedAvatar.name}.`)
+    } catch (err) {
+      console.error('[Aethra] Could not save reusable avatar:', err)
+      setAvatarLibraryStatusKind('error')
+      setAvatarLibraryStatusMessage(err instanceof Error ? err.message : 'Could not save avatar.')
+    } finally {
+      setIsAvatarLibraryBusy(false)
+    }
+  }
+
+  /**
+   * Delete one reusable avatar from the global avatar library.
+   *
+   * @param avatarId - Stable avatar identifier to remove.
+   */
+  async function handleDeleteReusableAvatar(avatarId: string): Promise<void> {
+    setIsAvatarLibraryBusy(true)
+
+    try {
+      await window.api.deleteReusableAvatar(avatarId)
+      setReusableAvatars((prev) => prev.filter((avatar) => avatar.id !== avatarId))
+      setAvatarLibraryStatusKind('success')
+      setAvatarLibraryStatusMessage('Saved avatar deleted.')
+    } catch (err) {
+      console.error('[Aethra] Could not delete reusable avatar:', err)
+      setAvatarLibraryStatusKind('error')
+      setAvatarLibraryStatusMessage(err instanceof Error ? err.message : 'Could not delete avatar.')
+    } finally {
+      setIsAvatarLibraryBusy(false)
+    }
+  }
+
+  /**
+   * Persist one reusable character in the global character library.
+   *
+   * @param character - Character to save.
+   */
+  async function handleSaveReusableCharacter(character: ReusableCharacter): Promise<void> {
+    setIsCharacterLibraryBusy(true)
+
+    try {
+      const savedCharacter = await window.api.saveReusableCharacter(character)
+      setReusableCharacters((prev) =>
+        [savedCharacter, ...prev.filter((candidate) => candidate.id !== savedCharacter.id)]
+          .sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' })),
+      )
+      setCharacterLibraryStatusKind('success')
+      setCharacterLibraryStatusMessage(`Saved ${savedCharacter.name}.`)
+    } catch (err) {
+      console.error('[Aethra] Could not save reusable character:', err)
+      setCharacterLibraryStatusKind('error')
+      setCharacterLibraryStatusMessage(err instanceof Error ? err.message : 'Could not save character.')
+    } finally {
+      setIsCharacterLibraryBusy(false)
+    }
+  }
+
+  /**
+   * Delete one reusable character from the global character library.
+   *
+   * @param characterId - Stable character identifier to remove.
+   */
+  async function handleDeleteReusableCharacter(characterId: string): Promise<void> {
+    setIsCharacterLibraryBusy(true)
+
+    try {
+      await window.api.deleteReusableCharacter(characterId)
+      setReusableCharacters((prev) => prev.filter((character) => character.id !== characterId))
+      setCharacterLibraryStatusKind('success')
+      setCharacterLibraryStatusMessage('Saved character deleted.')
+    } catch (err) {
+      console.error('[Aethra] Could not delete reusable character:', err)
+      setCharacterLibraryStatusKind('error')
+      setCharacterLibraryStatusMessage(err instanceof Error ? err.message : 'Could not delete character.')
+    } finally {
+      setIsCharacterLibraryBusy(false)
+    }
+  }
+
+  /**
+   * Import a reusable character into the active campaign and return the saved record.
+   *
+   * @param reusableCharacter - Saved reusable character to import.
+   * @returns Imported campaign-scoped character.
+   */
+  async function importReusableCharacterToCampaign(reusableCharacter: ReusableCharacter): Promise<CharacterProfile> {
+    if (!campaignPath) {
+      throw new Error('Open a campaign before importing characters.')
+    }
+
+    const now = Date.now()
+    const savedCharacter = await window.api.saveCharacter(campaignPath, {
+      ...reusableCharacter,
+      id: uid(),
+      folderName: '',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    setCharacters((prev) =>
+      [savedCharacter, ...prev.filter((candidate) => candidate.id !== savedCharacter.id)]
+        .sort((first, second) => second.updatedAt - first.updatedAt),
+    )
+
+    return savedCharacter
+  }
+
+  /**
+   * Import a reusable character into the active campaign as a campaign-scoped character.
+   *
+   * @param reusableCharacter - Saved reusable character to import.
+   */
+  async function handleImportReusableCharacter(reusableCharacter: ReusableCharacter): Promise<void> {
+    if (!campaignPath) {
+      setCharacterLibraryStatusKind('error')
+      setCharacterLibraryStatusMessage('Open a campaign before importing characters.')
+      return
+    }
+
+    setIsCharactersBusy(true)
+
+    try {
+      const savedCharacter = await importReusableCharacterToCampaign(reusableCharacter)
+      setActiveCharacterId(savedCharacter.id)
+      setCharacterLibraryStatusKind('success')
+      setCharacterLibraryStatusMessage(`Imported ${savedCharacter.name} into this campaign.`)
+    } catch (err) {
+      console.error('[Aethra] Could not import reusable character:', err)
+      setCharacterLibraryStatusKind('error')
+      setCharacterLibraryStatusMessage(err instanceof Error ? err.message : 'Could not import character.')
+    } finally {
+      setIsCharactersBusy(false)
+    }
+  }
+
+  /**
+   * Create a session from the selected campaign and global characters.
+   *
+   * @param selectedCampaignCharacterIds - Existing campaign characters to keep active.
+   * @param selectedReusableCharacterIds - Global characters to import and activate.
+   */
+  async function handleStartNewSession(
+    selectedCampaignCharacterIds: string[],
+    selectedReusableCharacterIds: string[],
+  ): Promise<void> {
+    if (!campaign) {
+      setNewSessionStatusKind('error')
+      setNewSessionStatusMessage('Open a campaign before starting a session.')
+      return
+    }
+
+    const hasSelectedCampaignPlayer = characters.some((character) =>
+      selectedCampaignCharacterIds.includes(character.id) && character.controlledBy === 'user',
+    )
+    const hasSelectedReusablePlayer = reusableCharacters.some((character) =>
+      selectedReusableCharacterIds.includes(character.id) && character.controlledBy === 'user',
+    )
+    if (!hasSelectedCampaignPlayer && !hasSelectedReusablePlayer) {
+      setNewSessionStatusKind('error')
+      setNewSessionStatusMessage('Select at least one player character before starting a session.')
+      return
+    }
+
+    setIsStartingSession(true)
+    setNewSessionStatusKind(null)
+    setNewSessionStatusMessage(null)
+
+    try {
+      const selectedReusableCharacters = reusableCharacters.filter((character) => selectedReusableCharacterIds.includes(character.id))
+      const importedCharacters: CharacterProfile[] = []
+
+      for (const reusableCharacter of selectedReusableCharacters) {
+        importedCharacters.push(await importReusableCharacterToCampaign(reusableCharacter))
+      }
+
+      const selectedCharacterIds = new Set([
+        ...selectedCampaignCharacterIds,
+        ...importedCharacters.map((character) => character.id),
+      ])
+      const nextCharacters = [
+        ...characters,
+        ...importedCharacters,
+      ]
+      const disabledCharacterIds = nextCharacters
+        .filter((character) => !selectedCharacterIds.has(character.id))
+        .map((character) => character.id)
+
+      const now = Date.now()
+      const newSession: Session = {
+        id: uid(),
+        title: `Session ${sessions.length + 1}`,
+        disabledCharacterIds,
+        messages: [],
+        rollingSummary: '',
+        summarizedMessageCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      updateCampaign((prev) => ({
+        ...prev,
+        sessions: [newSession, ...prev.sessions],
+      }))
+      setActiveSessionId(newSession.id)
+      setSelectedSessionId(newSession.id)
+      setIsNewSessionModalOpen(false)
+      setComposerFocusRequestKey((prev) => prev + 1)
+      setNewSessionStatusKind(null)
+      setNewSessionStatusMessage(null)
+    } catch (err) {
+      console.error('[Aethra] Could not start session:', err)
+      setNewSessionStatusKind('error')
+      setNewSessionStatusMessage(err instanceof Error ? err.message : 'Could not start session.')
+    } finally {
+      setIsStartingSession(false)
     }
   }
 
@@ -3776,7 +4191,7 @@ export default function App() {
             onDeleteSession={handleDeleteSession}
             onNewSession={handleNewSession}
             onOpenSummary={handleOpenSummaryModal}
-            isBusy={isStreaming}
+            isBusy={isStreaming || isStartingSession}
           />
 
           {/* Centre column: chat feed + composer */}
@@ -3845,6 +4260,7 @@ export default function App() {
           chatTextSize={appSettings.chatTextSize}
           assistantResponseRevealDelayMs={appSettings.assistantResponseRevealDelayMs}
           campaignBasePrompt={appSettings.campaignBasePrompt}
+          formattingRules={appSettings.formattingRules}
           rollingSummarySystemPrompt={appSettings.rollingSummarySystemPrompt}
           enableRollingSummaries={appSettings.enableRollingSummaries}
           statusMessage={settingsStatusMessage}
@@ -3911,13 +4327,14 @@ export default function App() {
           hasLoadedModel={modelLoaderHasLoadedModel}
           fitEstimate={modelLoaderLocalModelFit}
           localRuntimeStatus={localRuntimeStatus}
+          localRuntimeLoadProgress={localRuntimeLoadProgress}
           binaryInstallProgress={binaryInstallProgress}
           binaryCheckResult={modelLoaderBinaryCheck}
           statusMessage={modelLoaderStatusMessage}
           statusKind={modelLoaderStatusKind}
           isBusy={isModelLoading}
           onClose={handleCloseModelLoader}
-          onLoadModel={(modelSlug, contextWindowTokens, temperature) => handleLoadModel(modelSlug, contextWindowTokens, temperature)}
+          onLoadModel={(modelSlug, contextWindowTokens) => handleLoadModel(modelSlug, contextWindowTokens)}
           onInstallBinary={() => {
             if (modelLoaderServer?.kind === 'llama.cpp') void window.api.installLlamaBinary(modelLoaderServer.id)
           }}
@@ -3948,6 +4365,31 @@ export default function App() {
             void handleCreateCharacter()
           }}
           onSaveCharacter={(character) => handleSaveCharacter(character)}
+          onDeleteCharacter={(characterId) => handleDeleteCharacter(characterId)}
+          reusableAvatars={reusableAvatars}
+          avatarLibraryStatusMessage={avatarLibraryStatusMessage}
+          avatarLibraryStatusKind={avatarLibraryStatusKind}
+          isAvatarLibraryBusy={isAvatarLibraryBusy}
+          onSaveReusableAvatar={(avatar) => handleSaveReusableAvatar(avatar)}
+          onDeleteReusableAvatar={(avatarId) => handleDeleteReusableAvatar(avatarId)}
+          reusableCharacters={reusableCharacters}
+          characterLibraryStatusMessage={characterLibraryStatusMessage}
+          characterLibraryStatusKind={characterLibraryStatusKind}
+          isCharacterLibraryBusy={isCharacterLibraryBusy}
+          onSaveReusableCharacter={(character) => handleSaveReusableCharacter(character)}
+          onDeleteReusableCharacter={(characterId) => handleDeleteReusableCharacter(characterId)}
+          onImportReusableCharacter={(character) => handleImportReusableCharacter(character)}
+        />
+      ) : null}
+      {isNewSessionModalOpen ? (
+        <NewSessionModal
+          campaignCharacters={characters}
+          reusableCharacters={reusableCharacters}
+          statusMessage={newSessionStatusMessage}
+          statusKind={newSessionStatusKind}
+          isBusy={isStartingSession}
+          onClose={handleCloseNewSessionModal}
+          onStartSession={(campaignCharacterIds, reusableCharacterIds) => handleStartNewSession(campaignCharacterIds, reusableCharacterIds)}
         />
       ) : null}
       {isSessionCharactersOpen ? (

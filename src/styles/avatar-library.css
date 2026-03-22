@@ -1,0 +1,168 @@
+/**
+ * src/styles/avatar-library.css
+ * Styles for the reusable avatar library modal.
+ */
+
+.avatar-library__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+.avatar-library__tab,
+.avatar-library__tab {
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+  text-align: left;
+  transition: border-color var(--motion-base), background-color var(--motion-base);
+}
+
+.avatar-library__tab:hover {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-emphasis);
+}
+
+.avatar-library__tab--active {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-selected);
+}
+
+.avatar-library__button {
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+  text-align: left;
+  transition: border-color var(--motion-base), background-color var(--motion-base);
+}
+
+.avatar-library__button:hover {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-emphasis);
+}
+
+.avatar-library__panel,
+.avatar-library__editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.avatar-library__heading {
+  font-size: var(--font-size-title);
+  color: var(--text-color-primary);
+}
+
+.avatar-library__subheading {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-label);
+  color: var(--text-color-secondary);
+}
+
+.avatar-library__status {
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-label);
+}
+
+.avatar-library__status--success {
+  border-color: var(--border-color-accent);
+  color: var(--text-color-primary);
+}
+
+.avatar-library__status--error {
+  border-color: var(--status-border-error);
+  color: var(--status-color-error);
+}
+
+.avatar-library__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.avatar-library__label,
+.avatar-library__empty {
+  font-size: var(--font-size-label);
+  color: var(--text-color-secondary);
+}
+
+.avatar-library__blank {
+  padding: 12px 14px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-color-muted);
+  font-size: var(--font-size-label);
+}
+
+.avatar-library__input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+}
+
+.avatar-library__input:focus {
+  outline: none;
+  border-color: var(--border-color-accent);
+}
+
+.avatar-library__card-name {
+  font-weight: 600;
+}
+
+.avatar-library__gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: var(--space-3);
+}
+
+.avatar-library__gallery-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  text-align: left;
+  transition: border-color var(--motion-base), background-color var(--motion-base);
+}
+
+.avatar-library__gallery-item:hover {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-emphasis);
+}
+
+.avatar-library__gallery-item--active {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-selected);
+}
+
+.avatar-library__gallery-preview {
+  width: 112px;
+  height: 112px;
+  margin: 0 auto;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background-color: var(--surface-bg);
+  background-repeat: no-repeat;
+  overflow: hidden;
+}
+
+.avatar-library__gallery-name {
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  color: var(--text-color-primary);
+  text-align: center;
+}

@@ -126,7 +126,7 @@ export function InputBar({
       <label className="input-bar__character-picker">
         <span className="input-bar__character-label">Writing as</span>
         <select
-          className="input-bar__character-select"
+          className="input-bar__character-select app-select"
           value={selectedCharacterId ?? ''}
           onChange={(event) => onSelectCharacter(event.target.value || null)}
           disabled={disabled}

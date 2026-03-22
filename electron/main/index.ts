@@ -30,10 +30,13 @@ import type {
   CampaignSummary,
   ChatTextSize,
   CharacterProfile,
+  ReusableAvatar,
+  ReusableCharacter,
   HardwareGpuInfo,
   HardwareInfo,
   HuggingFaceModelFile,
   LocalRuntimeStatus,
+  LocalRuntimeLoadProgress,
   ModelDownloadProgress,
   ModelPreset,
   ChatMessage,
@@ -46,6 +49,7 @@ import type {
 } from '../../src/types'
 import {
   DEFAULT_CAMPAIGN_BASE_PROMPT,
+  DEFAULT_CHAT_FORMATTING_RULES,
   DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
 } from '../../src/prompts/campaignPrompts'
 
@@ -59,6 +63,8 @@ const DEFAULT_WINDOW_HEIGHT = 800
 const MIN_WINDOW_WIDTH = 800
 const MIN_WINDOW_HEIGHT = 600
 const MAX_AI_DEBUG_ENTRIES = 200
+const AI_STREAM_INITIAL_TIMEOUT_MS = 30_000
+const AI_STREAM_IDLE_TIMEOUT_MS = 60_000
 const LOCAL_LLAMACPP_SERVER_ID = 'llama-cpp-local'
 const LOCAL_LLAMACPP_DEFAULT_HOST = '127.0.0.1'
 const LOCAL_LLAMACPP_DEFAULT_PORT = 3939
@@ -115,6 +121,9 @@ let localRuntimeStatus: LocalRuntimeStatus = {
   lastError: null,
   startedAt: null,
 }
+
+/** Current managed local runtime startup progress pushed to the renderer. */
+let localRuntimeLoadProgress: LocalRuntimeLoadProgress | null = null
 
 /**
  * Persisted BrowserWindow placement and display state.
@@ -213,6 +222,38 @@ interface PartialCharacterRecord {
   pronouns?: unknown
   avatarImageData?: unknown
   avatarCrop?: unknown
+  createdAt?: unknown
+  updatedAt?: unknown
+}
+
+/**
+ * Lightweight reusable avatar shape used to validate avatar library files from disk.
+ */
+interface PartialReusableAvatarRecord {
+  id?: unknown
+  name?: unknown
+  imageData?: unknown
+  crop?: unknown
+  createdAt?: unknown
+  updatedAt?: unknown
+}
+
+/**
+ * Lightweight reusable character shape used to validate character library files from disk.
+ */
+interface PartialReusableCharacterRecord {
+  id?: unknown
+  name?: unknown
+  role?: unknown
+  gender?: unknown
+  pronouns?: unknown
+  description?: unknown
+  personality?: unknown
+  speakingStyle?: unknown
+  goals?: unknown
+  avatarImageData?: unknown
+  avatarCrop?: unknown
+  controlledBy?: unknown
   createdAt?: unknown
   updatedAt?: unknown
 }
@@ -420,6 +461,9 @@ function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSet
     campaignBasePrompt: typeof raw?.campaignBasePrompt === 'string' && raw.campaignBasePrompt.trim().length > 0
       ? raw.campaignBasePrompt
       : DEFAULT_CAMPAIGN_BASE_PROMPT,
+    formattingRules: typeof raw?.formattingRules === 'string' && raw.formattingRules.trim().length > 0
+      ? raw.formattingRules
+      : DEFAULT_CHAT_FORMATTING_RULES,
     rollingSummarySystemPrompt:
       typeof raw?.rollingSummarySystemPrompt === 'string' && raw.rollingSummarySystemPrompt.trim().length > 0
         ? raw.rollingSummarySystemPrompt
@@ -1489,6 +1533,24 @@ function createStoredCharacter(folderPath: string, name: string): CharacterProfi
 }
 
 /**
+ * Delete one stored character from a campaign.
+ *
+ * @param folderPath - Absolute campaign folder path.
+ * @param characterId - Stable character identifier to remove.
+ */
+function deleteStoredCharacter(folderPath: string, characterId: string): void {
+  const existingCharacter = listStoredCharacters(folderPath).find((character) => character.id === characterId)
+  if (!existingCharacter) {
+    return
+  }
+
+  const targetFolderPath = join(ensureCharacterRoot(folderPath), existingCharacter.folderName)
+  if (existsSync(targetFolderPath)) {
+    rmSync(targetFolderPath, { recursive: true, force: true })
+  }
+}
+
+/**
  * Persist a campaign file to disk inside its folder.
  *
  * @param folderPath - Absolute path to the target campaign folder.
@@ -1797,6 +1859,243 @@ function getPersistedWindowState(win: BrowserWindow): PersistedWindowState {
 /** Absolute path to the user's persisted settings file. */
 function settingsPath(): string {
   return join(app.getPath('userData'), 'settings.json')
+}
+
+/** Absolute path to the user's persisted reusable avatar library file. */
+function reusableAvatarsPath(): string {
+  return join(app.getPath('userData'), 'avatars.json')
+}
+
+/** Absolute path to the user's persisted reusable character library file. */
+function reusableCharactersPath(): string {
+  return join(app.getPath('userData'), 'characters-library.json')
+}
+
+/**
+ * Normalize a raw reusable avatar record loaded from disk.
+ *
+ * @param raw - Parsed avatar candidate.
+ * @returns Sanitized reusable avatar.
+ */
+function normalizeReusableAvatar(raw: unknown): ReusableAvatar | null {
+  const safeRaw = isRecord(raw) ? raw as PartialReusableAvatarRecord : {}
+  if (typeof safeRaw.imageData !== 'string' || safeRaw.imageData.length === 0) {
+    return null
+  }
+
+  const createdAt = isFiniteNumber(safeRaw.createdAt) ? safeRaw.createdAt : Date.now()
+  const updatedAt = isFiniteNumber(safeRaw.updatedAt) ? safeRaw.updatedAt : createdAt
+  const safeCrop = isRecord(safeRaw.crop) ? safeRaw.crop : {}
+
+  return {
+    id: typeof safeRaw.id === 'string' && safeRaw.id.length > 0 ? safeRaw.id : uid(),
+    name: typeof safeRaw.name === 'string' && safeRaw.name.trim().length > 0 ? safeRaw.name.trim() : 'Saved Avatar',
+    imageData: safeRaw.imageData,
+    crop: {
+      x: isFiniteNumber(safeCrop.x) ? safeCrop.x : 0,
+      y: isFiniteNumber(safeCrop.y) ? safeCrop.y : 0,
+      scale: isFiniteNumber(safeCrop.scale) && safeCrop.scale > 0 ? safeCrop.scale : 1,
+    },
+    createdAt,
+    updatedAt,
+  }
+}
+
+/**
+ * Load the persisted reusable avatar library from disk.
+ *
+ * @returns Saved reusable avatars sorted by most recently updated.
+ */
+function loadReusableAvatars(): ReusableAvatar[] {
+  const path = reusableAvatarsPath()
+  if (!existsSync(path)) {
+    return []
+  }
+
+  try {
+    const raw = JSON.parse(readFileSync(path, 'utf-8')) as unknown
+    if (!Array.isArray(raw)) {
+      return []
+    }
+
+    return raw
+      .map((entry) => normalizeReusableAvatar(entry))
+      .filter((entry): entry is ReusableAvatar => entry !== null)
+      .sort((first, second) => second.updatedAt - first.updatedAt)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Persist the full reusable avatar library to disk.
+ *
+ * @param avatars - Avatar records to write.
+ */
+function saveReusableAvatars(avatars: ReusableAvatar[]): void {
+  const dir = app.getPath('userData')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  writeFileSync(reusableAvatarsPath(), JSON.stringify(avatars, null, 2), 'utf-8')
+}
+
+/**
+ * Create or update one reusable avatar in the global library.
+ *
+ * @param avatar - Avatar to persist.
+ * @returns Saved normalized avatar.
+ */
+function saveReusableAvatar(avatar: ReusableAvatar): ReusableAvatar {
+  const existing = loadReusableAvatars()
+  const now = Date.now()
+  const normalized = normalizeReusableAvatar({
+    ...avatar,
+    id: typeof avatar.id === 'string' && avatar.id.length > 0 ? avatar.id : uid(),
+    name: avatar.name,
+    imageData: avatar.imageData,
+    crop: avatar.crop,
+    createdAt: existing.find((entry) => entry.id === avatar.id)?.createdAt ?? avatar.createdAt ?? now,
+    updatedAt: now,
+  })
+
+  if (!normalized) {
+    throw new Error('Reusable avatars must include image data.')
+  }
+
+  const nextAvatars = [
+    normalized,
+    ...existing.filter((entry) => entry.id !== normalized.id),
+  ].sort((first, second) => second.updatedAt - first.updatedAt)
+
+  saveReusableAvatars(nextAvatars)
+  return normalized
+}
+
+/**
+ * Delete one reusable avatar from the global library.
+ *
+ * @param avatarId - Stable avatar identifier to remove.
+ */
+function deleteReusableAvatar(avatarId: string): void {
+  saveReusableAvatars(loadReusableAvatars().filter((avatar) => avatar.id !== avatarId))
+}
+
+/**
+ * Normalize a raw reusable character record loaded from disk.
+ *
+ * @param raw - Parsed character candidate.
+ * @returns Sanitized reusable character.
+ */
+function normalizeReusableCharacter(raw: unknown): ReusableCharacter {
+  const safeRaw = isRecord(raw) ? raw as PartialReusableCharacterRecord : {}
+  const createdAt = isFiniteNumber(safeRaw.createdAt) ? safeRaw.createdAt : Date.now()
+  const updatedAt = isFiniteNumber(safeRaw.updatedAt) ? safeRaw.updatedAt : createdAt
+  const gender: ReusableCharacter['gender'] =
+    safeRaw.gender === 'male' || safeRaw.gender === 'female' || safeRaw.gender === 'non-specific'
+      ? safeRaw.gender
+      : 'non-specific'
+  const pronouns: ReusableCharacter['pronouns'] =
+    safeRaw.pronouns === 'he/him' || safeRaw.pronouns === 'she/her' || safeRaw.pronouns === 'they/them'
+      ? safeRaw.pronouns
+      : gender === 'male'
+        ? 'he/him'
+        : gender === 'female'
+          ? 'she/her'
+          : 'they/them'
+  const safeAvatarCrop = isRecord(safeRaw.avatarCrop) ? safeRaw.avatarCrop : {}
+
+  return {
+    id: typeof safeRaw.id === 'string' && safeRaw.id.length > 0 ? safeRaw.id : uid(),
+    name: typeof safeRaw.name === 'string' && safeRaw.name.trim().length > 0 ? safeRaw.name.trim() : 'Saved Character',
+    role: typeof safeRaw.role === 'string' ? safeRaw.role : '',
+    gender,
+    pronouns,
+    description: typeof safeRaw.description === 'string' ? safeRaw.description : '',
+    personality: typeof safeRaw.personality === 'string' ? safeRaw.personality : '',
+    speakingStyle: typeof safeRaw.speakingStyle === 'string' ? safeRaw.speakingStyle : '',
+    goals: typeof safeRaw.goals === 'string' ? safeRaw.goals : '',
+    avatarImageData: typeof safeRaw.avatarImageData === 'string' && safeRaw.avatarImageData.length > 0
+      ? safeRaw.avatarImageData
+      : null,
+    avatarCrop: {
+      x: isFiniteNumber(safeAvatarCrop.x) ? safeAvatarCrop.x : 0,
+      y: isFiniteNumber(safeAvatarCrop.y) ? safeAvatarCrop.y : 0,
+      scale: isFiniteNumber(safeAvatarCrop.scale) && safeAvatarCrop.scale > 0 ? safeAvatarCrop.scale : 1,
+    },
+    controlledBy: safeRaw.controlledBy === 'user' || safeRaw.controlledBy === 'ai'
+      ? safeRaw.controlledBy
+      : 'ai',
+    createdAt,
+    updatedAt,
+  }
+}
+
+/**
+ * Load the persisted reusable character library from disk.
+ *
+ * @returns Saved reusable characters sorted alphabetically.
+ */
+function loadReusableCharacters(): ReusableCharacter[] {
+  const path = reusableCharactersPath()
+  if (!existsSync(path)) {
+    return []
+  }
+
+  try {
+    const raw = JSON.parse(readFileSync(path, 'utf-8')) as unknown
+    if (!Array.isArray(raw)) {
+      return []
+    }
+
+    return raw
+      .map((entry) => normalizeReusableCharacter(entry))
+      .sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' }))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Persist the full reusable character library to disk.
+ *
+ * @param characters - Character records to write.
+ */
+function saveReusableCharacters(characters: ReusableCharacter[]): void {
+  const dir = app.getPath('userData')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  writeFileSync(reusableCharactersPath(), JSON.stringify(characters, null, 2), 'utf-8')
+}
+
+/**
+ * Create or update one reusable character in the global library.
+ *
+ * @param character - Character to persist.
+ * @returns Saved normalized character.
+ */
+function saveReusableCharacter(character: ReusableCharacter): ReusableCharacter {
+  const existing = loadReusableCharacters()
+  const now = Date.now()
+  const normalized = normalizeReusableCharacter({
+    ...character,
+    id: typeof character.id === 'string' && character.id.length > 0 ? character.id : uid(),
+    createdAt: existing.find((entry) => entry.id === character.id)?.createdAt ?? character.createdAt ?? now,
+    updatedAt: now,
+  })
+  const nextCharacters = [
+    normalized,
+    ...existing.filter((entry) => entry.id !== normalized.id),
+  ].sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' }))
+
+  saveReusableCharacters(nextCharacters)
+  return normalized
+}
+
+/**
+ * Delete one reusable character from the global library.
+ *
+ * @param characterId - Stable character identifier to remove.
+ */
+function deleteReusableCharacter(characterId: string): void {
+  saveReusableCharacters(loadReusableCharacters().filter((character) => character.id !== characterId))
 }
 
 /**
@@ -2277,6 +2576,85 @@ function broadcastLocalRuntimeStatus(): void {
 }
 
 /**
+ * Push the latest local runtime startup progress into every open renderer.
+ */
+function broadcastLocalRuntimeLoadProgress(): void {
+  broadcastToAllWindows('llama:runtime:load-progress', localRuntimeLoadProgress)
+}
+
+/**
+ * Update and broadcast the local runtime startup progress.
+ *
+ * @param nextProgress - Progress payload to publish, or null to clear it.
+ */
+function setLocalRuntimeLoadProgress(nextProgress: LocalRuntimeLoadProgress | null): void {
+  localRuntimeLoadProgress = nextProgress
+  broadcastLocalRuntimeLoadProgress()
+}
+
+/**
+ * Parse a llama.cpp startup log line into a renderer-facing progress update.
+ *
+ * @param line - Single stderr log line emitted during startup.
+ * @returns Structured progress update, or null when the line is not informative.
+ */
+function parseLocalRuntimeLoadProgress(line: string): LocalRuntimeLoadProgress | null {
+  const trimmedLine = line.trim()
+  if (!trimmedLine) {
+    return null
+  }
+
+  const lowerLine = trimmedLine.toLowerCase()
+
+  if (lowerLine.includes('loading model') || lowerLine.includes('load_tensors')) {
+    const fractionMatch = trimmedLine.match(/(\d+)\s*\/\s*(\d+)/)
+    if (fractionMatch) {
+      const completed = Number(fractionMatch[1])
+      const total = Number(fractionMatch[2])
+      if (Number.isFinite(completed) && Number.isFinite(total) && total > 0) {
+        return {
+          status: 'loading-model',
+          percent: Math.max(0, Math.min(100, Math.round((completed / total) * 100))),
+          message: `Loading model tensors (${completed}/${total})`,
+        }
+      }
+    }
+
+    return {
+      status: 'loading-model',
+      percent: null,
+      message: 'Loading model tensors…',
+    }
+  }
+
+  if (lowerLine.includes('server is listening') || lowerLine.includes('listening at')) {
+    return {
+      status: 'ready',
+      percent: 100,
+      message: 'Local runtime is ready.',
+    }
+  }
+
+  if (lowerLine.includes('exception') || lowerLine.includes('error:') || lowerLine.includes('fatal')) {
+    return {
+      status: 'error',
+      percent: null,
+      message: trimmedLine,
+    }
+  }
+
+  if (lowerLine.includes('main:') || lowerLine.includes('build:') || lowerLine.includes('system info')) {
+    return {
+      status: 'starting',
+      percent: null,
+      message: 'Preparing local runtime…',
+    }
+  }
+
+  return null
+}
+
+/**
  * Update and broadcast the managed local runtime status.
  *
  * @param nextStatus - Partial status fields to merge into the current state.
@@ -2297,6 +2675,7 @@ function stopLocalRuntime(): void {
     localRuntimeProcess.kill()
   }
   localRuntimeProcess = null
+  setLocalRuntimeLoadProgress(null)
   setLocalRuntimeStatus({
     state: 'stopped',
     modelSlug: null,
@@ -2380,6 +2759,11 @@ async function startLocalRuntime(server: ServerProfile, model: ModelPreset): Pro
     stdio: 'pipe',
   })
   localRuntimeProcess = child
+  setLocalRuntimeLoadProgress({
+    status: 'starting',
+    percent: null,
+    message: 'Starting llama.cpp runtime…',
+  })
   setLocalRuntimeStatus({
     state: 'starting',
     serverId: server.id,
@@ -2395,6 +2779,13 @@ async function startLocalRuntime(server: ServerProfile, model: ModelPreset): Pro
   child.stderr.on('data', (chunk: Buffer) => {
     const text = chunk.toString()
     stderrBuffer += text
+    text
+      .split(/\r?\n/)
+      .map((line) => parseLocalRuntimeLoadProgress(line))
+      .filter((progress): progress is LocalRuntimeLoadProgress => progress !== null)
+      .forEach((progress) => {
+        setLocalRuntimeLoadProgress(progress)
+      })
     // Broadcast startup logs to renderer in real-time (first 5000 chars)
     if (stderrBuffer.length <= 5000) {
       broadcastToAllWindows('llama:startup-log', text)
@@ -2415,6 +2806,15 @@ async function startLocalRuntime(server: ServerProfile, model: ModelPreset): Pro
       : (stderrBuffer.trim() || `llama.cpp exited with code ${code ?? 'unknown'}${signal ? ` (${signal})` : ''}.`)
 
     localRuntimeProcess = null
+    setLocalRuntimeLoadProgress(
+      lastError
+        ? {
+            status: 'error',
+            percent: null,
+            message: lastError,
+          }
+        : null,
+    )
     setLocalRuntimeStatus({
       state: wasStarting && lastError ? 'error' : 'stopped',
       pid: null,
@@ -2426,12 +2826,18 @@ async function startLocalRuntime(server: ServerProfile, model: ModelPreset): Pro
   })
 
   await waitForLocalRuntime(`${runtimeUrl}/models`, 60_000)
+  setLocalRuntimeLoadProgress({
+    status: 'ready',
+    percent: 100,
+    message: 'Local runtime is ready.',
+  })
   setLocalRuntimeStatus({
     state: 'running',
     startedAt: Date.now(),
     url: runtimeUrl,
     lastError: null,
   })
+  setLocalRuntimeLoadProgress(null)
 
   return localRuntimeStatus
 }
@@ -2763,6 +3169,7 @@ async function* streamChat(
   maxTokens: number | null,
   logger?: (direction: AiDebugEntry['direction'], label: string, payload: unknown) => void,
 ): AsyncGenerator<{ chunk?: string, usage?: TokenUsage }> {
+  const streamTimeout = createAiStreamTimeoutController()
   const requestBody: Record<string, unknown> = {
     model,
     messages,
@@ -2828,129 +3235,147 @@ async function* streamChat(
     body: requestBody,
   })
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method:  'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(requestBody),
-  })
+  streamTimeout.armInitialTimeout()
 
-  logger?.('response', 'openai.chat.response', {
-    status: response.status,
-    ok: response.ok,
-    url: `${baseUrl}/chat/completions`,
-  })
-
-  if (!response.ok || !response.body) {
-    const errorText = await response.text()
-    logger?.('error', 'openai.chat.error', {
-      status: response.status,
-      body: errorText,
+  try {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+      signal: streamTimeout.controller.signal,
     })
-    throw new Error(`Server returned HTTP ${response.status}: ${errorText}`)
-  }
 
-  const reader  = response.body.getReader()
-  const decoder = new TextDecoder()
-  let   buffer  = ''
-  let   aggregatedContent = ''
-  // Strip Qwen3-style <think>...</think> blocks that arrive mid-stream.
-  // inThinkBlock tracks whether we are currently inside a <think> tag.
-  let   inThinkBlock = false
+    logger?.('response', 'openai.chat.response', {
+      status: response.status,
+      ok: response.ok,
+      url: `${baseUrl}/chat/completions`,
+    })
 
-  /**
-   * Emit a single debug entry containing the full streamed assistant content.
-   */
-  function flushAggregatedContentDebug(): void {
-    if (!aggregatedContent) {
-      return
+    if (!response.ok || !response.body) {
+      const errorText = await response.text()
+      logger?.('error', 'openai.chat.error', {
+        status: response.status,
+        body: errorText,
+      })
+      throw new Error(`Server returned HTTP ${response.status}: ${errorText}`)
     }
 
-    logger?.('response', 'openai.chat.chunk', { content: aggregatedContent })
-    aggregatedContent = ''
-  }
+    const reader  = response.body.getReader()
+    const decoder = new TextDecoder()
+    let   buffer  = ''
+    let   aggregatedContent = ''
+    // Strip Qwen3-style <think>...</think> blocks that arrive mid-stream.
+    // inThinkBlock tracks whether we are currently inside a <think> tag.
+    let   inThinkBlock = false
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) {
-      flushAggregatedContentDebug()
-      break
-    }
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('data:')) continue
-
-      const data = trimmed.slice(5).trim()
-      if (data === '[DONE]') {
-        flushAggregatedContentDebug()
+    /**
+     * Emit a single debug entry containing the full streamed assistant content.
+     */
+    function flushAggregatedContentDebug(): void {
+      if (!aggregatedContent) {
         return
       }
 
-      try {
-        const json = JSON.parse(data) as {
-          choices?: [{ delta?: { content?: string } }]
-          usage?: {
-            prompt_tokens?: number
-            completion_tokens?: number
-            total_tokens?: number
-          }
-        }
-        let content = json.choices?.[0]?.delta?.content
-        if (content) {
-          // Strip <think>...</think> blocks emitted by Qwen3-family models.
-          // The tags can span multiple chunks so we track state across iterations.
-          if (inThinkBlock) {
-            const closeIdx = content.indexOf('</think>')
-            if (closeIdx !== -1) {
-              inThinkBlock = false
-              content = content.slice(closeIdx + '</think>'.length)
-            } else {
-              content = ''
-            }
-          }
-          if (!inThinkBlock && content.includes('<think>')) {
-            const openIdx = content.indexOf('<think>')
-            const closeIdx = content.indexOf('</think>', openIdx)
-            if (closeIdx !== -1) {
-              // Entire block in one chunk
-              content = content.slice(0, openIdx) + content.slice(closeIdx + '</think>'.length)
-            } else {
-              inThinkBlock = true
-              content = content.slice(0, openIdx)
-            }
-          }
-          if (content) {
-            aggregatedContent += content
-            yield { chunk: content }
-          }
+      logger?.('response', 'openai.chat.chunk', { content: aggregatedContent })
+      aggregatedContent = ''
+    }
+
+    streamTimeout.armIdleTimeout()
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        flushAggregatedContentDebug()
+        break
+      }
+
+      streamTimeout.armIdleTimeout()
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data:')) continue
+
+        const data = trimmed.slice(5).trim()
+        if (data === '[DONE]') {
+          flushAggregatedContentDebug()
+          return
         }
 
-        const usage = json.usage
-        if (
-          typeof usage?.prompt_tokens === 'number' &&
-          typeof usage?.completion_tokens === 'number' &&
-          typeof usage?.total_tokens === 'number'
-        ) {
-          logger?.('response', 'openai.chat.usage', usage)
-          yield {
-            usage: {
-              promptTokens: usage.prompt_tokens,
-              completionTokens: usage.completion_tokens,
-              totalTokens: usage.total_tokens,
-            },
+        try {
+          const json = JSON.parse(data) as {
+            choices?: [{ delta?: { content?: string } }]
+            usage?: {
+              prompt_tokens?: number
+              completion_tokens?: number
+              total_tokens?: number
+            }
           }
+          let content = json.choices?.[0]?.delta?.content
+          if (content) {
+            // Strip <think>...</think> blocks emitted by Qwen3-family models.
+            // The tags can span multiple chunks so we track state across iterations.
+            if (inThinkBlock) {
+              const closeIdx = content.indexOf('</think>')
+              if (closeIdx !== -1) {
+                inThinkBlock = false
+                content = content.slice(closeIdx + '</think>'.length)
+              } else {
+                content = ''
+              }
+            }
+            if (!inThinkBlock && content.includes('<think>')) {
+              const openIdx = content.indexOf('<think>')
+              const closeIdx = content.indexOf('</think>', openIdx)
+              if (closeIdx !== -1) {
+                // Entire block in one chunk
+                content = content.slice(0, openIdx) + content.slice(closeIdx + '</think>'.length)
+              } else {
+                inThinkBlock = true
+                content = content.slice(0, openIdx)
+              }
+            }
+            if (content) {
+              aggregatedContent += content
+              yield { chunk: content }
+            }
+          }
+
+          const usage = json.usage
+          if (
+            typeof usage?.prompt_tokens === 'number' &&
+            typeof usage?.completion_tokens === 'number' &&
+            typeof usage?.total_tokens === 'number'
+          ) {
+            logger?.('response', 'openai.chat.usage', usage)
+            yield {
+              usage: {
+                promptTokens: usage.prompt_tokens,
+                completionTokens: usage.completion_tokens,
+                totalTokens: usage.total_tokens,
+              },
+            }
+          }
+        } catch {
+          // Skip malformed SSE lines
         }
-      } catch {
-        // Skip malformed SSE lines
       }
     }
+  } catch (error) {
+    if (streamTimeout.controller.signal.aborted) {
+      const timeoutMessage = streamTimeout.getTimeoutMessage() ?? 'The model request timed out.'
+      logger?.('error', 'openai.chat.timeout', { message: timeoutMessage })
+      throw new Error(timeoutMessage)
+    }
+
+    throw error
+  } finally {
+    streamTimeout.clearTimeout()
   }
 }
 
@@ -2972,6 +3397,7 @@ async function* streamLmStudioChat(
   maxTokens: number | null,
   logger?: (direction: AiDebugEntry['direction'], label: string, payload: unknown) => void,
 ): AsyncGenerator<{ chunk?: string, usage?: TokenUsage }> {
+  const streamTimeout = createAiStreamTimeoutController()
   const flattenedTranscript = messages
     .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
     .join('\n\n')
@@ -3003,112 +3429,130 @@ async function* streamLmStudioChat(
     body: requestBody,
   })
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(requestBody),
-  })
+  streamTimeout.armInitialTimeout()
 
-  logger?.('response', 'lmstudio.chat.response', {
-    status: response.status,
-    ok: response.ok,
-    url: endpoint,
-  })
-
-  if (!response.ok || !response.body) {
-    const errorText = await response.text()
-    logger?.('error', 'lmstudio.chat.error', {
-      status: response.status,
-      body: errorText,
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+      signal: streamTimeout.controller.signal,
     })
-    throw new Error(`Server returned HTTP ${response.status}: ${errorText}`)
-  }
 
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let emittedText = false
+    logger?.('response', 'lmstudio.chat.response', {
+      status: response.status,
+      ok: response.ok,
+      url: endpoint,
+    })
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
+    if (!response.ok || !response.body) {
+      const errorText = await response.text()
+      logger?.('error', 'lmstudio.chat.error', {
+        status: response.status,
+        body: errorText,
+      })
+      throw new Error(`Server returned HTTP ${response.status}: ${errorText}`)
+    }
 
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let emittedText = false
 
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('data:')) continue
+    streamTimeout.armIdleTimeout()
 
-      const data = trimmed.slice(5).trim()
-      if (data === '[DONE]') return
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
 
-      try {
-        const json = JSON.parse(data) as {
-          type?: string
-          delta?: string
-          content?: string
-          message?: { content?: string }
-          result?: {
-            output?: Array<{
-              type?: string
-              content?: string
-            }>
-            stats?: {
-              input_tokens?: number
-              total_output_tokens?: number
-            }
-          }
-        }
+      streamTimeout.armIdleTimeout()
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
 
-        const deltaText =
-          (typeof json.delta === 'string' && json.delta) ||
-          (typeof json.content === 'string' && json.content) ||
-          (typeof json.message?.content === 'string' && json.message.content) ||
-          null
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data:')) continue
 
-        if (deltaText && json.type !== 'chat.end') {
-          emittedText = true
-          logger?.('response', 'lmstudio.chat.chunk', { type: json.type ?? null, content: deltaText })
-          yield { chunk: deltaText }
-        }
+        const data = trimmed.slice(5).trim()
+        if (data === '[DONE]') return
 
-        if (json.type === 'chat.end') {
-          if (!emittedText) {
-            const finalMessage = json.result?.output
-              ?.filter((entry) => entry.type === 'message' && typeof entry.content === 'string')
-              .map((entry) => entry.content ?? '')
-              .join('')
-
-            if (finalMessage) {
-              logger?.('response', 'lmstudio.chat.final_message', { content: finalMessage })
-              yield { chunk: finalMessage }
+        try {
+          const json = JSON.parse(data) as {
+            type?: string
+            delta?: string
+            content?: string
+            message?: { content?: string }
+            result?: {
+              output?: Array<{
+                type?: string
+                content?: string
+              }>
+              stats?: {
+                input_tokens?: number
+                total_output_tokens?: number
+              }
             }
           }
 
-          const stats = json.result?.stats
-          if (
-            typeof stats?.input_tokens === 'number' &&
-            typeof stats?.total_output_tokens === 'number'
-          ) {
-            logger?.('response', 'lmstudio.chat.stats', stats)
-            yield {
-              usage: {
-                promptTokens: stats.input_tokens,
-                completionTokens: stats.total_output_tokens,
-                totalTokens: stats.input_tokens + stats.total_output_tokens,
-              },
+          const deltaText =
+            (typeof json.delta === 'string' && json.delta) ||
+            (typeof json.content === 'string' && json.content) ||
+            (typeof json.message?.content === 'string' && json.message.content) ||
+            null
+
+          if (deltaText && json.type !== 'chat.end') {
+            emittedText = true
+            logger?.('response', 'lmstudio.chat.chunk', { type: json.type ?? null, content: deltaText })
+            yield { chunk: deltaText }
+          }
+
+          if (json.type === 'chat.end') {
+            if (!emittedText) {
+              const finalMessage = json.result?.output
+                ?.filter((entry) => entry.type === 'message' && typeof entry.content === 'string')
+                .map((entry) => entry.content ?? '')
+                .join('')
+
+              if (finalMessage) {
+                logger?.('response', 'lmstudio.chat.final_message', { content: finalMessage })
+                yield { chunk: finalMessage }
+              }
+            }
+
+            const stats = json.result?.stats
+            if (
+              typeof stats?.input_tokens === 'number' &&
+              typeof stats?.total_output_tokens === 'number'
+            ) {
+              logger?.('response', 'lmstudio.chat.stats', stats)
+              yield {
+                usage: {
+                  promptTokens: stats.input_tokens,
+                  completionTokens: stats.total_output_tokens,
+                  totalTokens: stats.input_tokens + stats.total_output_tokens,
+                },
+              }
             }
           }
+        } catch {
+          // Skip malformed SSE lines
         }
-      } catch {
-        // Skip malformed SSE lines
       }
     }
+  } catch (error) {
+    if (streamTimeout.controller.signal.aborted) {
+      const timeoutMessage = streamTimeout.getTimeoutMessage() ?? 'The model request timed out.'
+      logger?.('error', 'lmstudio.chat.timeout', { message: timeoutMessage })
+      throw new Error(timeoutMessage)
+    }
+
+    throw error
+  } finally {
+    streamTimeout.clearTimeout()
   }
 }
 
@@ -3193,6 +3637,58 @@ function estimatePromptTokens(messages: ChatMessage[]): number {
     .join('\n')
 
   return Math.max(1, Math.ceil(serialized.length / 3))
+}
+
+/**
+ * Create timeout helpers for abortable AI streaming requests.
+ * The initial timeout covers connection / first-byte latency; the idle timeout
+ * covers streams that stop delivering data after they begin.
+ *
+ * @returns Timeout controller plus helper callbacks.
+ */
+function createAiStreamTimeoutController(): {
+  controller: AbortController
+  armInitialTimeout: () => void
+  armIdleTimeout: () => void
+  clearTimeout: () => void
+  getTimeoutMessage: () => string | null
+} {
+  const controller = new AbortController()
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+  let timeoutMessage: string | null = null
+
+  const clearTimeoutState = () => {
+    if (timeoutHandle !== null) {
+      clearTimeout(timeoutHandle)
+      timeoutHandle = null
+    }
+  }
+
+  const armTimeout = (durationMs: number, message: string) => {
+    clearTimeoutState()
+    timeoutHandle = setTimeout(() => {
+      timeoutMessage = message
+      controller.abort()
+    }, durationMs)
+  }
+
+  return {
+    controller,
+    armInitialTimeout: () => {
+      armTimeout(
+        AI_STREAM_INITIAL_TIMEOUT_MS,
+        'The model did not respond in time. Check that the server is running and try again.',
+      )
+    },
+    armIdleTimeout: () => {
+      armTimeout(
+        AI_STREAM_IDLE_TIMEOUT_MS,
+        'The model stopped responding during streaming. Check the server and try again.',
+      )
+    },
+    clearTimeout: clearTimeoutState,
+    getTimeoutMessage: () => timeoutMessage,
+  }
 }
 
 /**
@@ -3345,9 +3841,6 @@ ipcMain.handle('models:browse', async (_event, serverId: string): Promise<Availa
   }
 
   const models = await browseServerModels(server)
-  models.forEach((model) => {
-    saveModelProfile(model)
-  })
   return models
 })
 
@@ -3589,6 +4082,55 @@ ipcMain.handle('characters:create', (_event, campaignPath: string, name: string)
  */
 ipcMain.handle('characters:save', (_event, campaignPath: string, character: CharacterProfile): CharacterProfile => {
   return saveCharacter(campaignPath, character)
+})
+
+/**
+ * Characters: delete one campaign-scoped character.
+ */
+ipcMain.handle('characters:delete', (_event, campaignPath: string, characterId: string): void => {
+  deleteStoredCharacter(campaignPath, characterId)
+})
+
+/**
+ * Avatars: list globally stored reusable avatars.
+ */
+ipcMain.handle('avatars:list', (): ReusableAvatar[] => {
+  return loadReusableAvatars()
+})
+
+/**
+ * Avatars: create or update one reusable avatar in the global library.
+ */
+ipcMain.handle('avatars:save', (_event, avatar: ReusableAvatar): ReusableAvatar => {
+  return saveReusableAvatar(avatar)
+})
+
+/**
+ * Avatars: delete one reusable avatar from the global library.
+ */
+ipcMain.handle('avatars:delete', (_event, avatarId: string): void => {
+  deleteReusableAvatar(avatarId)
+})
+
+/**
+ * Characters: list globally stored reusable characters.
+ */
+ipcMain.handle('characters:reusable:list', (): ReusableCharacter[] => {
+  return loadReusableCharacters()
+})
+
+/**
+ * Characters: create or update one reusable character in the global library.
+ */
+ipcMain.handle('characters:reusable:save', (_event, character: ReusableCharacter): ReusableCharacter => {
+  return saveReusableCharacter(character)
+})
+
+/**
+ * Characters: delete one reusable character from the global library.
+ */
+ipcMain.handle('characters:reusable:delete', (_event, characterId: string): void => {
+  deleteReusableCharacter(characterId)
 })
 
 /** Window controls: read state */

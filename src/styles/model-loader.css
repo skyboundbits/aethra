@@ -5,6 +5,7 @@
 
 .modal--model-loader {
   width: min(560px, calc(100vw - 32px));
+  height: min(840px, calc(100vh - 64px));
 }
 
 .model-loader {
@@ -48,6 +49,21 @@
   color: var(--text-color-primary);
 }
 
+.model-loader__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--border-color-accent) 45%, var(--border-color));
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+}
+
+.model-loader__progress-label {
+  color: var(--text-color-primary);
+  font-size: var(--font-size-body);
+}
+
 .model-loader__runtime--error {
   border-color: var(--status-border-error);
 }
@@ -84,10 +100,5 @@
 }
 
 .model-loader__input {
-  width: 100%;
-  padding: 11px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background-color: var(--surface-bg);
-  color: var(--text-color-primary);
+  min-height: 46px;
 }
