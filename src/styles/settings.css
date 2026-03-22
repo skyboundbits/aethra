@@ -25,6 +25,8 @@
   padding-right: var(--space-4);
   border-right: 1px solid var(--border-color);
   min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .settings-modal__nav-item {
@@ -149,6 +151,28 @@
   gap: var(--space-3);
 }
 
+.settings-modal__slider-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.settings-modal__slider {
+  width: 100%;
+  accent-color: var(--surface-bg-accent);
+}
+
+.settings-modal__value-pill {
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background-color: var(--surface-bg);
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+
 .settings-modal__label {
   font-size: var(--font-size-label);
   color: var(--text-color-secondary);
@@ -156,11 +180,18 @@
 
 .settings-modal__select {
   width: 100%;
-  padding: 12px 14px;
+  padding: 12px 40px 12px 14px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background-color: var(--surface-bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%237a82a0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 14px center;
+  background-repeat: no-repeat;
+  background-size: 12px 8px;
   color: var(--text-color-primary);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
 }
 
 .settings-modal__select:focus {
@@ -172,6 +203,24 @@
   font-size: var(--font-size-caption);
   color: var(--text-color-muted);
   word-break: break-word;
+}
+
+.settings-modal__textarea {
+  width: 100%;
+  min-height: 220px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+  resize: vertical;
+  line-height: 1.5;
+  font: inherit;
+}
+
+.settings-modal__textarea:focus {
+  outline: none;
+  border-color: var(--border-color-accent);
 }
 
 .settings-modal__refresh-btn {
@@ -260,6 +309,17 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+.settings-modal__prompt-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-modal__prompt-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .settings-modal__group-title {

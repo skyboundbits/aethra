@@ -36,7 +36,12 @@ import { SessionCharactersModal } from './components/SessionCharactersModal'
 
 import { streamCompletion } from './services/aiService'
 import { estimateLocalModelFit } from './services/modelFitService'
-import { buildCampaignBasePrompt, buildRollingSummarySystemPrompt } from './prompts/campaignPrompts'
+import {
+  buildCampaignBasePrompt,
+  buildRollingSummarySystemPrompt,
+  DEFAULT_CAMPAIGN_BASE_PROMPT,
+  DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
+} from './prompts/campaignPrompts'
 import { applyTheme, parseImportedTheme, upsertCustomTheme } from './services/themeService'
 
 import type {
@@ -58,14 +63,23 @@ import type {
   TokenUsage,
 } from './types'
 
+const DEFAULT_ASSISTANT_RESPONSE_REVEAL_DELAY_MS = 1500
+const ASSISTANT_RESPONSE_REVEAL_DELAY_RANGE_MS = {
+  min: 0,
+  max: 10000,
+} as const
+
 const DEFAULT_SETTINGS: AppSettings = {
   servers: [],
   models: [],
   activeServerId: null,
   activeModelSlug: null,
   systemPrompt: 'You are a roleplaying agent responding naturally to the user.',
+  campaignBasePrompt: DEFAULT_CAMPAIGN_BASE_PROMPT,
+  rollingSummarySystemPrompt: DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
   enableRollingSummaries: false,
   chatTextSize: 'small',
+  assistantResponseRevealDelayMs: DEFAULT_ASSISTANT_RESPONSE_REVEAL_DELAY_MS,
   activeThemeId: 'default',
   customThemes: [],
 }
@@ -86,6 +100,7 @@ const MAX_UNTAGGED_ASSISTANT_ATTEMPTS = 3
 const SUMMARY_RECENT_MESSAGE_COUNT = 10
 const SUMMARY_IDLE_DELAY_MS = 1500
 const SUMMARY_REBUILD_CONTEXT_FRACTION = 0.75
+const CHAT_LOADING_MIN_DURATION_MS = 220
 const MODEL_LOADER_SERVER_KINDS = new Set(['lmstudio', 'text-generation-webui', 'llama.cpp'])
 
 /**
@@ -205,22 +220,27 @@ function buildSessionTitle(input: string): string {
  *
  * @param campaign - Active campaign metadata.
  * @param characters - Characters available in the active campaign.
+ * @param campaignBasePrompt - Persisted base prompt template for campaign play.
  * @param customSystemPrompt - User-configured system prompt text.
  * @param sceneSummary - Rolling scene summary, if one exists for the session.
  */
 function buildSystemContext(
   campaign: Campaign,
   characters: CharacterProfile[],
+  campaignBasePrompt: string,
   customSystemPrompt: string,
   sceneSummary: string | null,
 ): ChatMessage[] {
+  const normalizedCampaignBasePrompt =
+    typeof campaignBasePrompt === 'string' ? campaignBasePrompt : DEFAULT_CAMPAIGN_BASE_PROMPT
+  const normalizedCustomSystemPrompt = typeof customSystemPrompt === 'string' ? customSystemPrompt : ''
   const baseInstruction: ChatMessage = {
     role: 'system',
-    content: buildCampaignBasePrompt(),
+    content: buildCampaignBasePrompt(normalizedCampaignBasePrompt),
   }
 
-  const customInstruction = customSystemPrompt.trim()
-    ? `Additional Instructions:\n${customSystemPrompt.trim()}`
+  const customInstruction = normalizedCustomSystemPrompt.trim()
+    ? `Additional Instructions:\n${normalizedCustomSystemPrompt.trim()}`
     : null
 
   const campaignContext: ChatMessage = {
@@ -361,6 +381,7 @@ function buildRequestMessages(
     ...buildSystemContext(
       campaign,
       characters,
+      settings.campaignBasePrompt,
       settings.systemPrompt,
       getPromptSceneSummary(session, settings.enableRollingSummaries),
     ),
@@ -408,7 +429,11 @@ function createSessionSummarySnapshot(session: Session): SessionSummarySnapshot 
  * @returns Chat payload for the background summary request.
  */
 function buildSummaryMessages(snapshot: SessionSummarySnapshot): ChatMessage[] {
-  return buildRollingSummaryUpdateMessages(snapshot.previousSummary, snapshot.transcript)
+  return buildRollingSummaryUpdateMessages(
+    DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
+    snapshot.previousSummary,
+    snapshot.transcript,
+  )
 }
 
 /**
@@ -439,6 +464,7 @@ function formatSummaryTranscript(transcript: Message[]): string {
  * @returns Chat payload for the summary request.
  */
 function buildRollingSummaryUpdateMessages(
+  rollingSummarySystemPrompt: string,
   previousSummary: string,
   transcript: Message[],
   retryReason?: string,
@@ -450,7 +476,7 @@ function buildRollingSummaryUpdateMessages(
   return [
     {
       role: 'system',
-      content: buildRollingSummarySystemPrompt(),
+      content: buildRollingSummarySystemPrompt(rollingSummarySystemPrompt),
     },
     {
       role: 'user',
@@ -502,14 +528,18 @@ function isTranscriptLikeSummary(summary: string): boolean {
  * @param transcript - Transcript slice to merge.
  * @returns Validated summary text.
  */
-async function requestRollingSummary(previousSummary: string, transcript: Message[]): Promise<string> {
+async function requestRollingSummary(
+  rollingSummarySystemPrompt: string,
+  previousSummary: string,
+  transcript: Message[],
+): Promise<string> {
   let retryReason: string | undefined
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let nextSummary = ''
     await new Promise<void>((resolve, reject) => {
       streamCompletion(
-        buildRollingSummaryUpdateMessages(previousSummary, transcript, retryReason),
+        buildRollingSummaryUpdateMessages(rollingSummarySystemPrompt, previousSummary, transcript, retryReason),
         (chunk) => {
           nextSummary += chunk
         },
@@ -547,13 +577,18 @@ async function requestRollingSummary(previousSummary: string, transcript: Messag
 function findSummaryChunkEnd(
   messages: Message[],
   startIndex: number,
+  rollingSummarySystemPrompt: string,
   previousSummary: string,
   transcriptBudget: number,
 ): number {
   let endIndex = startIndex + 1
 
   while (endIndex <= messages.length) {
-    const prompt = buildRollingSummaryUpdateMessages(previousSummary, messages.slice(startIndex, endIndex))
+    const prompt = buildRollingSummaryUpdateMessages(
+      rollingSummarySystemPrompt,
+      previousSummary,
+      messages.slice(startIndex, endIndex),
+    )
     if (estimateTokenCount(prompt) > transcriptBudget) {
       return endIndex === startIndex + 1 ? endIndex : endIndex - 1
     }
@@ -564,19 +599,134 @@ function findSummaryChunkEnd(
   return messages.length
 }
 
+/**
+ * Rebuild a session summary from the full visible transcript, chunking requests
+ * to fit within the current model context window when necessary.
+ *
+ * @param session - Session whose transcript should be rebuilt.
+ * @param onProgress - Optional callback notified before each rebuild pass.
+ * @returns Rebuilt summary text plus the covered visible-message count.
+ */
+async function rebuildSessionSummaryFromTranscript(
+  session: Session,
+  rollingSummarySystemPrompt: string,
+  activeModelContextWindowTokens: number | null,
+  onProgress?: (passNumber: number, startIndex: number, endIndex: number, totalCount: number) => void,
+): Promise<{
+  summary: string
+  summarizedMessageCount: number
+  passCount: number
+}> {
+  const visibleMessages = getVisiblePromptMessages(session.messages)
+  if (visibleMessages.length === 0) {
+    throw new Error('No conversation history is available to summarize.')
+  }
+
+  const transcriptBudget = activeModelContextWindowTokens === null || activeModelContextWindowTokens <= 0
+    ? Number.POSITIVE_INFINITY
+    : Math.max(
+      1024,
+      Math.floor(activeModelContextWindowTokens * SUMMARY_REBUILD_CONTEXT_FRACTION),
+    )
+
+  let nextSummary = ''
+  let startIndex = 0
+  let passCount = 0
+
+  while (startIndex < visibleMessages.length) {
+    passCount += 1
+    const endIndex = Number.isFinite(transcriptBudget)
+      ? findSummaryChunkEnd(
+        visibleMessages,
+        startIndex,
+        rollingSummarySystemPrompt,
+        nextSummary,
+        transcriptBudget,
+      )
+      : visibleMessages.length
+    const transcriptChunk = visibleMessages.slice(startIndex, endIndex)
+
+    onProgress?.(passCount, startIndex, endIndex, visibleMessages.length)
+
+    const normalizedPassSummary = await requestRollingSummary(
+      rollingSummarySystemPrompt,
+      nextSummary,
+      transcriptChunk,
+    )
+    if (!normalizedPassSummary) {
+      throw new Error('The model returned an empty summary.')
+    }
+
+    nextSummary = normalizedPassSummary
+    startIndex = endIndex
+  }
+
+  const normalizedSummary = nextSummary.trim()
+  if (!normalizedSummary) {
+    throw new Error('The model returned an empty summary.')
+  }
+
+  return {
+    summary: normalizedSummary,
+    summarizedMessageCount: visibleMessages.length,
+    passCount,
+  }
+}
+
 /** Parsed assistant bubble content plus optional speaker metadata. */
 interface StreamedAssistantBubble {
-  /** Bubble text, including the raw `[Character]` marker for debugging. */
+  /** Bubble text rendered for the assistant message. */
   content: string
   /** Parsed speaker name from the leading marker, if present. */
   characterName?: string
 }
 
 /**
+ * Normalize one streamed assistant marker before bubble parsing continues.
+ * Bracket payloads longer than four words are treated as scene narration.
+ *
+ * @param marker - Raw matched marker including brackets.
+ * @param segment - Full segment beginning at the marker.
+ * @returns Rewritten segment plus normalized speaker metadata.
+ */
+function normalizeStreamedAssistantMarker(
+  marker: string,
+  segment: string,
+): {
+  segment: string
+  speaker: string | null
+  normalizedSpeaker: string | null
+} {
+  const rawSpeaker = marker.slice(1, -1).trim() || null
+  if (!rawSpeaker) {
+    return {
+      segment,
+      speaker: null,
+      normalizedSpeaker: null,
+    }
+  }
+
+  const wordCount = rawSpeaker.split(/\s+/).filter(Boolean).length
+  if (wordCount <= 4) {
+    return {
+      segment,
+      speaker: rawSpeaker,
+      normalizedSpeaker: rawSpeaker.toLocaleLowerCase(),
+    }
+  }
+
+  return {
+    segment: `[Scene] ${rawSpeaker}${segment.slice(marker.length)}`,
+    speaker: 'Scene',
+    normalizedSpeaker: 'scene',
+  }
+}
+
+/**
  * Split a streamed assistant reply into discrete bubble payloads.
- * Each bracketed entry like `[Name]` starts a new bubble, while the
- * marker text itself is preserved for debugging. Consecutive entries from the
- * same character remain grouped in a single bubble. PLAYER-controlled
+ * Each bracketed entry like `[Name]` starts a new bubble. Bracket payloads
+ * longer than four words are rewritten to `[Scene] ...`. Consecutive entries
+ * from the same character remain grouped in a single bubble. PLAYER-controlled
  * characters are ignored until the next bracketed marker appears.
  *
  * @param content - Full accumulated assistant text received so far.
@@ -609,9 +759,11 @@ function splitStreamedAssistantBubbles(
 
     const nextMatch = markerRegex.exec(content)
     const segmentEnd = nextMatch ? nextMatch.index : content.length
-    const segment = content.slice(match.index, segmentEnd)
-    const speaker = match[0].slice(1, -1).trim() || null
-    const normalizedSpeaker = speaker?.toLocaleLowerCase() ?? null
+    const rawSegment = content.slice(match.index, segmentEnd)
+    const normalizedMarker = normalizeStreamedAssistantMarker(match[0], rawSegment)
+    const segment = normalizedMarker.segment
+    const speaker = normalizedMarker.speaker
+    const normalizedSpeaker = normalizedMarker.normalizedSpeaker
 
     if (isAwaitingPlayerActionMarker(segment)) {
       previousSpeaker = null
@@ -665,29 +817,14 @@ function hasNamedAssistantBubble(bubbles: StreamedAssistantBubble[]): boolean {
 }
 
 /**
- * Capture avatar fields directly on a message so rendering stays stable across reloads.
- *
- * @param character - Character supplying the avatar snapshot, if any.
- * @returns Message fields containing avatar image and crop snapshots.
- */
-function getMessageAvatarSnapshot(character: CharacterProfile | null): Pick<Message, 'characterAvatarImageData' | 'characterAvatarCrop'> {
-  return {
-    characterAvatarImageData: character?.avatarImageData ?? undefined,
-    characterAvatarCrop: character?.avatarImageData
-      ? { ...character.avatarCrop }
-      : undefined,
-  }
-}
-
-/**
- * Attach the best available character identity and avatar snapshot to one message.
+ * Attach the best available character ID to one message.
  *
  * @param message - Message to hydrate.
  * @param charactersById - Character lookup by ID.
  * @param charactersByName - Character lookup by normalized name.
- * @returns Original message when unchanged, otherwise a hydrated copy.
+ * @returns Original message when unchanged, otherwise a copy with `characterId`.
  */
-function hydrateMessageAvatar(
+function hydrateMessageCharacterId(
   message: Message,
   charactersById: Map<string, CharacterProfile>,
   charactersByName: Map<string, CharacterProfile>,
@@ -704,40 +841,25 @@ function hydrateMessageAvatar(
   }
 
   const nextCharacterId = message.characterId ?? matchedCharacter.id
-  const nextAvatarImageData = matchedCharacter.avatarImageData ?? undefined
-  const nextAvatarCrop = matchedCharacter.avatarImageData
-    ? { ...matchedCharacter.avatarCrop }
-    : undefined
-  const hasSameCrop =
-    message.characterAvatarCrop?.x === nextAvatarCrop?.x &&
-    message.characterAvatarCrop?.y === nextAvatarCrop?.y &&
-    message.characterAvatarCrop?.scale === nextAvatarCrop?.scale
-
-  if (
-    message.characterId === nextCharacterId &&
-    message.characterAvatarImageData === nextAvatarImageData &&
-    hasSameCrop
-  ) {
+  if (message.characterId === nextCharacterId) {
     return message
   }
 
   return {
     ...message,
     characterId: nextCharacterId,
-    characterAvatarImageData: nextAvatarImageData,
-    characterAvatarCrop: nextAvatarCrop,
   }
 }
 
 /**
- * Reattach character IDs, avatar snapshots, and session character toggle
- * state using the active campaign character roster.
+ * Reattach character IDs and session character toggle state using the active
+ * campaign character roster.
  *
  * @param campaign - Campaign whose session messages should be hydrated.
  * @param characters - Character roster available for matching.
- * @returns Campaign copy with message avatar metadata filled where possible.
+ * @returns Campaign copy with message character IDs filled where possible.
  */
-function hydrateCampaignMessageAvatars(campaign: Campaign, characters: CharacterProfile[]): Campaign {
+function hydrateCampaignMessageCharacterIds(campaign: Campaign, characters: CharacterProfile[]): Campaign {
   const charactersById = new Map(characters.map((character) => [character.id, character]))
   const charactersByName = new Map(
     characters.map((character) => [character.name.trim().toLocaleLowerCase(), character]),
@@ -756,7 +878,7 @@ function hydrateCampaignMessageAvatars(campaign: Campaign, characters: Character
 
     const nextMessages = characters.length > 0
       ? session.messages.map((message) => {
-        const nextMessage = hydrateMessageAvatar(message, charactersById, charactersByName)
+        const nextMessage = hydrateMessageCharacterId(message, charactersById, charactersByName)
         if (nextMessage !== message) {
           sessionChanged = true
         }
@@ -799,6 +921,10 @@ export default function App() {
 
   /** ID of the session currently displayed in the chat area. */
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  /** ID of the session currently highlighted in the sidebar. */
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  /** True while the chat panel is switching to a different session transcript. */
+  const [isChatLoading, setIsChatLoading] = useState(false)
 
   /** Controlled value for the message composer textarea. */
   const [inputValue, setInputValue] = useState('')
@@ -810,7 +936,7 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false)
 
   /** Currently active ribbon navigation tab. */
-  const [activeTab, setActiveTab] = useState('campaign')
+  const [activeTab, setActiveTab] = useState('')
 
   /** Persisted app settings loaded from Electron. */
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
@@ -832,6 +958,14 @@ export default function App() {
   const summaryInFlightRef = useRef<Set<string>>(new Set())
   /** Sessions that should be summarized again after the current pass finishes. */
   const summaryRerunRef = useRef<Set<string>>(new Set())
+  /** Sessions whose transcript edits require a full summary rebuild before reuse. */
+  const summaryDirtySessionsRef = useRef<Set<string>>(new Set())
+  /** Pending animation-frame handles used to stage session switches. */
+  const sessionSwitchFrameRef = useRef<number | null>(null)
+  /** Timestamp marking when the current chat-loading overlay became visible. */
+  const chatLoadingStartedAtRef = useRef<number | null>(null)
+  /** Pending timeout used to keep the loading overlay visible long enough to register visually. */
+  const chatLoadingTimeoutRef = useRef<number | null>(null)
 
   /** Detected local hardware inventory used for llama.cpp fit guidance. */
   const [hardwareInfo, setHardwareInfo] = useState<HardwareInfo | null>(null)
@@ -1084,6 +1218,59 @@ export default function App() {
   /** Messages belonging to the active session. */
   const messages: Message[] = activeSession?.messages ?? []
   /** Campaign characters currently enabled for the active session. */
+  /**
+   * Cancel any scheduled session activation that has not executed yet.
+   */
+  function clearScheduledSessionSwitch(): void {
+    if (sessionSwitchFrameRef.current == null) {
+      return
+    }
+
+    window.cancelAnimationFrame(sessionSwitchFrameRef.current)
+    sessionSwitchFrameRef.current = null
+  }
+
+  /**
+   * Cancel any pending delayed reveal for the chat transcript.
+   */
+  function clearScheduledChatReveal(): void {
+    if (chatLoadingTimeoutRef.current == null) {
+      return
+    }
+
+    window.clearTimeout(chatLoadingTimeoutRef.current)
+    chatLoadingTimeoutRef.current = null
+  }
+
+  /**
+   * Stage a session switch so the loading affordance can paint before a large
+   * transcript render blocks the renderer for a moment.
+   *
+   * @param nextSessionId - Session to activate.
+   */
+  function scheduleSessionActivation(nextSessionId: string): void {
+    if (nextSessionId === activeSessionId) {
+      clearScheduledChatReveal()
+      chatLoadingStartedAtRef.current = null
+      setSelectedSessionId(nextSessionId)
+      setIsChatLoading(false)
+      return
+    }
+
+    clearScheduledSessionSwitch()
+    clearScheduledChatReveal()
+    setSelectedSessionId(nextSessionId)
+    chatLoadingStartedAtRef.current = Date.now()
+    setIsChatLoading(true)
+
+    sessionSwitchFrameRef.current = window.requestAnimationFrame(() => {
+      sessionSwitchFrameRef.current = window.requestAnimationFrame(() => {
+        sessionSwitchFrameRef.current = null
+        setActiveSessionId(nextSessionId)
+      })
+    })
+  }
+
   const enabledSessionCharacters = useMemo(
     () => getEnabledSessionCharacters(activeSession, characters),
     [activeSession, characters],
@@ -1348,9 +1535,19 @@ export default function App() {
    * Keep the active session selection valid whenever the campaign changes.
    */
   useEffect(() => {
+    return () => {
+      clearScheduledSessionSwitch()
+      clearScheduledChatReveal()
+    }
+  }, [])
+
+  useEffect(() => {
     if (!campaign) {
       if (activeSessionId !== null) {
         setActiveSessionId(null)
+      }
+      if (selectedSessionId !== null) {
+        setSelectedSessionId(null)
       }
       return
     }
@@ -1359,6 +1556,9 @@ export default function App() {
       if (activeSessionId !== null) {
         setActiveSessionId(null)
       }
+      if (selectedSessionId !== null) {
+        setSelectedSessionId(null)
+      }
       return
     }
 
@@ -1366,10 +1566,15 @@ export default function App() {
     if (!hasActiveSession) {
       setActiveSessionId(campaign.sessions[0].id)
     }
-  }, [activeSessionId, campaign])
+
+    const hasSelectedSession = campaign.sessions.some((session) => session.id === selectedSessionId)
+    if (!hasSelectedSession) {
+      setSelectedSessionId(hasActiveSession ? activeSessionId : campaign.sessions[0].id)
+    }
+  }, [activeSessionId, campaign, selectedSessionId])
 
   /**
-   * Rebuild missing avatar data whenever a session is opened for display.
+   * Rebuild missing character IDs whenever a session is opened for display.
    */
   useEffect(() => {
     if (!campaign || !activeSessionId || characters.length === 0) {
@@ -1381,7 +1586,7 @@ export default function App() {
         return prev
       }
 
-      const nextCampaign = hydrateCampaignMessageAvatars(prev, characters)
+      const nextCampaign = hydrateCampaignMessageCharacterIds(prev, characters)
       return nextCampaign
     })
   }, [activeSessionId, campaign, characters])
@@ -1462,7 +1667,7 @@ export default function App() {
           ? prev
           : (nextCharacters[0]?.id ?? null),
       )
-      setCampaign((prev) => prev ? hydrateCampaignMessageAvatars(prev, nextCharacters) : prev)
+      setCampaign((prev) => prev ? hydrateCampaignMessageCharacterIds(prev, nextCharacters) : prev)
     } catch (err) {
       console.error('[Aethra] Could not load characters:', err)
       setCharactersStatusKind('error')
@@ -1522,7 +1727,6 @@ export default function App() {
             role: 'assistant' as const,
             characterId: matchedCharacter?.id,
             characterName: bubble.characterName,
-            ...getMessageAvatarSnapshot(matchedCharacter),
             content: bubble.content,
             timestamp,
           }
@@ -1565,6 +1769,7 @@ export default function App() {
       sessions: [newSession, ...prev.sessions],
     }))
     setActiveSessionId(newSession.id)
+    setSelectedSessionId(newSession.id)
     return newSession.id
   }
 
@@ -1590,6 +1795,7 @@ export default function App() {
       sessions: [newSession, ...prev.sessions],
     }))
     setActiveSessionId(newSession.id)
+    setSelectedSessionId(newSession.id)
   }
 
   /**
@@ -1597,7 +1803,33 @@ export default function App() {
    * @param id - ID of the session to activate.
    */
   function handleSelectSession(id: string) {
-    setActiveSessionId(id)
+    scheduleSessionActivation(id)
+  }
+
+  /**
+   * Reveal the newly mounted transcript after the chat pane has jumped to the bottom.
+   */
+  function handleChatReady(): void {
+    clearScheduledChatReveal()
+
+    const startedAt = chatLoadingStartedAtRef.current
+    if (startedAt == null) {
+      setIsChatLoading(false)
+      return
+    }
+
+    const remainingMs = Math.max(CHAT_LOADING_MIN_DURATION_MS - (Date.now() - startedAt), 0)
+    if (remainingMs === 0) {
+      chatLoadingStartedAtRef.current = null
+      setIsChatLoading(false)
+      return
+    }
+
+    chatLoadingTimeoutRef.current = window.setTimeout(() => {
+      chatLoadingTimeoutRef.current = null
+      chatLoadingStartedAtRef.current = null
+      setIsChatLoading(false)
+    }, remainingMs)
   }
 
   /**
@@ -1710,6 +1942,7 @@ export default function App() {
     if (activeSessionId === pendingDeleteSessionId) {
       const nextSession = remainingSessions[sessionIndex] ?? remainingSessions[sessionIndex - 1] ?? null
       setActiveSessionId(nextSession?.id ?? null)
+      setSelectedSessionId(nextSession?.id ?? null)
     }
 
     setPendingDeleteSessionId(null)
@@ -1751,6 +1984,7 @@ export default function App() {
     }
 
     const messageId = pendingDeleteMessageId
+    resetRollingSummary(activeSession.id)
     updateCampaign((prev) => ({
       ...prev,
       sessions: prev.sessions.map((session) => {
@@ -1764,8 +1998,6 @@ export default function App() {
           ...session,
           messages: nextMessages,
           title: firstUserMessage ? buildSessionTitle(firstUserMessage.content) : 'New Chat',
-          rollingSummary: '',
-          summarizedMessageCount: 0,
           updatedAt: Date.now(),
         }
         }),
@@ -1799,8 +2031,8 @@ export default function App() {
       setCampaign(created.campaign)
       setCampaignPath(created.path)
       setActiveSessionId(created.campaign.sessions[0]?.id ?? null)
+      setSelectedSessionId(created.campaign.sessions[0]?.id ?? null)
       lastSavedCampaignRef.current = created.campaign
-      setActiveTab('campaign')
       setIsCampaignModalOpen(false)
       setIsCreateCampaignOpen(false)
       await refreshCampaigns()
@@ -1827,14 +2059,14 @@ export default function App() {
     try {
       const opened = await window.api.openCampaign(path)
       const nextCharacters = await window.api.listCharacters(opened.path)
-      const hydratedCampaign = hydrateCampaignMessageAvatars(opened.campaign, nextCharacters)
+      const hydratedCampaign = hydrateCampaignMessageCharacterIds(opened.campaign, nextCharacters)
       setCharacters(nextCharacters)
       setActiveCharacterId(nextCharacters[0]?.id ?? null)
       setCampaign(hydratedCampaign)
       setCampaignPath(opened.path)
       setActiveSessionId(hydratedCampaign.sessions[0]?.id ?? null)
+      setSelectedSessionId(hydratedCampaign.sessions[0]?.id ?? null)
       lastSavedCampaignRef.current = hydratedCampaign
-      setActiveTab('campaign')
       setIsCampaignModalOpen(false)
       await refreshCampaigns()
     } catch (err) {
@@ -1920,7 +2152,6 @@ export default function App() {
   function handleTabChange(tabId: string): void {
     if (tabId === 'campaign') {
       setCampaignStatusMessage(null)
-      setActiveTab(tabId)
       setIsCampaignModalOpen(true)
       return
     }
@@ -1995,13 +2226,6 @@ export default function App() {
       return
     }
 
-    const visibleMessages = getVisiblePromptMessages(activeSession.messages)
-    if (visibleMessages.length === 0) {
-      setSummaryModalStatusKind('error')
-      setSummaryModalStatusMessage('No conversation history is available to summarize.')
-      return
-    }
-
     clearSummaryTimer(activeSession.id)
     summaryRerunRef.current.delete(activeSession.id)
     setIsRebuildingSummary(true)
@@ -2009,44 +2233,18 @@ export default function App() {
     setSummaryModalStatusMessage('Rebuilding summary...')
 
     try {
-      const contextWindowTokens = activeModel?.contextWindowTokens ?? null
-      const transcriptBudget = contextWindowTokens === null || contextWindowTokens <= 0
-        ? Number.POSITIVE_INFINITY
-        : Math.max(
-          1024,
-          Math.floor(contextWindowTokens * SUMMARY_REBUILD_CONTEXT_FRACTION),
-        )
-
-      let nextSummary = ''
-      let startIndex = 0
-      let passNumber = 0
-
-      while (startIndex < visibleMessages.length) {
-        passNumber += 1
-        const endIndex = Number.isFinite(transcriptBudget)
-          ? findSummaryChunkEnd(visibleMessages, startIndex, nextSummary, transcriptBudget)
-          : visibleMessages.length
-        const transcriptChunk = visibleMessages.slice(startIndex, endIndex)
-
-        setSummaryModalStatusMessage(
-          `Rebuilding summary... pass ${passNumber}, processing messages ${(
-            startIndex + 1
-          ).toLocaleString()}-${endIndex.toLocaleString()} of ${visibleMessages.length.toLocaleString()}.`,
-        )
-
-        const normalizedPassSummary = await requestRollingSummary(nextSummary, transcriptChunk)
-        if (!normalizedPassSummary) {
-          throw new Error('The model returned an empty summary.')
-        }
-
-        nextSummary = normalizedPassSummary
-        startIndex = endIndex
-      }
-
-      const normalizedSummary = nextSummary.trim()
-      if (!normalizedSummary) {
-        throw new Error('The model returned an empty summary.')
-      }
+      const { summary, summarizedMessageCount, passCount } = await rebuildSessionSummaryFromTranscript(
+        activeSession,
+        appSettingsRef.current.rollingSummarySystemPrompt,
+        activeModel?.contextWindowTokens ?? null,
+        (passNumber, startIndex, endIndex, totalCount) => {
+          setSummaryModalStatusMessage(
+            `Rebuilding summary... pass ${passNumber}, processing messages ${(
+              startIndex + 1
+            ).toLocaleString()}-${endIndex.toLocaleString()} of ${totalCount.toLocaleString()}.`,
+          )
+        },
+      )
 
       updateCampaign((prev) => ({
         ...prev,
@@ -2054,19 +2252,20 @@ export default function App() {
           session.id === activeSession.id
             ? {
               ...session,
-              rollingSummary: normalizedSummary,
-              summarizedMessageCount: visibleMessages.length,
+              rollingSummary: summary,
+              summarizedMessageCount,
               updatedAt: Date.now(),
             }
             : session,
         ),
       }))
+      summaryDirtySessionsRef.current.delete(activeSession.id)
 
       setSummaryModalStatusKind('success')
       setSummaryModalStatusMessage(
-        passNumber > 1
-          ? `Summary rebuilt from ${visibleMessages.length.toLocaleString()} visible messages across ${passNumber.toLocaleString()} passes.`
-          : `Summary rebuilt from ${visibleMessages.length.toLocaleString()} visible messages in a single pass.`,
+        passCount > 1
+          ? `Summary rebuilt from ${summarizedMessageCount.toLocaleString()} visible messages across ${passCount.toLocaleString()} passes.`
+          : `Summary rebuilt from ${summarizedMessageCount.toLocaleString()} visible messages in a single pass.`,
       )
     } catch (err) {
       console.error('[Aethra] Could not rebuild session summary:', err)
@@ -2202,6 +2401,10 @@ export default function App() {
       return
     }
 
+    if (summaryDirtySessionsRef.current.has(sessionId)) {
+      return
+    }
+
     if (summaryInFlightRef.current.has(sessionId)) {
       summaryRerunRef.current.add(sessionId)
       return
@@ -2225,7 +2428,11 @@ export default function App() {
 
     summaryInFlightRef.current.add(sessionId)
     try {
-      const normalizedSummary = await requestRollingSummary(snapshot.previousSummary, snapshot.transcript)
+      const normalizedSummary = await requestRollingSummary(
+        appSettingsRef.current.rollingSummarySystemPrompt,
+        snapshot.previousSummary,
+        snapshot.transcript,
+      )
       if (!normalizedSummary) {
         return
       }
@@ -2286,6 +2493,7 @@ export default function App() {
   function resetRollingSummary(sessionId: string): void {
     clearSummaryTimer(sessionId)
     summaryRerunRef.current.delete(sessionId)
+    summaryDirtySessionsRef.current.add(sessionId)
 
     updateCampaign((prev) => ({
       ...prev,
@@ -2342,6 +2550,31 @@ export default function App() {
   }
 
   /**
+   * Persist the minimum assistant-response reveal delay.
+   *
+   * @param delayMs - Delay in milliseconds before assistant text may appear.
+   */
+  async function handleAssistantResponseRevealDelayChange(delayMs: number): Promise<void> {
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      assistantResponseRevealDelayMs: Math.max(
+        ASSISTANT_RESPONSE_REVEAL_DELAY_RANGE_MS.min,
+        Math.min(ASSISTANT_RESPONSE_REVEAL_DELAY_RANGE_MS.max, Math.round(delayMs)),
+      ),
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage('Assistant reveal delay updated.')
+    } catch (err) {
+      console.error('[Aethra] Could not save assistant reveal delay:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save the assistant reveal delay.')
+    }
+  }
+
+  /**
    * Enable or disable rolling scene summaries for campaign prompts.
    *
    * @param enabled - Whether the prompt should use rolling summaries.
@@ -2370,6 +2603,32 @@ export default function App() {
       console.error('[Aethra] Could not update rolling summary setting:', err)
       setSettingsStatusKind('error')
       setSettingsStatusMessage('Could not save the rolling summary setting.')
+    }
+  }
+
+  /**
+   * Persist editable prompt templates used by campaign chat and summaries.
+   *
+   * @param prompts - Updated prompt template values.
+   */
+  async function handlePromptTemplatesSave(prompts: {
+    campaignBasePrompt: string
+    rollingSummarySystemPrompt: string
+  }): Promise<void> {
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      campaignBasePrompt: prompts.campaignBasePrompt,
+      rollingSummarySystemPrompt: prompts.rollingSummarySystemPrompt,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage('Prompt templates updated.')
+    } catch (err) {
+      console.error('[Aethra] Could not save prompt templates:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save the prompt templates.')
     }
   }
 
@@ -3173,7 +3432,6 @@ export default function App() {
       role:      'user',
       characterId: composerCharacter?.id,
       characterName: composerCharacter?.name,
-      ...getMessageAvatarSnapshot(composerCharacter),
       content:   normalizedInput,
       timestamp: Date.now(),
     }
@@ -3190,14 +3448,6 @@ export default function App() {
       createdAt: userMessage.timestamp,
       updatedAt: userMessage.timestamp,
     }
-    const baseHistorySnapshot = buildRequestMessages(
-      campaign,
-      enabledSessionCharacters,
-      appSettingsRef.current,
-      sessionForPrompt,
-      [userMessage],
-    )
-
     if (targetSession && targetSession.messages.length === 0) {
       updateCampaign((prev) => ({
         ...prev,
@@ -3229,6 +3479,9 @@ export default function App() {
     // then push the full string on each chunk.
     let accumulated = ''
     let pendingAnimationFrameId: number | null = null
+    let revealTimeoutId: number | null = null
+    let canRenderAssistantText = false
+    let streamFinished = false
     const playerControlledNames = new Set(
       enabledSessionCharacters
         .filter((character) => character.controlledBy === 'user')
@@ -3237,10 +3490,37 @@ export default function App() {
     )
 
     /**
+     * Clear the pending assistant-text reveal timer, if any.
+     */
+    function clearAssistantRevealTimer(): void {
+      if (revealTimeoutId === null) {
+        return
+      }
+
+      window.clearTimeout(revealTimeoutId)
+      revealTimeoutId = null
+    }
+
+    /**
+     * Return the remaining delay before assistant text is allowed to render.
+     *
+     * @returns Milliseconds remaining in the reveal gate.
+     */
+    function getAssistantRevealDelayRemaining(): number {
+      return Math.max(
+        appSettingsRef.current.assistantResponseRevealDelayMs - (Date.now() - assistantTimestamp),
+        0,
+      )
+    }
+
+    /**
      * Push the latest parsed assistant bubbles into state at most once per frame.
      */
     function flushStreamedAssistantMessages(): void {
       pendingAnimationFrameId = null
+      if (!canRenderAssistantText) {
+        return
+      }
 
       const segments = splitStreamedAssistantBubbles(accumulated, playerControlledNames)
 
@@ -3255,6 +3535,10 @@ export default function App() {
      * Schedule the streamed assistant UI update for the next animation frame.
      */
     function scheduleStreamedAssistantSync(): void {
+      if (!canRenderAssistantText) {
+        return
+      }
+
       if (pendingAnimationFrameId !== null) {
         return
       }
@@ -3265,87 +3549,194 @@ export default function App() {
     }
 
     /**
+     * Finalize the current assistant attempt once the reveal gate has opened.
+     *
+     * @param attemptNumber - 1-based attempt counter for malformed replies.
+     */
+    function finishAssistantAttempt(attemptNumber: number): void {
+      flushStreamedAssistantMessages()
+
+      const finalSegments = splitStreamedAssistantBubbles(accumulated, playerControlledNames)
+      const hasNamedBubble = hasNamedAssistantBubble(finalSegments)
+
+      if (!hasNamedBubble && attemptNumber < MAX_UNTAGGED_ASSISTANT_ATTEMPTS) {
+        syncStreamedAssistantMessages(sessionId, assistantIds, [{ content: '' }], assistantTimestamp)
+        streamAssistantAttempt(attemptNumber + 1)
+        return
+      }
+
+      setIsStreaming(false)
+      scheduleRollingSummary(sessionId)
+    }
+
+    /**
+     * Open the assistant-text reveal gate immediately or after the remaining
+     * minimum typing-indicator delay has elapsed.
+     *
+     * @param attemptNumber - 1-based attempt counter for malformed replies.
+     */
+    function ensureAssistantReveal(attemptNumber: number): void {
+      if (canRenderAssistantText) {
+        if (streamFinished) {
+          finishAssistantAttempt(attemptNumber)
+        }
+        return
+      }
+
+      const remainingDelay = getAssistantRevealDelayRemaining()
+      if (remainingDelay <= 0) {
+        canRenderAssistantText = true
+        if (accumulated.length > 0) {
+          scheduleStreamedAssistantSync()
+        }
+        if (streamFinished) {
+          finishAssistantAttempt(attemptNumber)
+        }
+        return
+      }
+
+      if (revealTimeoutId !== null) {
+        return
+      }
+
+      revealTimeoutId = window.setTimeout(() => {
+        revealTimeoutId = null
+        canRenderAssistantText = true
+        if (accumulated.length > 0) {
+          scheduleStreamedAssistantSync()
+        }
+        if (streamFinished) {
+          finishAssistantAttempt(attemptNumber)
+        }
+      }, remainingDelay)
+    }
+
+    /**
      * Stream one assistant attempt. Replies without a leading character tag
      * are discarded and retried up to the configured limit.
      *
      * @param attemptNumber - 1-based attempt counter for malformed replies.
      */
-    function streamAssistantAttempt(attemptNumber: number): void {
-      accumulated = ''
-      const historySnapshot = attemptNumber === 1
-        ? baseHistorySnapshot
-        : buildRequestMessages(
-          campaign,
-          enabledSessionCharacters,
-          appSettingsRef.current,
-          sessionForPrompt,
-          [userMessage],
-          [{
-            role: 'user',
-            content: 'Your previous reply was invalid. Retry and output only lines beginning with [Name]. Every line must start with [Scene] or the exact name of an AI-controlled character. Do not write any content for player-controlled characters.',
-          }],
-        )
+    void (async () => {
+      let requestSession = sessionForPrompt
 
-      streamCompletion(
-        historySnapshot,
-        /* onToken */ (chunk) => {
-          accumulated += chunk
-          scheduleStreamedAssistantSync()
-        },
-        /* onUsage */ (usage) => {
-          setLastTokenUsage(usage)
-        },
-        /* onDone */ () => {
-          if (pendingAnimationFrameId !== null) {
-            cancelAnimationFrame(pendingAnimationFrameId)
+      if (
+        appSettingsRef.current.enableRollingSummaries
+        && targetSession
+        && summaryDirtySessionsRef.current.has(sessionId)
+      ) {
+        try {
+          const rebuiltSummary = await rebuildSessionSummaryFromTranscript(
+            targetSession,
+            appSettingsRef.current.rollingSummarySystemPrompt,
+            activeModel?.contextWindowTokens ?? null,
+          )
+          requestSession = {
+            ...requestSession,
+            rollingSummary: rebuiltSummary.summary,
+            summarizedMessageCount: rebuiltSummary.summarizedMessageCount,
           }
-          flushStreamedAssistantMessages()
-
-          const finalSegments = splitStreamedAssistantBubbles(accumulated, playerControlledNames)
-          const hasNamedBubble = hasNamedAssistantBubble(finalSegments)
-
-          if (!hasNamedBubble && attemptNumber < MAX_UNTAGGED_ASSISTANT_ATTEMPTS) {
-            syncStreamedAssistantMessages(sessionId, assistantIds, [{ content: '' }], assistantTimestamp)
-            streamAssistantAttempt(attemptNumber + 1)
-            return
-          }
-
-          setIsStreaming(false)
-          scheduleRollingSummary(sessionId)
-        },
-        /* onError */ (err) => {
-          if (pendingAnimationFrameId !== null) {
-            cancelAnimationFrame(pendingAnimationFrameId)
-            pendingAnimationFrameId = null
-          }
-
-          console.error('[Aethra] AI stream error:', err)
+          summaryDirtySessionsRef.current.delete(sessionId)
           updateCampaign((prev) => ({
             ...prev,
-            sessions: prev.sessions.map((session) => {
-              if (session.id !== sessionId) {
-                return session
-              }
-
-              return {
-                ...session,
-                messages: [
-                  ...session.messages.filter((message) => !assistantIds.includes(message.id)),
-                  {
-                    ...assistantMessage,
-                    content: `${TRANSIENT_ERROR_MARKER} Could not reach the selected AI server. Check that it is running and the server address is correct.`,
-                  },
-                ],
-                updatedAt: Date.now(),
-              }
-            }),
+            sessions: prev.sessions.map((session) =>
+              session.id === sessionId
+                ? {
+                  ...session,
+                  rollingSummary: rebuiltSummary.summary,
+                  summarizedMessageCount: rebuiltSummary.summarizedMessageCount,
+                  updatedAt: Date.now(),
+                }
+                : session,
+            ),
           }))
-          setIsStreaming(false)
-        },
-      )
-    }
+        } catch (err) {
+          console.error('[Aethra] Could not rebuild summary before sending:', err)
+        }
+      }
 
-    streamAssistantAttempt(1)
+      const baseHistorySnapshot = buildRequestMessages(
+        campaign,
+        enabledSessionCharacters,
+        appSettingsRef.current,
+        requestSession,
+        [userMessage],
+      )
+
+      function streamAssistantAttempt(attemptNumber: number): void {
+        accumulated = ''
+        streamFinished = false
+        const historySnapshot = attemptNumber === 1
+          ? baseHistorySnapshot
+          : buildRequestMessages(
+            campaign,
+            enabledSessionCharacters,
+            appSettingsRef.current,
+            requestSession,
+            [userMessage],
+            [{
+              role: 'user',
+              content: 'Your previous reply was invalid. Retry and output only lines beginning with [Name]. Every line must start with [Scene] or the exact name of an AI-controlled character. Do not write any content for player-controlled characters.',
+            }],
+          )
+
+        streamCompletion(
+          historySnapshot,
+          /* onToken */ (chunk) => {
+            accumulated += chunk
+            ensureAssistantReveal(attemptNumber)
+            if (canRenderAssistantText) {
+              scheduleStreamedAssistantSync()
+            }
+          },
+          /* onUsage */ (usage) => {
+            setLastTokenUsage(usage)
+          },
+          /* onDone */ () => {
+            if (pendingAnimationFrameId !== null) {
+              cancelAnimationFrame(pendingAnimationFrameId)
+              pendingAnimationFrameId = null
+            }
+            streamFinished = true
+            ensureAssistantReveal(attemptNumber)
+          },
+          /* onError */ (err) => {
+            if (pendingAnimationFrameId !== null) {
+              cancelAnimationFrame(pendingAnimationFrameId)
+              pendingAnimationFrameId = null
+            }
+            clearAssistantRevealTimer()
+            canRenderAssistantText = true
+            streamFinished = false
+
+            console.error('[Aethra] AI stream error:', err)
+            updateCampaign((prev) => ({
+              ...prev,
+              sessions: prev.sessions.map((session) => {
+                if (session.id !== sessionId) {
+                  return session
+                }
+
+                return {
+                  ...session,
+                  messages: [
+                    ...session.messages.filter((message) => !assistantIds.includes(message.id)),
+                    {
+                      ...assistantMessage,
+                      content: `${TRANSIENT_ERROR_MARKER} Could not reach the selected AI server. Check that it is running and the server address is correct.`,
+                    },
+                  ],
+                  updatedAt: Date.now(),
+                }
+              }),
+            }))
+            setIsStreaming(false)
+          },
+        )
+      }
+
+      streamAssistantAttempt(1)
+    })()
   }
 
   /* ── Render ─────────────────────────────────────────────────────────── */
@@ -3378,7 +3769,7 @@ export default function App() {
             remainingTokens={remainingTokens}
             remainingTokensIsExact={remainingTokensIsExact}
             sessions={sessions}
-            activeSessionId={activeSessionId}
+            activeSessionId={selectedSessionId}
             activeSessionSummary={activeSession?.rollingSummary ?? null}
             onSelectSession={handleSelectSession}
             onDeleteSession={handleDeleteSession}
@@ -3390,10 +3781,13 @@ export default function App() {
           {/* Centre column: chat feed + composer */}
           <main className="panel panel--chat">
             <ChatArea
+              activeSessionId={activeSessionId}
               messages={messages}
               characters={characters}
               textSize={appSettings.chatTextSize}
               onDeleteMessage={handleDeleteMessage}
+              onReady={handleChatReady}
+              isLoading={isChatLoading}
               isBusy={isStreaming}
             />
             <InputBar
@@ -3404,7 +3798,7 @@ export default function App() {
               onSelectCharacter={setComposerCharacterId}
               onSend={handleSend}
               focusRequestKey={composerFocusRequestKey}
-              disabled={isStreaming}
+              disabled={isStreaming || isChatLoading}
             />
           </main>
 
@@ -3448,8 +3842,10 @@ export default function App() {
           isDownloadingModel={isDownloadingModel}
           activeThemeId={appSettings.activeThemeId}
           chatTextSize={appSettings.chatTextSize}
+          assistantResponseRevealDelayMs={appSettings.assistantResponseRevealDelayMs}
+          campaignBasePrompt={appSettings.campaignBasePrompt}
+          rollingSummarySystemPrompt={appSettings.rollingSummarySystemPrompt}
           enableRollingSummaries={appSettings.enableRollingSummaries}
-          customThemes={appSettings.customThemes}
           statusMessage={settingsStatusMessage}
           statusKind={settingsStatusKind}
           onClose={handleCloseSettings}
@@ -3479,11 +3875,14 @@ export default function App() {
           onChatTextSizeSelect={(textSize) => {
             void handleChatTextSizeSelect(textSize)
           }}
+          onAssistantResponseRevealDelayChange={(delayMs) => {
+            void handleAssistantResponseRevealDelayChange(delayMs)
+          }}
           onRollingSummariesToggle={(enabled) => {
             void handleRollingSummariesToggle(enabled)
           }}
-          onImportTheme={(file) => {
-            void handleImportTheme(file)
+          onSavePromptTemplates={(prompts) => {
+            void handlePromptTemplatesSave(prompts)
           }}
         />
       ) : null}
@@ -3693,3 +4092,4 @@ export default function App() {
     </div>
   )
 }
+

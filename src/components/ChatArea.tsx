@@ -15,6 +15,8 @@ const CHAT_AVATAR_SIZE = 128
 
 /** Props accepted by the ChatArea component. */
 interface ChatAreaProps {
+  /** Stable ID of the session currently shown in the chat panel. */
+  activeSessionId: string | null
   /** Ordered list of messages to display. */
   messages: Message[]
   /** Characters available in the active campaign. */
@@ -23,6 +25,10 @@ interface ChatAreaProps {
   textSize: ChatTextSize
   /** Called when the user requests deletion of a message. */
   onDeleteMessage: (id: string) => void
+  /** Called after a newly selected transcript has been positioned and can be revealed. */
+  onReady?: () => void
+  /** True while a different session transcript is being swapped in. */
+  isLoading?: boolean
   /** True while message actions should be temporarily blocked. */
   isBusy?: boolean
 }
@@ -32,7 +38,17 @@ interface ChatAreaProps {
  * Renders the scrollable message feed within the centre panel.
  * Shows a welcome/empty state when no messages are present.
  */
-export function ChatArea({ messages, characters, textSize, onDeleteMessage, isBusy = false }: ChatAreaProps) {
+export function ChatArea({
+  activeSessionId,
+  messages,
+  characters,
+  textSize,
+  onDeleteMessage,
+  onReady,
+  isLoading = false,
+  isBusy = false,
+}: ChatAreaProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
   // Ref attached to the invisible sentinel div at the end of the feed,
   // used to scroll the latest message into view.
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -40,12 +56,6 @@ export function ChatArea({ messages, characters, textSize, onDeleteMessage, isBu
   const previousLastMessageSnapshotRef = useRef<string | null>(null)
   const charactersById = useMemo(
     () => new Map(characters.map((character) => [character.id, character])),
-    [characters],
-  )
-  const charactersByName = useMemo(
-    () => new Map(
-      characters.map((character) => [character.name.trim().toLocaleLowerCase(), character]),
-    ),
     [characters],
   )
 
@@ -76,42 +86,140 @@ export function ChatArea({ messages, characters, textSize, onDeleteMessage, isBu
     })
   }, [isBusy, messages])
 
+  /**
+   * Jump to the latest message when the user switches to a different session.
+   */
+  useEffect(() => {
+    if (activeSessionId === null) {
+      return
+    }
+
+    let cancelled = false
+    const frameId = window.requestAnimationFrame(() => {
+      const container = containerRef.current
+      if (!container) {
+        return
+      }
+
+      container.scrollTop = container.scrollHeight
+
+      if (!isLoading) {
+        return
+      }
+
+      window.requestAnimationFrame(() => {
+        if (!cancelled) {
+          onReady?.()
+        }
+      })
+    })
+
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [activeSessionId, isLoading, onReady])
+
   return (
-    <div className="chat-area">
-      {messages.length === 0 ? (
-        /* ── Empty / welcome state ───────────────────────────────────── */
-        <div className="chat-area__empty">
-          <div className="chat-area__empty-title">Aethra</div>
-          <div className="chat-area__empty-sub">
-            Select a session or create a new one to begin your story.
+    <div
+      ref={containerRef}
+      className={`chat-area${isLoading ? ' chat-area--loading' : ''}`}
+      aria-busy={isLoading ? 'true' : undefined}
+    >
+      <div className={`chat-area__content${isLoading ? ' chat-area__content--hidden' : ''}`}>
+        {messages.length === 0 ? (
+          /* ── Empty / welcome state ───────────────────────────────────── */
+          <div className="chat-area__empty">
+            <div className="chat-area__empty-title">Aethra</div>
+            <div className="chat-area__empty-sub">
+              Select a session or create a new one to begin your story.
+            </div>
+          </div>
+        ) : (
+          /* ── Message list ────────────────────────────────────────────── */
+          messages.map((msg) => {
+            const matchedCharacter = msg.characterId
+              ? (charactersById.get(msg.characterId) ?? null)
+              : null
+
+            return (
+              <MemoizedMessageBubble
+                key={msg.id}
+                message={msg}
+                character={matchedCharacter}
+                textSize={textSize}
+                messageId={msg.id}
+                onDeleteMessage={onDeleteMessage}
+                isBusy={isBusy}
+              />
+            )
+          })
+        )}
+
+        {/* Invisible anchor for auto-scroll */}
+        <div ref={bottomRef} />
+      </div>
+
+      {isLoading ? (
+        <div className="chat-area__loading" aria-live="polite">
+          <div className="chat-area__loading-label">Loading chat...</div>
+          <div className="chat-area__loading-list" aria-hidden="true">
+            {LOADING_ROWS.map((row, index) => (
+              <LoadingRow
+                key={`${row.alignment}-${index}`}
+                alignment={row.alignment}
+                widths={row.widths}
+              />
+            ))}
           </div>
         </div>
-      ) : (
-        /* ── Message list ────────────────────────────────────────────── */
-        messages.map((msg) => {
-          const matchedCharacter =
-            (msg.characterId ? charactersById.get(msg.characterId) : undefined) ??
-            (msg.characterName
-              ? charactersByName.get(msg.characterName.trim().toLocaleLowerCase())
-              : undefined) ??
-            null
+      ) : null}
+    </div>
+  )
+}
 
-          return (
-            <MemoizedMessageBubble
-              key={msg.id}
-              message={msg}
-              character={matchedCharacter}
-              textSize={textSize}
-              messageId={msg.id}
-              onDeleteMessage={onDeleteMessage}
-              isBusy={isBusy}
-            />
-          )
-        })
-      )}
+/* ─────────────────────────────────────────────────────────────────────────── */
 
-      {/* Invisible anchor for auto-scroll */}
-      <div ref={bottomRef} />
+type LoadingBubbleAlignment = 'assistant' | 'user'
+
+const LOADING_ROWS: Array<{
+  alignment: LoadingBubbleAlignment
+  widths: string[]
+}> = [
+  { alignment: 'assistant', widths: ['78%', '56%', '41%'] },
+  { alignment: 'user', widths: ['64%', '47%'] },
+  { alignment: 'assistant', widths: ['72%', '62%', '34%'] },
+  { alignment: 'assistant', widths: ['59%', '44%'] },
+  { alignment: 'user', widths: ['69%', '52%', '28%'] },
+]
+
+interface LoadingRowProps {
+  /** Which side of the feed to align the placeholder content on. */
+  alignment: LoadingBubbleAlignment
+  /** Width presets for each skeleton text line. */
+  widths: string[]
+}
+
+/**
+ * Render a generic message skeleton with an avatar stub and varied text lines.
+ *
+ * @param alignment - Which side of the transcript the row should sit on.
+ * @param widths - Visual widths for each placeholder line.
+ * @returns Loading row markup.
+ */
+function LoadingRow({ alignment, widths }: LoadingRowProps) {
+  return (
+    <div className={`chat-area__loading-row chat-area__loading-row--${alignment}`}>
+      <div className="chat-area__loading-avatar" aria-hidden="true" />
+      <div className={`chat-area__loading-bubble chat-area__loading-bubble--${alignment}`}>
+        {widths.map((width, index) => (
+          <div
+            key={`${alignment}-${width}-${index}`}
+            className="chat-area__loading-line"
+            style={{ width }}
+          />
+        ))}
+      </div>
     </div>
   )
 }
@@ -162,13 +270,30 @@ function getCharacterInitials(characterName?: string): string | null {
 }
 
 /**
+ * Remove bracketed tags from message text for on-screen display while keeping
+ * the stored transcript content unchanged.
+ *
+ * @param content - Raw persisted message content.
+ * @returns Message content with bracketed tags removed for display.
+ */
+function getDisplayContent(content: string): string {
+  return content
+    .replace(/\[[^\]\r\n]*\]/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/ {2,}/g, ' ')
+    .replace(/\s+([,.;!?])/g, '$1')
+    .trim()
+}
+
+/**
  * Render inline message content, converting `*italic*` spans into emphasis.
  *
  * @param content - Raw message content to display.
  * @returns Renderable inline nodes for the message bubble.
  */
 function renderMessageContent(content: string): ReactNode[] {
-  const parts = content.split(/(\*[^*\n]+\*)/g)
+  const parts = getDisplayContent(content).split(/(\*[^*\n]+\*)/g)
 
   return parts
     .filter((part) => part.length > 0)
@@ -179,6 +304,22 @@ function renderMessageContent(content: string): ReactNode[] {
 
       return part
     })
+}
+
+/**
+ * Render the animated assistant typing indicator used while the response body
+ * is still empty but the request remains in flight.
+ *
+ * @returns Typing-indicator markup.
+ */
+function renderTypingIndicator(): ReactNode {
+  return (
+    <span className="message__typing" aria-label="Assistant is typing">
+      <span className="message__typing-dot" aria-hidden="true" />
+      <span className="message__typing-dot" aria-hidden="true" />
+      <span className="message__typing-dot" aria-hidden="true" />
+    </span>
+  )
 }
 
 /**
@@ -197,8 +338,8 @@ function MessageBubble({ message, messageId, character, textSize, onDeleteMessag
 
   const avatarLabel = getCharacterInitials(message.characterName)
   const avatarOffsetScale = CHAT_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
-  const avatarImageData = message.characterAvatarImageData ?? character?.avatarImageData
-  const avatarCrop = message.characterAvatarCrop ?? character?.avatarCrop
+  const avatarImageData = character?.avatarImageData
+  const avatarCrop = character?.avatarCrop
   const avatarStyle = avatarImageData && avatarCrop
     ? {
       backgroundImage: `url("${avatarImageData}")`,
@@ -206,6 +347,8 @@ function MessageBubble({ message, messageId, character, textSize, onDeleteMessag
       backgroundSize: `${avatarCrop.scale * 100}%`,
     }
     : undefined
+  const isTypingPlaceholder =
+    message.role === 'assistant' && isBusy && message.content.trim().length === 0
 
   return (
     <div className={`message message--${message.role} message--text-${textSize}`}>
@@ -227,7 +370,9 @@ function MessageBubble({ message, messageId, character, textSize, onDeleteMessag
                 <div className="message__author">{message.characterName}</div>
               </div>
             ) : null}
-            <div className="message__content">{renderMessageContent(message.content)}</div>
+            <div className={`message__content${isTypingPlaceholder ? ' message__content--typing' : ''}`}>
+              {isTypingPlaceholder ? renderTypingIndicator() : renderMessageContent(message.content)}
+            </div>
             <div className="message__meta">
               <div className="message__time">{formatTime(message.timestamp)}</div>
               <button

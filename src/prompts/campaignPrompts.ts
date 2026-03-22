@@ -3,13 +3,8 @@
  * Central prompt text for campaign chat and rolling summaries.
  */
 
-/**
- * Return the fixed base system instruction for campaign roleplay replies.
- *
- * @returns Prompt text sent before campaign context and characters.
- */
-export function buildCampaignBasePrompt(): string {
-  return `You control AI-controlled characters and the in-world environment.
+/** Default system instruction for campaign roleplay replies. */
+export const DEFAULT_CAMPAIGN_BASE_PROMPT = `You control AI-controlled characters and the in-world environment.
 
 Never write dialogue, actions, thoughts, feelings, or decisions for PLAYER-controlled characters.
 
@@ -72,17 +67,11 @@ Output restrictions:
 - No ellipses
 - No trailing symbols at the end of lines
 - Each line must end cleanly`
-}
 
-/**
- * Return the fixed system instruction used for rolling summary generation.
- *
- * @returns Prompt text sent before summary transcript chunks.
- */
-export function buildRollingSummarySystemPrompt(): string {
-  return `You maintain a rolling scene summary for an ongoing roleplay campaign.
+/** Default system instruction used for rolling summary generation. */
+export const DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT = `You maintain a rolling scene summary for an ongoing roleplay campaign.
 
-Write a compact continuity summary that preserves canon facts, character states, revealed information, unresolved tensions, locations, goals, injuries, promises, and immediate scene momentum.
+Write a comprehensive continuity summary that preserves canon facts, character states, revealed information, unresolved tensions, locations, goals, injuries, promises, and immediate scene momentum.
 
 Do not write dialogue.
 Do not invent new events.
@@ -92,7 +81,38 @@ Do not output lines beginning with speaker tags like [Name].
 Do not output screenplay, chat log, or transcript format.
 Write only in prose paragraph form.
 Compress events instead of quoting them.
-Prefer 2-4 compact paragraphs.
+No more than 4 paragraphs.
 Use plain ASCII only.
 Keep it concise but specific.`
+
+/**
+ * Return a persisted prompt override when present, otherwise fall back to the
+ * bundled default text.
+ *
+ * @param override - Optional saved prompt override.
+ * @param fallback - Bundled default prompt text.
+ * @returns Trim-preserving saved prompt or the default template.
+ */
+function resolvePromptOverride(override: string | null | undefined, fallback: string): string {
+  return typeof override === 'string' && override.trim().length > 0 ? override : fallback
+}
+
+/**
+ * Return the fixed base system instruction for campaign roleplay replies.
+ *
+ * @param override - Optional saved prompt override.
+ * @returns Prompt text sent before campaign context and characters.
+ */
+export function buildCampaignBasePrompt(override?: string | null): string {
+  return resolvePromptOverride(override, DEFAULT_CAMPAIGN_BASE_PROMPT)
+}
+
+/**
+ * Return the fixed system instruction used for rolling summary generation.
+ *
+ * @param override - Optional saved prompt override.
+ * @returns Prompt text sent before summary transcript chunks.
+ */
+export function buildRollingSummarySystemPrompt(override?: string | null): string {
+  return resolvePromptOverride(override, DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT)
 }

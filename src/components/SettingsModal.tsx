@@ -4,10 +4,14 @@
  * local llama.cpp configuration, model browsing, and theme selection.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { LlamaBinaryBanner } from './LlamaBinaryBanner'
 import { Modal } from './Modal'
-import { PaletteIcon, SettingsIcon, SparklesIcon } from './icons'
+import { MessageCircleMoreIcon, PaletteIcon, SettingsIcon, SparkleIcon, SparklesIcon, WandSparklesIcon, SwordsIcon, ListMinusIcon, ChessKnightIcon } from './icons'
+import {
+  DEFAULT_CAMPAIGN_BASE_PROMPT,
+  DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
+} from '../prompts/campaignPrompts'
 import { formatBytes } from '../services/modelFitService'
 import { BUILT_IN_THEMES } from '../services/themeService'
 import '../styles/settings.css'
@@ -22,11 +26,11 @@ import type {
   ModelDownloadProgress,
   ModelPreset,
   ServerProfile,
-  ThemeDefinition,
 } from '../types'
 
 type SettingsSectionId =
   | 'interface'
+  | 'prompts'
   | 'campaign'
   | 'session'
   | 'chat'
@@ -55,6 +59,9 @@ const BUILT_IN_THEME_SWATCHES: Record<string, [string, string, string]> = {
   dawn: ['#efe9df', '#b65a3a', '#f2ebe2'],
   linen: ['#f4f0e8', '#4f7a9d', '#f6f1e7'],
 }
+
+const ASSISTANT_REVEAL_DELAY_DEFAULT_MS = 1500
+const ASSISTANT_REVEAL_DELAY_MAX_SECONDS = 10
 
 /** Props accepted by the SettingsModal component. */
 interface SettingsModalProps {
@@ -86,10 +93,14 @@ interface SettingsModalProps {
   activeThemeId: string
   /** Currently active chat bubble text size preset. */
   chatTextSize: ChatTextSize
+  /** Minimum delay before assistant text starts rendering, in milliseconds. */
+  assistantResponseRevealDelayMs: number
+  /** Base campaign roleplay instruction template. */
+  campaignBasePrompt: string
+  /** Rolling summary system instruction template. */
+  rollingSummarySystemPrompt: string
   /** Whether prompts should use rolling summaries plus a recent chat window. */
   enableRollingSummaries: boolean
-  /** Imported custom themes available to select. */
-  customThemes: ThemeDefinition[]
   /** Current llama-server binary install progress, or null. */
   binaryInstallProgress: BinaryInstallProgress | null
   /** Optional status text shown after save/import attempts. */
@@ -131,10 +142,15 @@ interface SettingsModalProps {
   onThemeSelect: (themeId: string) => void
   /** Called when the user selects a chat text size preset. */
   onChatTextSizeSelect: (textSize: ChatTextSize) => void
+  /** Called when the user changes the assistant response reveal delay. */
+  onAssistantResponseRevealDelayChange: (delayMs: number) => void
   /** Called when the user toggles rolling summaries for campaign prompts. */
   onRollingSummariesToggle: (enabled: boolean) => void
-  /** Called when the user imports a theme JSON file. */
-  onImportTheme: (file: File) => void
+  /** Called when the user saves edited prompt templates. */
+  onSavePromptTemplates: (prompts: {
+    campaignBasePrompt: string
+    rollingSummarySystemPrompt: string
+  }) => Promise<void>
 }
 
 /**
@@ -205,8 +221,10 @@ export function SettingsModal({
   isDownloadingModel,
   activeThemeId,
   chatTextSize,
+  assistantResponseRevealDelayMs,
+  campaignBasePrompt,
+  rollingSummarySystemPrompt,
   enableRollingSummaries,
-  customThemes,
   binaryInstallProgress,
   statusMessage,
   statusKind,
@@ -223,10 +241,10 @@ export function SettingsModal({
   onDownloadHuggingFaceModel,
   onThemeSelect,
   onChatTextSizeSelect,
+  onAssistantResponseRevealDelayChange,
   onRollingSummariesToggle,
-  onImportTheme,
+  onSavePromptTemplates,
 }: SettingsModalProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('interface')
   const [binaryCheckResult, setBinaryCheckResult] = useState<{
     found: boolean
@@ -242,6 +260,8 @@ export function SettingsModal({
   const [portValue, setPortValue] = useState('3939')
   const [huggingFaceTokenValue, setHuggingFaceTokenValue] = useState('')
   const [huggingFaceRepoValue, setHuggingFaceRepoValue] = useState('')
+  const [campaignBasePromptValue, setCampaignBasePromptValue] = useState(campaignBasePrompt)
+  const [rollingSummarySystemPromptValue, setRollingSummarySystemPromptValue] = useState(rollingSummarySystemPrompt)
   const [isSaving, setIsSaving] = useState(false)
 
   const localAiServers = servers.filter((server) => server.kind !== 'llama.cpp')
@@ -261,6 +281,7 @@ export function SettingsModal({
   const modelOptions = availableModels.length > 0 ? availableModels : visibleModels
   const activeModel = visibleModels.find((model) => model.slug === activeModelSlug) ?? null
   const isEmbeddedServer = activeServer?.kind === 'llama.cpp'
+  const assistantRevealDelaySeconds = assistantResponseRevealDelayMs / 1000
 
   /**
    * Keep remote and local fields aligned with the selected server profile.
@@ -290,6 +311,20 @@ export function SettingsModal({
   }, [activeModel?.contextWindowTokens, activeModel?.slug])
 
   /**
+   * Keep editable prompt fields aligned with the latest persisted values.
+   */
+  useEffect(() => {
+    setCampaignBasePromptValue(campaignBasePrompt)
+  }, [campaignBasePrompt])
+
+  /**
+   * Keep the rolling-summary prompt editor aligned with persisted settings.
+   */
+  useEffect(() => {
+    setRollingSummarySystemPromptValue(rollingSummarySystemPrompt)
+  }, [rollingSummarySystemPrompt])
+
+  /**
    * Run a binary check whenever the active server changes to a llama.cpp server.
    */
   useEffect(() => {
@@ -310,28 +345,6 @@ export function SettingsModal({
     if (!embeddedAiServer) return
     window.api.checkLlamaBinary(embeddedAiServer.id).then(setBinaryCheckResult).catch(() => {})
   }, [binaryInstallProgress?.status, embeddedAiServer?.id])
-
-  /**
-   * Open the hidden file input for theme import.
-   */
-  function handlePickFile(): void {
-    fileInputRef.current?.click()
-  }
-
-  /**
-   * Handle file selection from the hidden theme import input.
-   *
-   * @param event - File input change event.
-   */
-  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>): void {
-    const file = event.target.files?.[0]
-    if (!file) {
-      return
-    }
-
-    onImportTheme(file)
-    event.target.value = ''
-  }
 
   /**
    * Open the native models-directory picker and mirror the result into local state.
@@ -366,6 +379,18 @@ export function SettingsModal({
    * Persist the currently visible AI settings and close the modal.
    */
   async function handleSaveAndClose(): Promise<void> {
+    if (activeSection === 'prompts') {
+      setIsSaving(true)
+      try {
+        await onSavePromptTemplates({
+          campaignBasePrompt: campaignBasePromptValue,
+          rollingSummarySystemPrompt: rollingSummarySystemPromptValue,
+        })
+      } finally {
+        setIsSaving(false)
+      }
+    }
+
     if (activeSection === 'local-ai' && activeServer) {
       setIsSaving(true)
       try {
@@ -409,6 +434,46 @@ export function SettingsModal({
     onClose()
   }
 
+  /**
+   * Persist both prompt templates using the current editor values.
+   */
+  async function handlePromptTemplatesSave(): Promise<void> {
+    setIsSaving(true)
+    try {
+      await onSavePromptTemplates({
+        campaignBasePrompt: campaignBasePromptValue,
+        rollingSummarySystemPrompt: rollingSummarySystemPromptValue,
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  /**
+   * Restore one prompt editor to its bundled default and save immediately.
+   *
+   * @param promptId - Template to restore.
+   */
+  async function handlePromptReset(promptId: 'campaignBasePrompt' | 'rollingSummarySystemPrompt'): Promise<void> {
+    const nextPrompts = {
+      campaignBasePrompt:
+        promptId === 'campaignBasePrompt' ? DEFAULT_CAMPAIGN_BASE_PROMPT : campaignBasePromptValue,
+      rollingSummarySystemPrompt:
+        promptId === 'rollingSummarySystemPrompt'
+          ? DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT
+          : rollingSummarySystemPromptValue,
+    }
+
+    setCampaignBasePromptValue(nextPrompts.campaignBasePrompt)
+    setRollingSummarySystemPromptValue(nextPrompts.rollingSummarySystemPrompt)
+    setIsSaving(true)
+    try {
+      await onSavePromptTemplates(nextPrompts)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <Modal
       title={(
@@ -432,10 +497,18 @@ export function SettingsModal({
               onSelect={handleSectionSelect}
             />
             <SettingsSectionTab
+              id="prompts"
+              label="Prompts"
+              description="Editable campaign templates"
+              icon={<ListMinusIcon />}
+              activeSection={activeSection}
+              onSelect={handleSectionSelect}
+            />
+            <SettingsSectionTab
               id="campaign"
               label="Campaign"
               description="Campaign-wide settings"
-              icon={<PaletteIcon />}
+              icon={<SwordsIcon />}
               activeSection={activeSection}
               onSelect={handleSectionSelect}
             />
@@ -443,7 +516,7 @@ export function SettingsModal({
               id="session"
               label="Session"
               description="Per-session behavior"
-              icon={<PaletteIcon />}
+              icon={<ChessKnightIcon />}
               activeSection={activeSection}
               onSelect={handleSectionSelect}
             />
@@ -451,7 +524,7 @@ export function SettingsModal({
               id="chat"
               label="Chat"
               description="Reserved for chat settings"
-              icon={<PaletteIcon />}
+              icon={<MessageCircleMoreIcon />}
               activeSection={activeSection}
               onSelect={handleSectionSelect}
             />
@@ -459,7 +532,7 @@ export function SettingsModal({
               id="remote-ai"
               label="Remote AI"
               description="Cloud and hosted providers"
-              icon={<SparklesIcon />}
+              icon={<WandSparklesIcon />}
               activeSection={activeSection}
               onSelect={handleSectionSelect}
             />
@@ -467,7 +540,7 @@ export function SettingsModal({
               id="local-ai"
               label="Local AI"
               description="LM Studio and local servers"
-              icon={<SparklesIcon />}
+              icon={<SparkleIcon />}
               activeSection={activeSection}
               onSelect={handleSectionSelect}
             />
@@ -493,23 +566,13 @@ export function SettingsModal({
                   <div>
                     <h2 className="settings-modal__heading">Interface</h2>
                     <p className="settings-modal__subheading">
-                      Select a built-in theme or import a JSON theme package.
+                      Configure the application look and feel.
                     </p>
                   </div>
-                  <button className="settings-modal__import-btn" onClick={handlePickFile}>
-                    Import Theme
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    className="settings-modal__file-input"
-                    type="file"
-                    accept=".json,application/json"
-                    onChange={handleFileChange}
-                  />
                 </div>
 
                 <div className="settings-modal__group">
-                  <div className="settings-modal__group-title">Built-in</div>
+                  <div className="settings-modal__group-title">Theme</div>
                   <div className="settings-modal__theme-list" role="radiogroup" aria-label="Built-in themes">
                     {BUILT_IN_THEMES.map((theme) => (
                       <ThemeOption
@@ -525,26 +588,54 @@ export function SettingsModal({
                   </div>
                 </div>
 
-                <div className="settings-modal__group">
-                  <div className="settings-modal__group-title">Imported</div>
-                  {customThemes.length === 0 ? (
-                    <p className="settings-modal__empty">
-                      No imported themes yet. Download a theme JSON and import it here.
-                    </p>
-                  ) : (
-                    <div className="settings-modal__theme-list" role="radiogroup" aria-label="Imported themes">
-                      {customThemes.map((theme) => (
-                        <ThemeOption
-                          key={theme.id}
-                          id={theme.id}
-                          name={theme.name}
-                          description={`Imported ${theme.mode} theme`}
-                          checked={activeThemeId === theme.id}
-                          onSelect={onThemeSelect}
-                        />
-                      ))}
-                    </div>
-                  )}
+              </section>
+            ) : activeSection === 'prompts' ? (
+              <section className="settings-modal__section">
+                <div>
+                  <h2 className="settings-modal__heading">Prompts</h2>
+                  <p className="settings-modal__subheading">
+                    Edit the built-in campaign and rolling-summary prompt templates.
+                  </p>
+                </div>
+
+                <div className="settings-modal__field-grid">
+                  <PromptTemplateEditor
+                    id="settings-campaign-base-prompt"
+                    label="Campaign Base Prompt"
+                    hint="Sent before campaign context and character metadata for every chat reply."
+                    value={campaignBasePromptValue}
+                    defaultValue={DEFAULT_CAMPAIGN_BASE_PROMPT}
+                    disabled={isSaving}
+                    onChange={setCampaignBasePromptValue}
+                    onReset={() => {
+                      void handlePromptReset('campaignBasePrompt')
+                    }}
+                  />
+                  <PromptTemplateEditor
+                    id="settings-rolling-summary-prompt"
+                    label="Rolling Summary Prompt"
+                    hint="Used when generating or rebuilding the rolling continuity summary."
+                    value={rollingSummarySystemPromptValue}
+                    defaultValue={DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT}
+                    disabled={isSaving}
+                    onChange={setRollingSummarySystemPromptValue}
+                    onReset={() => {
+                      void handlePromptReset('rollingSummarySystemPrompt')
+                    }}
+                  />
+                </div>
+
+                <div className="settings-modal__prompt-actions">
+                  <button
+                    type="button"
+                    className="settings-modal__footer-btn settings-modal__footer-btn--primary"
+                    onClick={() => {
+                      void handlePromptTemplatesSave()
+                    }}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? 'Saving...' : 'Save Prompts'}
+                  </button>
                 </div>
               </section>
             ) : activeSection === 'campaign' ? (
@@ -614,6 +705,41 @@ export function SettingsModal({
                     </select>
                     <p className="settings-modal__field-hint">
                       Adjusts the text size used inside chat bubbles.
+                    </p>
+                  </div>
+                  <div className="settings-modal__field">
+                    <div className="settings-modal__field-row">
+                      <label className="settings-modal__label" htmlFor="settings-assistant-reveal-delay">
+                        Response Reveal Delay
+                      </label>
+                      <span className="settings-modal__value-pill">
+                        {assistantRevealDelaySeconds.toFixed(1)}s
+                      </span>
+                    </div>
+                    <div className="settings-modal__slider-row">
+                      <input
+                        id="settings-assistant-reveal-delay"
+                        className="settings-modal__slider"
+                        type="range"
+                        min="0"
+                        max={ASSISTANT_REVEAL_DELAY_MAX_SECONDS.toString()}
+                        step="0.1"
+                        value={assistantRevealDelaySeconds.toString()}
+                        onChange={(event) => {
+                          onAssistantResponseRevealDelayChange(Math.round(Number(event.target.value) * 1000))
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="settings-modal__refresh-btn"
+                        onClick={() => onAssistantResponseRevealDelayChange(ASSISTANT_REVEAL_DELAY_DEFAULT_MS)}
+                        disabled={assistantResponseRevealDelayMs === ASSISTANT_REVEAL_DELAY_DEFAULT_MS}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                    <p className="settings-modal__field-hint">
+                      Holds the typing indicator for at least this long before assistant text begins to appear.
                     </p>
                   </div>
                 </div>
@@ -1193,6 +1319,71 @@ function ThemeOption({ id, name, description, swatches, checked, onSelect }: The
         ) : null}
       </span>
     </label>
+  )
+}
+
+/** Props accepted by the PromptTemplateEditor component. */
+interface PromptTemplateEditorProps {
+  /** Stable field id used for the textarea and label. */
+  id: string
+  /** Human-readable prompt name. */
+  label: string
+  /** Supporting hint shown below the editor. */
+  hint: string
+  /** Current editable prompt value. */
+  value: string
+  /** Bundled default prompt value used for reset-state comparison. */
+  defaultValue: string
+  /** Disable actions while a save is in flight. */
+  disabled: boolean
+  /** Called when the prompt text changes. */
+  onChange: (value: string) => void
+  /** Called when the user restores the bundled default. */
+  onReset: () => void
+}
+
+/**
+ * PromptTemplateEditor
+ * Multiline prompt editor with a one-click reset back to the bundled default.
+ */
+function PromptTemplateEditor({
+  id,
+  label,
+  hint,
+  value,
+  defaultValue,
+  disabled,
+  onChange,
+  onReset,
+}: PromptTemplateEditorProps) {
+  const isDefaultValue = value === defaultValue
+
+  return (
+    <div className="settings-modal__prompt-editor">
+      <div className="settings-modal__field-row">
+        <label className="settings-modal__label" htmlFor={id}>
+          {label}
+        </label>
+        <button
+          type="button"
+          className="settings-modal__refresh-btn"
+          onClick={onReset}
+          disabled={disabled || isDefaultValue}
+        >
+          Reset to Default
+        </button>
+      </div>
+      <textarea
+        id={id}
+        className="settings-modal__textarea"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={14}
+        disabled={disabled}
+        spellCheck={false}
+      />
+      <p className="settings-modal__field-hint">{hint}</p>
+    </div>
   )
 }
 

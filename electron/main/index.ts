@@ -44,6 +44,10 @@ import type {
   ThemeDefinition,
   WindowControlsState,
 } from '../../src/types'
+import {
+  DEFAULT_CAMPAIGN_BASE_PROMPT,
+  DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
+} from '../../src/prompts/campaignPrompts'
 
 import defaultServersRaw from './defaults/servers.json'
 import defaultModelsRaw  from './defaults/models.json'
@@ -413,8 +417,19 @@ function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSet
     systemPrompt: typeof raw?.systemPrompt === 'string'
       ? raw.systemPrompt
       : 'You are a roleplaying agent responding naturally to the user.',
+    campaignBasePrompt: typeof raw?.campaignBasePrompt === 'string' && raw.campaignBasePrompt.trim().length > 0
+      ? raw.campaignBasePrompt
+      : DEFAULT_CAMPAIGN_BASE_PROMPT,
+    rollingSummarySystemPrompt:
+      typeof raw?.rollingSummarySystemPrompt === 'string' && raw.rollingSummarySystemPrompt.trim().length > 0
+        ? raw.rollingSummarySystemPrompt
+        : DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
     enableRollingSummaries: raw?.enableRollingSummaries === true,
     chatTextSize: isChatTextSize(raw?.chatTextSize) ? raw.chatTextSize : 'small',
+    assistantResponseRevealDelayMs:
+      typeof raw?.assistantResponseRevealDelayMs === 'number' && Number.isFinite(raw.assistantResponseRevealDelayMs)
+        ? Math.max(0, Math.min(10000, Math.round(raw.assistantResponseRevealDelayMs)))
+        : 1500,
     activeThemeId: typeof raw?.activeThemeId === 'string' ? raw.activeThemeId : 'default',
     customThemes: Array.isArray(raw?.customThemes) ? raw.customThemes as ThemeDefinition[] : [],
   }
@@ -958,7 +973,6 @@ function normalizeMessage(raw: PartialMessageRecord, fallbackTimestamp: number) 
   const role = raw.role === 'assistant' || raw.role === 'system' || raw.role === 'user'
     ? raw.role
     : 'user'
-  const safeAvatarCrop = isRecord(raw.characterAvatarCrop) ? raw.characterAvatarCrop : {}
 
   return {
     id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : uid(),
@@ -968,16 +982,6 @@ function normalizeMessage(raw: PartialMessageRecord, fallbackTimestamp: number) 
       : undefined,
     characterName: typeof raw.characterName === 'string' && raw.characterName.trim().length > 0
       ? raw.characterName.trim()
-      : undefined,
-    characterAvatarImageData: typeof raw.characterAvatarImageData === 'string' && raw.characterAvatarImageData.length > 0
-      ? raw.characterAvatarImageData
-      : undefined,
-    characterAvatarCrop: isFiniteNumber(safeAvatarCrop.x) || isFiniteNumber(safeAvatarCrop.y) || isFiniteNumber(safeAvatarCrop.scale)
-      ? {
-        x: isFiniteNumber(safeAvatarCrop.x) ? safeAvatarCrop.x : 0,
-        y: isFiniteNumber(safeAvatarCrop.y) ? safeAvatarCrop.y : 0,
-        scale: isFiniteNumber(safeAvatarCrop.scale) && safeAvatarCrop.scale > 0 ? safeAvatarCrop.scale : 1,
-      }
       : undefined,
     content: typeof raw.content === 'string' ? raw.content : '',
     timestamp,

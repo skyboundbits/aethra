@@ -146,14 +146,15 @@ export function ModelParametersModal({
         {model ? (
           <>
             <div className="model-parameters__intro">
-              These settings are saved per model for <strong>{model.name}</strong>. Local llama.cpp load settings are reused the next time the model is started.
+              These settings are saved per model for <strong>{model.name}</strong>. Leave a field blank to keep the model or server default. Local llama.cpp load settings are reused the next time the model is started.
             </div>
 
             <div className="model-parameters__grid">
               <ParameterField
                 id="model-parameters-context"
                 label="Context Length"
-                hint="Total context budget saved for this model."
+                rangeDescription="whole numbers of 1 or more."
+                impactDescription="higher values let the model remember more chat history, scene details, and character notes, but can increase memory use and may slow local replies."
                 value={contextWindowValue}
                 onChange={setContextWindowValue}
                 min="1"
@@ -163,7 +164,8 @@ export function ModelParametersModal({
               <ParameterField
                 id="model-parameters-temperature"
                 label="Temperature"
-                hint="Sampling randomness. Leave blank to use the server default."
+                rangeDescription="0 to 5."
+                impactDescription="lower values make replies steadier and more literal; higher values make the roleplay more surprising, emotional, and improvisational, but can also cause inconsistency."
                 value={temperatureValue}
                 onChange={setTemperatureValue}
                 min="0"
@@ -174,7 +176,8 @@ export function ModelParametersModal({
               <ParameterField
                 id="model-parameters-top-p"
                 label="Top P"
-                hint="Nucleus sampling cutoff from 0 to 1."
+                rangeDescription="0 to 1."
+                impactDescription="lower values keep the model focused on safer word choices; higher values allow more varied phrasing and narrative turns. It overlaps with temperature, so large changes to both can make behavior harder to predict."
                 value={topPValue}
                 onChange={setTopPValue}
                 min="0"
@@ -185,7 +188,8 @@ export function ModelParametersModal({
               <ParameterField
                 id="model-parameters-top-k"
                 label="Top K"
-                hint="Limits token sampling to the highest-probability candidates."
+                rangeDescription="whole numbers of 0 or more."
+                impactDescription="lower values narrow the model to a smaller shortlist of next-word options, which tends to make dialogue tighter and more conservative; higher values allow more unusual wording and turns. `0` usually means no explicit cap."
                 value={topKValue}
                 onChange={setTopKValue}
                 min="0"
@@ -195,7 +199,8 @@ export function ModelParametersModal({
               <ParameterField
                 id="model-parameters-repeat-penalty"
                 label="Repeat Penalty"
-                hint="Discourages repeating the same text."
+                rangeDescription="0 to 5."
+                impactDescription="increasing this reduces repeated phrases, echoed narration, and looped mannerisms; pushing it too high can make a character avoid natural callbacks or consistent speech patterns."
                 value={repeatPenaltyValue}
                 onChange={setRepeatPenaltyValue}
                 min="0"
@@ -206,7 +211,8 @@ export function ModelParametersModal({
               <ParameterField
                 id="model-parameters-max-output"
                 label="Max Output Tokens"
-                hint="Caps the number of tokens generated per reply."
+                rangeDescription="whole numbers of 1 or more."
+                impactDescription="lower values force shorter replies and quicker turn-taking; higher values allow longer monologues, scene descriptions, and more complete actions before the response stops."
                 value={maxOutputTokensValue}
                 onChange={setMaxOutputTokensValue}
                 min="1"
@@ -216,7 +222,8 @@ export function ModelParametersModal({
               <ParameterField
                 id="model-parameters-presence-penalty"
                 label="Presence Penalty"
-                hint="Encourages introducing new topics. Supported by OpenAI-style servers."
+                rangeDescription="-2 to 2. Supported by OpenAI-style servers."
+                impactDescription="higher values push the model to introduce fresher ideas, actions, or topics instead of revisiting the same ground; lower values make it more willing to stay on recurring themes and motifs."
                 value={presencePenaltyValue}
                 onChange={setPresencePenaltyValue}
                 min="-2"
@@ -227,7 +234,8 @@ export function ModelParametersModal({
               <ParameterField
                 id="model-parameters-frequency-penalty"
                 label="Frequency Penalty"
-                hint="Reduces repeated tokens and phrases. Supported by OpenAI-style servers."
+                rangeDescription="-2 to 2. Supported by OpenAI-style servers."
+                impactDescription="higher values discourage repeated words and phrasing inside a reply, which can help with repetitive narration; lower values let the model reuse wording more freely, which can sometimes help maintain a deliberate voice."
                 value={frequencyPenaltyValue}
                 onChange={setFrequencyPenaltyValue}
                 min="-2"
@@ -240,7 +248,8 @@ export function ModelParametersModal({
                   <ParameterField
                     id="model-parameters-gpu-layers"
                     label="GPU Layers"
-                    hint="Saved llama.cpp GPU offload layer count. 999 means try to offload as much as possible."
+                    rangeDescription="whole numbers of 0 or more. `999` means try to offload as much as possible."
+                    impactDescription="this does not directly change writing style, but more GPU offload can make local roleplay faster and can let larger context settings feel usable on capable hardware."
                     value={gpuLayersValue}
                     onChange={setGpuLayersValue}
                     min="0"
@@ -250,7 +259,8 @@ export function ModelParametersModal({
                   <ParameterField
                     id="model-parameters-threads"
                     label="Threads"
-                    hint="CPU threads used by llama.cpp when loading this model."
+                    rangeDescription="whole numbers of 1 or more."
+                    impactDescription="this changes local performance rather than tone. More threads can improve prompt processing speed on some systems, but overly high values can reduce responsiveness if they saturate the CPU."
                     value={threadsValue}
                     onChange={setThreadsValue}
                     min="1"
@@ -260,7 +270,8 @@ export function ModelParametersModal({
                   <ParameterField
                     id="model-parameters-batch-size"
                     label="Batch Size"
-                    hint="Prompt processing batch size used by llama.cpp."
+                    rangeDescription="whole numbers of 1 or more."
+                    impactDescription="this mainly affects how efficiently the local model ingests prompts and long history. Larger values can improve throughput on strong hardware, but may increase VRAM or RAM pressure."
                     value={batchSizeValue}
                     onChange={setBatchSizeValue}
                     min="1"
@@ -270,7 +281,8 @@ export function ModelParametersModal({
                   <ParameterField
                     id="model-parameters-micro-batch-size"
                     label="Micro-Batch Size"
-                    hint="Smaller inner batch used by llama.cpp to balance memory use."
+                    rangeDescription="whole numbers of 1 or more."
+                    impactDescription="this is a memory-tuning control for local inference. Smaller values can improve stability on limited hardware; larger values can improve speed if your system has headroom."
                     value={microBatchSizeValue}
                     onChange={setMicroBatchSizeValue}
                     min="1"
@@ -291,8 +303,9 @@ export function ModelParametersModal({
                       />
                       <span>Enable flash attention for this local model</span>
                     </label>
+                    <p className="model-parameters__field-hint"><strong>Accepted values:</strong> On or Off.</p>
                     <p className="model-parameters__field-hint">
-                      Disable this if your GPU/backend has compatibility issues.
+                      <strong>Roleplay impact:</strong> this usually changes local speed and memory efficiency rather than the character voice itself. Disable it if your GPU or backend has compatibility issues.
                     </p>
                   </div>
                 </>
@@ -336,8 +349,10 @@ interface ParameterFieldProps {
   id: string
   /** Field label shown above the input. */
   label: string
-  /** Helper text shown below the input. */
-  hint: string
+  /** Accepted value range shown below the input. */
+  rangeDescription: string
+  /** Roleplay-focused explanation shown below the range. */
+  impactDescription: string
   /** Controlled input value. */
   value: string
   /** Called when the field value changes. */
@@ -359,7 +374,8 @@ interface ParameterFieldProps {
 function ParameterField({
   id,
   label,
-  hint,
+  rangeDescription,
+  impactDescription,
   value,
   onChange,
   min,
@@ -383,7 +399,8 @@ function ParameterField({
         step={step}
         disabled={disabled}
       />
-      <p className="model-parameters__field-hint">{hint}</p>
+      <p className="model-parameters__field-hint"><strong>Accepted values:</strong> {rangeDescription}</p>
+      <p className="model-parameters__field-hint"><strong>Roleplay impact:</strong> {impactDescription}</p>
     </div>
   )
 }

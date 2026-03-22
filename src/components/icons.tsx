@@ -401,3 +401,177 @@ export function SlidersHorizontalIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
+/**
+ * SparkleIcon
+ * Sparkle/icon for runtime model parameter controls.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function SparkleIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
+    </svg>
+  )
+}
+
+/**
+ * MessageCircleMoreIcon
+ * Message circle with more options icon.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function MessageCircleMoreIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" />
+      <path d="M8 12h.01" />
+      <path d="M12 12h.01" />
+      <path d="M16 12h.01" />
+    </svg>
+  )
+}
+
+/**
+ * WandSparklesIcon
+ * Wand with sparkles icon.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function WandSparklesIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/>
+      <path d="m14 7 3 3"/>
+      <path d="M5 6v4"/>
+      <path d="M19 14v4"/>
+      <path d="M10 2v2"/>
+      <path d="M7 8H3"/>
+      <path d="M21 16h-4"/>
+      <path d="M11 3H9"/>
+    </svg>
+  )
+}
+
+/**
+ * SpeechIcon
+ * Speech bubble icon.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function SpeechIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M8.8 20v-4.1l1.9.2a2.3 2.3 0 0 0 2.164-2.1V8.3A5.37 5.37 0 0 0 2 8.25c0 2.8.656 3.054 1 4.55a5.77 5.77 0 0 1 .029 2.758L2 20"/>
+      <path d="M19.8 17.8a7.5 7.5 0 0 0 .003-10.603"/>
+      <path d="M17 15a3.5 3.5 0 0 0-.025-4.975"/>
+    </svg>
+  )
+}
+
+/**
+ * ListMinusIcon
+ * List with minus icon.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function ListMinusIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M16 5H3"/>
+      <path d="M11 12H3"/>
+      <path d="M16 19H3"/>
+      <path d="M21 12h-6"/>
+    </svg>
+  )
+}
+
+/**
+ * ChessKnightIcon
+ * Chess knight piece icon.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function ChessKnightIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M5 20a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/>
+      <path d="M16.5 18c1-2 2.5-5 2.5-9a7 7 0 0 0-7-7H6.635a1 1 0 0 0-.768 1.64L7 5l-2.32 5.802a2 2 0 0 0 .95 2.526l2.87 1.456"/>
+      <path d="m15 5 1.425-1.425"/>
+      <path d="m17 8 1.53-1.53"/>
+      <path d="M9.713 12.185 7 18"/>
+    </svg>
+  )
+}
+
+
+
+
+
