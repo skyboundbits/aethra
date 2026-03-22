@@ -4,24 +4,67 @@
  */
 
 .modal--campaign {
-  width: 720px;
+  width: 880px;
+  height: 76vh;
 }
 
-.campaign-modal {
+.campaign-modal__nav {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.campaign-modal__nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: 14px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background-color: transparent;
+  color: var(--text-color-secondary);
+  text-align: left;
+  transition:
+    border-color var(--motion-base),
+    background-color var(--motion-base),
+    color var(--motion-base);
+}
+
+.campaign-modal__nav-item:hover {
+  background-color: var(--surface-bg-emphasis);
+  color: var(--text-color-primary);
+}
+
+.campaign-modal__nav-item--active {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-selected);
+  color: var(--text-color-primary);
+}
+
+.campaign-modal__nav-label {
+  font-size: var(--font-size-body);
+  font-weight: 600;
+}
+
+.campaign-modal__nav-description {
+  font-size: var(--font-size-caption);
+  color: var(--text-color-muted);
+}
+
+.campaign-modal__panel {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .campaign-modal__section {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-}
-
-.campaign-modal__section + .campaign-modal__section {
-  padding-top: var(--space-5);
-  border-top: 1px solid var(--border-color);
+  padding-right: var(--space-3);
 }
 
 .campaign-modal__section-header {
@@ -45,9 +88,17 @@
   color: var(--text-color-primary);
 }
 
-.campaign-modal__copy,
 .campaign-modal__empty {
   color: var(--text-color-secondary);
+}
+
+.campaign-modal__empty-panel {
+  padding: 18px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-muted);
+  font-size: var(--font-size-label);
 }
 
 .campaign-modal__form {
@@ -77,6 +128,12 @@
   background-color: var(--surface-bg);
   color: var(--text-color-primary);
   font: inherit;
+}
+
+.campaign-modal__input:focus,
+.campaign-modal__textarea:focus {
+  outline: none;
+  border-color: var(--border-color-accent);
 }
 
 .campaign-modal__textarea {
@@ -194,6 +251,11 @@
 @media (max-width: 720px) {
   .modal--campaign {
     width: calc(100vw - 24px);
+    height: calc(100vh - 32px);
+  }
+
+  .campaign-modal__nav {
+    padding-bottom: var(--space-3);
   }
 
   .campaign-modal__button {

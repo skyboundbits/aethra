@@ -74,6 +74,7 @@ aethra/
 │   │   ├── CharactersModal.tsx
 │   │   ├── ModelLoaderModal.tsx
 │   │   ├── Modal.tsx                   # Reusable modal dialog
+│   │   ├── ModalLayouts.tsx            # Shared modal layout variants
 │   │   └── ...
 │   ├── services/
 │   │   ├── aiService.ts                # Wrapper around `window.api.streamCompletion()`
@@ -161,6 +162,23 @@ Key functions:
 - `handleDeleteSession()`: Remove a session
 - `handleStreamChunk()`: Receive token from AI (via IPC)
 - `handleStreamComplete()`: Finalize AI response
+
+### Modal Architecture
+
+Modal UI is split into a low-level shell plus shared layout variants:
+
+- **`src/components/Modal.tsx`**: Base dialog shell. Owns the overlay, title bar, close button, portal rendering, Escape handling, and size variants.
+- **`src/components/ModalLayouts.tsx`**: Shared higher-level modal layouts.
+  - `ModalWorkspaceLayout`: two-column navigation + panel layout for management surfaces.
+  - `ModalFormLayout`: single-column form layout with a shared footer row.
+  - `ModalPopupLayout`: compact popup layout for inspectors and short dialogs.
+  - `ModalFooter`: shared footer row with left status content and right action group.
+
+Current usage:
+
+- **Workspace modals**: Settings, Campaign, Characters
+- **Form modals**: Create Campaign, Model Loader, Model Parameters
+- **Popup modals**: AI Debug
 
 ### src/types/index.ts
 
@@ -359,6 +377,13 @@ Each component has its own CSS file (e.g., `ChatArea.css`) with scoped class nam
 .chat-area__message--assistant { ... }
 ```
 
+Modal shell and layout styles are centralized:
+
+- `src/styles/modal.css`: overlay, card chrome, title bar, and size variants
+- `src/styles/modal-layouts.css`: shared workspace/form/popup layout structure and shared footer buttons
+
+Component-specific modal styles should only define content inside those shared shells.
+
 ## Theme System
 
 ### Theme Tokens
@@ -471,18 +496,20 @@ App
 │       ├── CharacterInfo
 │       └── SessionInfo
 ├── SettingsModal
-│   ├── ServersTab
-│   ├── ModelsTab
-│   ├── SystemPromptTab
-│   ├── ChatTab
-│   ├── ThemeTab
-│   └── DebugTab
+│   └── ModalWorkspaceLayout
 ├── CampaignLauncher (if no campaign loaded)
 ├── CampaignModal
+│   └── ModalWorkspaceLayout
 ├── CharactersModal
+│   └── ModalWorkspaceLayout
 ├── ModelLoaderModal
+│   └── ModalFormLayout
+├── ModelParametersModal
+│   └── ModalFormLayout
 ├── CreateCampaignModal
+│   └── ModalFormLayout
 └── AiDebugModal
+    └── ModalPopupLayout
 ```
 
 ## Adding a New Feature

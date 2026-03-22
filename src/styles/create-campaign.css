@@ -47,22 +47,3 @@
 .create-campaign__error {
   color: var(--status-color-error);
 }
-
-.create-campaign__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-3);
-}
-
-.create-campaign__button {
-  padding: 10px 16px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background-color: var(--surface-bg);
-}
-
-.create-campaign__button--primary {
-  border-color: transparent;
-  background-color: var(--surface-bg-accent);
-  color: var(--text-color-on-accent);
-}

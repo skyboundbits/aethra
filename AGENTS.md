@@ -95,6 +95,7 @@ aethra/
 │   │   ├── ModelLoaderModal.tsx         # Model download UI
 │   │   ├── AiDebugModal.tsx             # AI request/response logs
 │   │   ├── Modal.tsx                    # Reusable modal component
+│   │   ├── ModalLayouts.tsx             # Shared workspace/form/popup modal layouts
 │   │   ├── LlamaBinaryBanner.tsx        # llama.cpp install status
 │   │   └── icons.tsx                    # SVG icon components
 │   ├── services/
@@ -171,6 +172,17 @@ The main app uses a **three-column grid** layout:
 │            │  └────────────────┘    │            │
 └────────────┴────────────────────────┴────────────┘
 ```
+
+### Modal Layout System
+
+The renderer uses a shared modal shell plus three higher-level layout variants:
+
+- **`Modal`** (`src/components/Modal.tsx`) handles the overlay, title bar, close button, focus semantics, and size variant (`workspace`, `form`, `popup`).
+- **`ModalWorkspaceLayout`** (`src/components/ModalLayouts.tsx`) is the standard two-column management layout with left navigation/list, right detail panel, and shared footer row. Used by Settings, Campaign, and Characters.
+- **`ModalFormLayout`** is the standard single-column layout for focused forms with a shared footer action row. Used by Create Campaign, Model Loader, and Model Parameters.
+- **`ModalPopupLayout`** is the compact popup layout for short-lived inspectors and utility dialogs. Used by AI Debug and future confirmation/info popups.
+
+Shared footer buttons and alignment live in `src/styles/modal-layouts.css`. Modal-specific styles should only cover domain UI inside the content area, not reimplement the shell, footer, or responsive split layout.
 
 ### State Management
 
@@ -321,6 +333,7 @@ Themes override CSS variables. Built-in dark theme is default. Custom themes can
 2. Import it at the top of the relevant component.
 3. Use CSS variables for all colors and spacing.
 4. Follow BEM naming: `.component__element--modifier`.
+5. For new dialogs, start from the shared modal variants before adding modal-specific shell CSS. Prefer `ModalWorkspaceLayout`, `ModalFormLayout`, or `ModalPopupLayout` over bespoke modal scaffolding.
 
 ---
 

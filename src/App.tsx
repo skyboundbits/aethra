@@ -2629,6 +2629,7 @@ export default function App() {
       console.error('[Aethra] Could not save prompt templates:', err)
       setSettingsStatusKind('error')
       setSettingsStatusMessage('Could not save the prompt templates.')
+      throw err
     }
   }
 
@@ -3015,7 +3016,7 @@ export default function App() {
         frequencyPenalty: normalizedFrequencyPenalty,
       })
       setModelParametersStatusKind('success')
-      setModelParametersStatusMessage('Runtime parameters updated.')
+      setModelParametersStatusMessage('Parameters Saved')
     } catch (err) {
       console.error('[Aethra] Could not save model parameters:', err)
       setModelParametersStatusKind('error')
@@ -3881,8 +3882,10 @@ export default function App() {
           onRollingSummariesToggle={(enabled) => {
             void handleRollingSummariesToggle(enabled)
           }}
-          onSavePromptTemplates={(prompts) => {
-            void handlePromptTemplatesSave(prompts)
+          onSavePromptTemplates={handlePromptTemplatesSave}
+          onSetStatus={(kind, message) => {
+            setSettingsStatusKind(kind)
+            setSettingsStatusMessage(message)
           }}
         />
       ) : null}

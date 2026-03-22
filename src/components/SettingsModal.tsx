@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import { LlamaBinaryBanner } from './LlamaBinaryBanner'
+import { ModalFooter, ModalWorkspaceLayout } from './ModalLayouts'
 import { Modal } from './Modal'
 import { MessageCircleMoreIcon, PaletteIcon, SettingsIcon, SparkleIcon, SparklesIcon, WandSparklesIcon, SwordsIcon, ListMinusIcon, ChessKnightIcon } from './icons'
 import {
@@ -45,19 +46,173 @@ const BUILT_IN_THEME_DESCRIPTIONS: Record<string, string> = {
   'verdant-green': 'Green dark theme',
   'amber-orange': 'Orange dark theme',
   graphite: 'Alternative dark theme',
+  'modern-slate': 'Clean contemporary charcoal theme',
+  'steel-grey': 'Neutral monochrome workstation theme',
+  'royal-purple': 'Regal violet and plum theme',
+  'deep-sapphire': 'Rich sapphire and navy theme',
+  'aurora-teal': 'Glowing teal and ice theme',
   dawn: 'Warm light theme',
+  'paper-mint': 'Fresh mint and paper light theme',
+  'sky-glass': 'Bright airy blue light theme',
+  'rose-porcelain': 'Soft blush porcelain light theme',
   linen: 'Soft neutral light theme',
 }
 
-const BUILT_IN_THEME_SWATCHES: Record<string, [string, string, string]> = {
-  default: ['#0d0f14', '#5b7cf6', '#1b1f2b'],
-  'midnight-blue': ['#08111e', '#3f87ff', '#17253c'],
-  'ember-red': ['#180b0d', '#d7485a', '#32171b'],
-  'verdant-green': ['#09130f', '#42b883', '#172821'],
-  'amber-orange': ['#15100a', '#e28a2f', '#302117'],
-  graphite: ['#101112', '#8da2b8', '#202326'],
-  dawn: ['#efe9df', '#b65a3a', '#f2ebe2'],
-  linen: ['#f4f0e8', '#4f7a9d', '#f6f1e7'],
+interface ThemePreviewPalette {
+  appBg: string
+  panelBg: string
+  surfaceBg: string
+  accent: string
+  textPrimary: string
+  textSecondary: string
+  userMessage: string
+}
+
+const BUILT_IN_THEME_PREVIEWS: Record<string, ThemePreviewPalette> = {
+  default: {
+    appBg: '#0d0f14',
+    panelBg: '#13161e',
+    surfaceBg: '#1b1f2b',
+    accent: '#5b7cf6',
+    textPrimary: '#e2e6f0',
+    textSecondary: '#7a82a0',
+    userMessage: '#1e2d5a',
+  },
+  'midnight-blue': {
+    appBg: '#08111e',
+    panelBg: '#101b2d',
+    surfaceBg: '#17253c',
+    accent: '#3f87ff',
+    textPrimary: '#edf5ff',
+    textSecondary: '#9cb5d6',
+    userMessage: '#183968',
+  },
+  'ember-red': {
+    appBg: '#180b0d',
+    panelBg: '#241114',
+    surfaceBg: '#32171b',
+    accent: '#d7485a',
+    textPrimary: '#fff0f2',
+    textSecondary: '#d5a2aa',
+    userMessage: '#51232e',
+  },
+  'verdant-green': {
+    appBg: '#09130f',
+    panelBg: '#101d18',
+    surfaceBg: '#172821',
+    accent: '#42b883',
+    textPrimary: '#edf9f2',
+    textSecondary: '#9fc6b1',
+    userMessage: '#1d3a31',
+  },
+  'amber-orange': {
+    appBg: '#15100a',
+    panelBg: '#221810',
+    surfaceBg: '#302117',
+    accent: '#e28a2f',
+    textPrimary: '#fff5e9',
+    textSecondary: '#d6b08b',
+    userMessage: '#4b3118',
+  },
+  graphite: {
+    appBg: '#101112',
+    panelBg: '#17191b',
+    surfaceBg: '#202326',
+    accent: '#8da2b8',
+    textPrimary: '#f2f4f6',
+    textSecondary: '#a4aeb9',
+    userMessage: '#24303f',
+  },
+  'modern-slate': {
+    appBg: '#0f1722',
+    panelBg: '#151f2c',
+    surfaceBg: '#1c2838',
+    accent: '#4cc9f0',
+    textPrimary: '#edf6ff',
+    textSecondary: '#93a8bf',
+    userMessage: '#1f3a52',
+  },
+  'steel-grey': {
+    appBg: '#111315',
+    panelBg: '#181b1f',
+    surfaceBg: '#23272c',
+    accent: '#9aa4b2',
+    textPrimary: '#f3f5f7',
+    textSecondary: '#9ea8b3',
+    userMessage: '#2d3742',
+  },
+  'royal-purple': {
+    appBg: '#140d1e',
+    panelBg: '#1d132b',
+    surfaceBg: '#2a1d3d',
+    accent: '#9d6bff',
+    textPrimary: '#f5eeff',
+    textSecondary: '#bca6df',
+    userMessage: '#352452',
+  },
+  'deep-sapphire': {
+    appBg: '#07131f',
+    panelBg: '#0d1d31',
+    surfaceBg: '#132943',
+    accent: '#3b82f6',
+    textPrimary: '#edf5ff',
+    textSecondary: '#9cb7da',
+    userMessage: '#173965',
+  },
+  'aurora-teal': {
+    appBg: '#071615',
+    panelBg: '#0d2220',
+    surfaceBg: '#14302d',
+    accent: '#38d6c4',
+    textPrimary: '#ebfffb',
+    textSecondary: '#97c9c1',
+    userMessage: '#1a3d43',
+  },
+  dawn: {
+    appBg: '#efe9df',
+    panelBg: '#fbf7f2',
+    surfaceBg: '#f2ebe2',
+    accent: '#b65a3a',
+    textPrimary: '#2c241d',
+    textSecondary: '#6e5a4a',
+    userMessage: '#c9d8f7',
+  },
+  'paper-mint': {
+    appBg: '#edf6f1',
+    panelBg: '#fbfffc',
+    surfaceBg: '#f1f8f4',
+    accent: '#3ca37c',
+    textPrimary: '#21332c',
+    textSecondary: '#5f7c71',
+    userMessage: '#dcefe7',
+  },
+  'sky-glass': {
+    appBg: '#edf4fb',
+    panelBg: '#fbfdff',
+    surfaceBg: '#f2f7fc',
+    accent: '#4a8fdc',
+    textPrimary: '#1f2f42',
+    textSecondary: '#607892',
+    userMessage: '#dce9f8',
+  },
+  'rose-porcelain': {
+    appBg: '#f8efef',
+    panelBg: '#fffafa',
+    surfaceBg: '#fbf2f2',
+    accent: '#c06b8d',
+    textPrimary: '#3a2830',
+    textSecondary: '#816470',
+    userMessage: '#f1dde6',
+  },
+  linen: {
+    appBg: '#f4f0e8',
+    panelBg: '#fffdf8',
+    surfaceBg: '#f6f1e7',
+    accent: '#4f7a9d',
+    textPrimary: '#2d261f',
+    textSecondary: '#6d6153',
+    userMessage: '#dfe7f2',
+  },
 }
 
 const ASSISTANT_REVEAL_DELAY_DEFAULT_MS = 1500
@@ -151,6 +306,8 @@ interface SettingsModalProps {
     campaignBasePrompt: string
     rollingSummarySystemPrompt: string
   }) => Promise<void>
+  /** Called when the modal should publish a footer status update. */
+  onSetStatus: (kind: 'error' | 'success', message: string) => void
 }
 
 /**
@@ -244,6 +401,7 @@ export function SettingsModal({
   onAssistantResponseRevealDelayChange,
   onRollingSummariesToggle,
   onSavePromptTemplates,
+  onSetStatus,
 }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('interface')
   const [binaryCheckResult, setBinaryCheckResult] = useState<{
@@ -376,62 +534,66 @@ export function SettingsModal({
   }
 
   /**
-   * Persist the currently visible AI settings and close the modal.
+   * Persist the currently visible AI settings without closing the modal.
    */
-  async function handleSaveAndClose(): Promise<void> {
-    if (activeSection === 'prompts') {
-      setIsSaving(true)
-      try {
-        await onSavePromptTemplates({
-          campaignBasePrompt: campaignBasePromptValue,
-          rollingSummarySystemPrompt: rollingSummarySystemPromptValue,
-        })
-      } finally {
-        setIsSaving(false)
-      }
-    }
-
-    if (activeSection === 'local-ai' && activeServer) {
-      setIsSaving(true)
-      try {
-        await onSaveServerAddress(activeServer.id, serverAddressValue)
-
-        if (activeModel) {
-          const trimmedValue = contextWindowValue.trim()
-          await onSaveModelContext(
-            activeModel.slug,
-            trimmedValue.length === 0 ? null : Number(trimmedValue),
-          )
+  async function handleSaveSettings(): Promise<void> {
+    try {
+      if (activeSection === 'prompts') {
+        setIsSaving(true)
+        try {
+          await onSavePromptTemplates({
+            campaignBasePrompt: campaignBasePromptValue,
+            rollingSummarySystemPrompt: rollingSummarySystemPromptValue,
+          })
+        } finally {
+          setIsSaving(false)
         }
-      } finally {
-        setIsSaving(false)
       }
-    }
 
-    if (activeSection === 'embedded-ai' && activeServer) {
-      setIsSaving(true)
-      try {
-        await onSaveLocalServerConfig(activeServer.id, {
-          modelsDirectory: modelsDirectoryValue,
-          executablePath: executablePathValue,
-          host: hostValue,
-          port: Number(portValue),
-          huggingFaceToken: huggingFaceTokenValue,
-        })
+      if (activeSection === 'local-ai' && activeServer) {
+        setIsSaving(true)
+        try {
+          await onSaveServerAddress(activeServer.id, serverAddressValue)
 
-        if (activeModel) {
-          const trimmedValue = contextWindowValue.trim()
-          await onSaveModelContext(
-            activeModel.slug,
-            trimmedValue.length === 0 ? null : Number(trimmedValue),
-          )
+          if (activeModel) {
+            const trimmedValue = contextWindowValue.trim()
+            await onSaveModelContext(
+              activeModel.slug,
+              trimmedValue.length === 0 ? null : Number(trimmedValue),
+            )
+          }
+        } finally {
+          setIsSaving(false)
         }
-      } finally {
-        setIsSaving(false)
       }
-    }
 
-    onClose()
+      if (activeSection === 'embedded-ai' && activeServer) {
+        setIsSaving(true)
+        try {
+          await onSaveLocalServerConfig(activeServer.id, {
+            modelsDirectory: modelsDirectoryValue,
+            executablePath: executablePathValue,
+            host: hostValue,
+            port: Number(portValue),
+            huggingFaceToken: huggingFaceTokenValue,
+          })
+
+          if (activeModel) {
+            const trimmedValue = contextWindowValue.trim()
+            await onSaveModelContext(
+              activeModel.slug,
+              trimmedValue.length === 0 ? null : Number(trimmedValue),
+            )
+          }
+        } finally {
+          setIsSaving(false)
+        }
+      }
+
+      onSetStatus('success', 'Settings saved.')
+    } catch {
+      // Parent callbacks publish the relevant error status.
+    }
   }
 
   /**
@@ -483,10 +645,10 @@ export function SettingsModal({
         </>
       )}
       onClose={onClose}
-      className="modal--settings"
+      variant="workspace"
     >
-      <div className="settings-modal">
-        <div className="settings-modal__body">
+      <ModalWorkspaceLayout
+        nav={(
           <nav className="settings-modal__nav" aria-label="Settings sections">
             <SettingsSectionTab
               id="interface"
@@ -553,13 +715,9 @@ export function SettingsModal({
               onSelect={handleSectionSelect}
             />
           </nav>
-
+        )}
+        panel={(
           <div className="settings-modal__panel">
-            {statusMessage ? (
-              <div className={`settings-modal__status settings-modal__status--${statusKind ?? 'success'}`}>
-                {statusMessage}
-              </div>
-            ) : null}
             {activeSection === 'interface' ? (
               <section className="settings-modal__section">
                 <div className="settings-modal__heading-row">
@@ -580,7 +738,7 @@ export function SettingsModal({
                         id={theme.id}
                         name={theme.name}
                         description={BUILT_IN_THEME_DESCRIPTIONS[theme.id] ?? 'Built-in theme'}
-                        swatches={BUILT_IN_THEME_SWATCHES[theme.id]}
+                        preview={BUILT_IN_THEME_PREVIEWS[theme.id]}
                         checked={activeThemeId === theme.id}
                         onSelect={onThemeSelect}
                       />
@@ -628,7 +786,7 @@ export function SettingsModal({
                 <div className="settings-modal__prompt-actions">
                   <button
                     type="button"
-                    className="settings-modal__footer-btn settings-modal__footer-btn--primary"
+                    className="modal-footer__button modal-footer__button--primary"
                     onClick={() => {
                       void handlePromptTemplatesSave()
                     }}
@@ -1146,29 +1304,36 @@ export function SettingsModal({
               </section>
             )}
           </div>
-        </div>
-
-        <div className="settings-modal__footer">
-          <p className="settings-modal__footer-note">
-            Settings apply immediately. Save Settings persists the current AI configuration and closes this dialog.
-          </p>
-          <div className="settings-modal__footer-actions">
-            <button type="button" className="settings-modal__footer-btn" onClick={onClose}>
-              Close
-            </button>
-            <button
-              type="button"
-              className="settings-modal__footer-btn settings-modal__footer-btn--primary"
-              onClick={() => {
-                void handleSaveAndClose()
-              }}
-              disabled={isSaving}
-            >
-              {isSaving ? 'Saving...' : 'Save Settings'}
-            </button>
-          </div>
-        </div>
-      </div>
+        )}
+        footer={(
+          <ModalFooter
+            status={
+              statusMessage ? (
+                <p className={`settings-modal__status settings-modal__status--${statusKind ?? 'success'}`}>
+                  {statusMessage}
+                </p>
+              ) : undefined
+            }
+            actions={(
+              <>
+                <button type="button" className="modal-footer__button" onClick={onClose}>
+                  Close
+                </button>
+                <button
+                  type="button"
+                  className="modal-footer__button modal-footer__button--primary"
+                  onClick={() => {
+                    void handleSaveSettings()
+                  }}
+                  disabled={isSaving}
+                >
+                  {isSaving ? 'Saving...' : 'Save Settings'}
+                </button>
+              </>
+            )}
+          />
+        )}
+      />
     </Modal>
   )
 }
@@ -1274,8 +1439,8 @@ interface ThemeOptionProps {
   name: string
   /** Secondary metadata shown under the theme name. */
   description: string
-  /** Optional preview colors displayed beside the theme metadata. */
-  swatches?: [string, string, string]
+  /** Optional miniature palette used to render a theme preview card. */
+  preview?: ThemePreviewPalette
   /** Whether the option is the current active theme. */
   checked: boolean
   /** Called when the user selects the option. */
@@ -1286,7 +1451,7 @@ interface ThemeOptionProps {
  * ThemeOption
  * Single radio-style option used in the theme settings lists.
  */
-function ThemeOption({ id, name, description, swatches, checked, onSelect }: ThemeOptionProps) {
+function ThemeOption({ id, name, description, preview, checked, onSelect }: ThemeOptionProps) {
   /**
    * Handle selecting this theme option.
    */
@@ -1306,15 +1471,36 @@ function ThemeOption({ id, name, description, swatches, checked, onSelect }: The
       <span className="settings-modal__option-body">
         <span className="settings-modal__option-name">{name}</span>
         <span className="settings-modal__option-description">{description}</span>
-        {swatches ? (
-          <span className="settings-modal__theme-preview" aria-hidden="true">
-            {swatches.map((color) => (
-              <span
-                key={color}
-                className="settings-modal__theme-swatch"
-                style={{ backgroundColor: color }}
-              />
-            ))}
+        {preview ? (
+          <span
+            className="settings-modal__theme-card"
+            aria-hidden="true"
+            style={
+              {
+                '--theme-preview-app-bg': preview.appBg,
+                '--theme-preview-panel-bg': preview.panelBg,
+                '--theme-preview-surface-bg': preview.surfaceBg,
+                '--theme-preview-accent': preview.accent,
+                '--theme-preview-text-primary': preview.textPrimary,
+                '--theme-preview-text-secondary': preview.textSecondary,
+                '--theme-preview-user-message': preview.userMessage,
+              } as React.CSSProperties
+            }
+          >
+            <span className="settings-modal__theme-card-sidebar">
+              <span className="settings-modal__theme-card-pill settings-modal__theme-card-pill--accent" />
+              <span className="settings-modal__theme-card-pill" />
+              <span className="settings-modal__theme-card-pill settings-modal__theme-card-pill--muted" />
+            </span>
+            <span className="settings-modal__theme-card-main">
+              <span className="settings-modal__theme-card-header">
+                <span className="settings-modal__theme-card-title" />
+                <span className="settings-modal__theme-card-dot" />
+              </span>
+              <span className="settings-modal__theme-card-message" />
+              <span className="settings-modal__theme-card-message settings-modal__theme-card-message--user" />
+              <span className="settings-modal__theme-card-composer" />
+            </span>
           </span>
         ) : null}
       </span>

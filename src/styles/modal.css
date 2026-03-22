@@ -46,9 +46,18 @@
   animation: modal-slide-in var(--motion-base) ease;
 }
 
-.modal--settings {
+.modal--workspace {
   width: 920px;
   height: 80vh;
+}
+
+.modal--form {
+  width: 680px;
+  height: min(760px, calc(100vh - 64px));
+}
+
+.modal--popup {
+  width: 560px;
 }
 
 .modal--system-prompt {
@@ -114,12 +123,20 @@
   min-height: 0;
 }
 
-.modal--settings .modal__content {
+.modal--workspace .modal__content {
+  overflow: hidden;
+}
+
+.modal--form .modal__content {
   overflow: hidden;
 }
 
 @media (max-width: 720px) {
-  .modal--settings {
+  .modal--workspace {
+    height: calc(100vh - 32px);
+  }
+
+  .modal--form {
     height: calc(100vh - 32px);
   }
 }

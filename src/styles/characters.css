@@ -3,27 +3,10 @@
  * Styles for the campaign characters modal.
  */
 
-.characters-modal {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: var(--space-4);
-  height: 100%;
-  min-height: 0;
-}
-
-.characters-modal__body {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: var(--space-5);
-  min-height: 0;
-}
-
 .characters-modal__nav {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding-right: var(--space-4);
-  border-right: 1px solid var(--border-color);
   min-height: 0;
 }
 
@@ -269,59 +252,14 @@
   font-size: var(--font-size-label);
 }
 
-.characters-modal__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border-color);
-}
-
 .characters-modal__footer-note {
   font-size: var(--font-size-label);
   color: var(--text-color-muted);
 }
 
-.characters-modal__footer-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.characters-modal__footer-btn--primary {
-  border-color: var(--border-color-accent);
-  background-color: var(--surface-bg-accent);
-  color: var(--text-color-on-accent);
-}
-
-.characters-modal__footer-btn--primary:hover {
-  background-color: var(--surface-bg-accent-hover);
-}
-
 @media (max-width: 720px) {
-  .characters-modal__body {
-    grid-template-columns: 1fr;
-  }
-
   .characters-modal__nav {
-    padding-right: 0;
     padding-bottom: var(--space-3);
-    border-right: 0;
-    border-bottom: 1px solid var(--border-color);
-  }
-
-  .characters-modal__footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .characters-modal__footer-actions {
-    width: 100%;
-  }
-
-  .characters-modal__footer-btn {
-    flex: 1;
   }
 
   .characters-modal__avatar-editor {

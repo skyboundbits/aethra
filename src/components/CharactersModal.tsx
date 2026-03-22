@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { Modal } from './Modal'
+import { ModalFooter, ModalWorkspaceLayout } from './ModalLayouts'
 import { UsersRoundIcon } from './icons'
 import '../styles/characters.css'
 
@@ -265,10 +266,10 @@ export function CharactersModal({
         </>
       )}
       onClose={onClose}
-      className="modal--settings"
+      variant="workspace"
     >
-      <div className="characters-modal">
-        <div className="characters-modal__body">
+      <ModalWorkspaceLayout
+        nav={(
           <aside className="characters-modal__nav" aria-label="Characters list">
             <div className="characters-modal__list">
               {characters.length === 0 ? (
@@ -299,7 +300,8 @@ export function CharactersModal({
               {isBusy ? 'Working...' : 'Create Character'}
             </button>
           </aside>
-
+        )}
+        panel={(
           <section className="characters-modal__panel">
             {statusMessage ? (
               <div className={`characters-modal__status characters-modal__status--${statusKind ?? 'success'}`}>
@@ -524,29 +526,34 @@ export function CharactersModal({
               </div>
             )}
           </section>
-        </div>
-
-        <div className="characters-modal__footer">
-          <p className="characters-modal__footer-note">
-            Character folders are stored inside the active campaign under <code>characters/</code>.
-          </p>
-          <div className="characters-modal__footer-actions">
-            <button type="button" className="characters-modal__footer-btn" onClick={onClose}>
-              Close
-            </button>
-            <button
-              type="button"
-              className="characters-modal__footer-btn characters-modal__footer-btn--primary"
-              onClick={() => {
-                void handleSave()
-              }}
-              disabled={!draft || isBusy}
-            >
-              {isBusy ? 'Saving...' : 'Save Character'}
-            </button>
-          </div>
-        </div>
-      </div>
+        )}
+        footer={(
+          <ModalFooter
+            status={(
+              <p className="characters-modal__footer-note">
+                Character folders are stored inside the active campaign under <code>characters/</code>.
+              </p>
+            )}
+            actions={(
+              <>
+                <button type="button" className="modal-footer__button" onClick={onClose}>
+                  Close
+                </button>
+                <button
+                  type="button"
+                  className="modal-footer__button modal-footer__button--primary"
+                  onClick={() => {
+                    void handleSave()
+                  }}
+                  disabled={!draft || isBusy}
+                >
+                  {isBusy ? 'Saving...' : 'Save Character'}
+                </button>
+              </>
+            )}
+          />
+        )}
+      />
     </Modal>
   )
 }

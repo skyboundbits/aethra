@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Modal } from './Modal'
+import { ModalFooter, ModalFormLayout } from './ModalLayouts'
 import { SparklesIcon } from './icons'
 import { formatBytes } from '../services/modelFitService'
 import { LlamaBinaryBanner } from './LlamaBinaryBanner'
@@ -190,46 +191,49 @@ export function ModelLoaderModal({
         </>
       )}
       onClose={onClose}
+      variant="form"
       className="modal--model-loader"
     >
-      <div className="model-loader">
-        {statusMessage ? (
-          <div className={`model-loader__status model-loader__status--${statusKind ?? 'success'}`}>
-            {statusMessage}
-          </div>
-        ) : null}
+      <ModalFormLayout
+        body={(
+          <div className="model-loader">
+            {statusMessage ? (
+              <div className={`model-loader__status model-loader__status--${statusKind ?? 'success'}`}>
+                {statusMessage}
+              </div>
+            ) : null}
 
-        {servers.length === 0 ? (
-          <div className="model-loader__empty">
-            No compatible model sources are configured yet.
-          </div>
-        ) : (
-          <>
-            <div className="model-loader__field">
-              <label className="model-loader__label" htmlFor="model-loader-source">
-                Model Source
-              </label>
-              <select
-                id="model-loader-source"
-                className="model-loader__input"
-                value={selectedServerId ?? ''}
-                onChange={(event) => onSelectServer(event.target.value)}
-                disabled={isBusy}
-              >
-                {servers.map((server) => (
-                  <option key={server.id} value={server.id}>
-                    {getSourceLabel(server)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {models.length === 0 ? (
+            {servers.length === 0 ? (
               <div className="model-loader__empty">
-                No models are available for this source yet. Use Browse Models in Settings first.
+                No compatible model sources are configured yet.
               </div>
             ) : (
               <>
+                <div className="model-loader__field">
+                  <label className="model-loader__label" htmlFor="model-loader-source">
+                    Model Source
+                  </label>
+                  <select
+                    id="model-loader-source"
+                    className="model-loader__input"
+                    value={selectedServerId ?? ''}
+                    onChange={(event) => onSelectServer(event.target.value)}
+                    disabled={isBusy}
+                  >
+                    {servers.map((server) => (
+                      <option key={server.id} value={server.id}>
+                        {getSourceLabel(server)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {models.length === 0 ? (
+                  <div className="model-loader__empty">
+                    No models are available for this source yet. Use Browse Models in Settings first.
+                  </div>
+                ) : (
+                  <>
                 <div className="model-loader__intro">
                   {isLmStudioProvider
                     ? 'Pick a model exposed by LM Studio. Aethra will switch to it here, but loading still happens inside LM Studio.'
@@ -339,37 +343,42 @@ export function ModelLoaderModal({
                     onInstall={onInstallBinary}
                   />
                 ) : null}
-
-                <div className="model-loader__footer">
-                  <div className="model-loader__actions">
-                    <button type="button" className="model-loader__button" onClick={onClose}>
-                      {hasLoadedModel ? 'Close' : 'Cancel'}
-                    </button>
-                    <button
-                      type="button"
-                      className="model-loader__button model-loader__button--primary"
-                      onClick={() => {
-                        void handleLoad()
-                      }}
-                      disabled={
-                        isBusy ||
-                        selectedModelSlug.length === 0 ||
-                        (showBinaryBanner &&
-                          binaryInstallProgress != null &&
-                          (binaryInstallProgress.status === 'detecting' ||
-                            binaryInstallProgress.status === 'downloading' ||
-                            binaryInstallProgress.status === 'extracting'))
-                      }
-                    >
-                      {getPrimaryActionLabel()}
-                    </button>
-                  </div>
-                </div>
+                  </>
+                )}
               </>
             )}
-          </>
+          </div>
         )}
-      </div>
+        footer={(
+          <ModalFooter
+            actions={(
+              <>
+                <button type="button" className="modal-footer__button" onClick={onClose}>
+                  {hasLoadedModel ? 'Close' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  className="modal-footer__button modal-footer__button--primary"
+                  onClick={() => {
+                    void handleLoad()
+                  }}
+                  disabled={
+                    isBusy ||
+                    selectedModelSlug.length === 0 ||
+                    (showBinaryBanner &&
+                      binaryInstallProgress != null &&
+                      (binaryInstallProgress.status === 'detecting' ||
+                        binaryInstallProgress.status === 'downloading' ||
+                        binaryInstallProgress.status === 'extracting'))
+                  }
+                >
+                  {getPrimaryActionLabel()}
+                </button>
+              </>
+            )}
+          />
+        )}
+      />
     </Modal>
   )
 }

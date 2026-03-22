@@ -1,0 +1,127 @@
+/**
+ * src/styles/modal-layouts.css
+ * Shared layout and footer styles for modal variants.
+ */
+
+.modal-layout {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+}
+
+.modal-layout--workspace,
+.modal-layout--form,
+.modal-layout--popup {
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+}
+
+.modal-layout__body {
+  min-height: 0;
+}
+
+.modal-layout__body--workspace {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: stretch;
+}
+
+.modal-layout__nav {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: var(--space-4);
+  border-right: 1px solid var(--border-color);
+}
+
+.modal-layout__panel {
+  min-height: 0;
+}
+
+.modal-layout__panel--workspace,
+.modal-layout__panel--form,
+.modal-layout__panel--popup {
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
+.modal-layout__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: 0 calc(var(--panel-padding) * -1);
+  padding: var(--space-4) var(--panel-padding) 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.modal-footer__status,
+.modal-footer__spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.modal-footer__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.modal-footer__button {
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+  transition:
+    border-color var(--motion-base),
+    background-color var(--motion-base);
+}
+
+.modal-footer__button:hover:not(:disabled) {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-emphasis);
+}
+
+.modal-footer__button:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.modal-footer__button--primary {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
+}
+
+.modal-footer__button--primary:hover:not(:disabled) {
+  background-color: var(--surface-bg-accent-hover);
+}
+
+@media (max-width: 720px) {
+  .modal-layout__body--workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-layout__nav {
+    padding-right: 0;
+    padding-bottom: var(--space-3);
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .modal-layout__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modal-footer__actions {
+    width: 100%;
+  }
+
+  .modal-footer__button {
+    flex: 1;
+  }
+}

@@ -23,6 +23,8 @@ interface ModalProps {
   onClose: () => void
   /** Optional extra class name applied to the dialog card. */
   className?: string
+  /** Shared layout variant used to size the modal shell. */
+  variant?: 'workspace' | 'form' | 'popup'
   /** Content rendered inside the scrollable body area. */
   children: React.ReactNode
 }
@@ -32,7 +34,7 @@ interface ModalProps {
  * Floating dialog card with a backdrop, title bar, close button, and
  * a scrollable content body.
  */
-export function Modal({ title, onClose, className, children }: ModalProps) {
+export function Modal({ title, onClose, className, variant = 'form', children }: ModalProps) {
   /** Close on Escape key. */
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() },
@@ -52,7 +54,7 @@ export function Modal({ title, onClose, className, children }: ModalProps) {
   return createPortal(
     <div className="modal-overlay">
       <div
-        className={className ? `modal ${className}` : 'modal'}
+        className={`modal modal--${variant}${className ? ` ${className}` : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

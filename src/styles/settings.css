@@ -3,27 +3,10 @@
  * Styles for the settings modal theme selector and import controls.
  */
 
-.settings-modal {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: var(--space-4);
-  height: 100%;
-  min-height: 0;
-}
-
-.settings-modal__body {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: var(--space-5);
-  min-height: 0;
-}
-
 .settings-modal__nav {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding-right: var(--space-4);
-  border-right: 1px solid var(--border-color);
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -87,13 +70,13 @@
   gap: var(--space-4);
   min-height: 0;
   overflow-y: auto;
-  padding-right: var(--space-1);
 }
 
 .settings-modal__section {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  padding-right: var(--space-3);
 }
 
 .settings-modal__field-grid {
@@ -184,10 +167,14 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background-color: var(--surface-bg);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%237a82a0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-position: right 14px center;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-color-secondary) 50%),
+    linear-gradient(135deg, var(--text-color-secondary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px);
   background-repeat: no-repeat;
-  background-size: 12px 8px;
+  background-size: 6px 6px, 6px 6px;
   color: var(--text-color-primary);
   appearance: none;
   -webkit-appearance: none;
@@ -287,6 +274,8 @@
 }
 
 .settings-modal__status {
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 10px 12px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -330,16 +319,16 @@
 }
 
 .settings-modal__theme-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
 }
 
 .settings-modal__option {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  padding: 12px 14px;
+  padding: 14px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background-color: var(--surface-bg);
@@ -357,13 +346,17 @@
 }
 
 .settings-modal__option-input {
-  margin-top: 2px;
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .settings-modal__option-body {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  min-width: 0;
+  width: 100%;
 }
 
 .settings-modal__option-name {
@@ -377,18 +370,107 @@
   color: var(--text-color-secondary);
 }
 
-.settings-modal__theme-preview {
-  display: inline-flex;
+.settings-modal__theme-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
   gap: var(--space-2);
+  width: 100%;
+  min-height: 122px;
   margin-top: var(--space-1);
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--theme-preview-text-primary) 12%, transparent);
+  border-radius: calc(var(--radius-md) - 2px);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-preview-app-bg) 84%, white 16%),
+      var(--theme-preview-app-bg)
+    );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-preview-text-primary) 8%, transparent);
 }
 
-.settings-modal__theme-swatch {
-  width: 18px;
-  height: 18px;
-  border: 1px solid var(--border-color);
+.settings-modal__theme-card-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: calc(var(--radius-md) - 4px);
+  background-color: var(--theme-preview-panel-bg);
+}
+
+.settings-modal__theme-card-pill {
+  width: 100%;
+  height: 8px;
   border-radius: var(--radius-pill);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  background-color: color-mix(in srgb, var(--theme-preview-text-secondary) 68%, transparent);
+}
+
+.settings-modal__theme-card-pill--accent {
+  width: 70%;
+  background-color: var(--theme-preview-accent);
+}
+
+.settings-modal__theme-card-pill--muted {
+  width: 56%;
+  opacity: 0.7;
+}
+
+.settings-modal__theme-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-modal__theme-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: calc(var(--radius-md) - 4px);
+  background-color: var(--theme-preview-panel-bg);
+}
+
+.settings-modal__theme-card-title {
+  width: 58%;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background-color: var(--theme-preview-text-primary);
+}
+
+.settings-modal__theme-card-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background-color: var(--theme-preview-accent);
+}
+
+.settings-modal__theme-card-message {
+  width: 74%;
+  height: 24px;
+  border-radius: calc(var(--radius-md) - 4px);
+  background-color: var(--theme-preview-surface-bg);
+}
+
+.settings-modal__theme-card-message--user {
+  align-self: flex-end;
+  width: 68%;
+  background-color: var(--theme-preview-user-message);
+}
+
+.settings-modal__theme-card-composer {
+  margin-top: auto;
+  height: 26px;
+  border-radius: calc(var(--radius-md) - 4px);
+  background:
+    linear-gradient(
+      90deg,
+      var(--theme-preview-surface-bg) 0%,
+      var(--theme-preview-surface-bg) 76%,
+      var(--theme-preview-accent) 76%,
+      var(--theme-preview-accent) 100%
+    );
 }
 
 .settings-modal__empty {
@@ -452,66 +534,9 @@
   word-break: break-word;
 }
 
-.settings-modal__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border-color);
-}
-
-.settings-modal__footer-note {
-  color: var(--text-color-muted);
-  font-size: var(--font-size-label);
-}
-
-.settings-modal__footer-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-
-.settings-modal__footer-btn {
-  padding: 10px 14px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background-color: var(--surface-bg);
-  color: var(--text-color-primary);
-  transition: border-color var(--motion-base), background-color var(--motion-base);
-}
-
-.settings-modal__footer-btn:hover {
-  border-color: var(--border-color-accent);
-  background-color: var(--surface-bg-emphasis);
-}
-
-.settings-modal__footer-btn:disabled {
-  opacity: 0.7;
-  cursor: default;
-}
-
-.settings-modal__footer-btn--primary {
-  border-color: var(--border-color-accent);
-  background-color: var(--surface-bg-accent);
-  color: var(--text-color-on-accent);
-}
-
-.settings-modal__footer-btn--primary:hover {
-  background-color: var(--surface-bg-accent-hover);
-}
-
 @media (max-width: 720px) {
-  .settings-modal__body {
-    grid-template-columns: 1fr;
-  }
-
   .settings-modal__nav {
-    padding-right: 0;
     padding-bottom: var(--space-3);
-    border-right: 0;
-    border-bottom: 1px solid var(--border-color);
   }
 
   .settings-modal__field-grid {
@@ -534,19 +559,6 @@
 
   .settings-modal__import-btn {
     width: 100%;
-  }
-
-  .settings-modal__footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .settings-modal__footer-actions {
-    width: 100%;
-  }
-
-  .settings-modal__footer-btn {
-    flex: 1;
   }
 
   .settings-modal__download-option {

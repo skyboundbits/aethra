@@ -5,6 +5,7 @@
 
 import { useState } from 'react'
 import { Modal } from './Modal'
+import { ModalFooter, ModalFormLayout } from './ModalLayouts'
 import '../styles/create-campaign.css'
 
 /** Props accepted by the CreateCampaignModal component. */
@@ -51,57 +52,68 @@ export function CreateCampaignModal({
   }
 
   return (
-    <Modal title="New Campaign" onClose={onClose} className="modal--create-campaign">
-      <form className="create-campaign" onSubmit={handleSubmit}>
-        <p className="create-campaign__intro">
-          Aethra will create a dedicated folder for this campaign in the app data directory.
-        </p>
+    <Modal title="New Campaign" onClose={onClose} variant="form" className="modal--create-campaign">
+      <form onSubmit={handleSubmit}>
+        <ModalFormLayout
+          body={(
+            <div className="create-campaign">
+              <p className="create-campaign__intro">
+                Aethra will create a dedicated folder for this campaign in the app data directory.
+              </p>
 
-        <label className="create-campaign__field" htmlFor="campaign-name">
-          <span className="create-campaign__label">Name</span>
-          <input
-            id="campaign-name"
-            className="create-campaign__input"
-            type="text"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="The Ember Court"
-            autoFocus
-            disabled={isBusy}
-          />
-        </label>
+              <label className="create-campaign__field" htmlFor="campaign-name">
+                <span className="create-campaign__label">Name</span>
+                <input
+                  id="campaign-name"
+                  className="create-campaign__input"
+                  type="text"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="The Ember Court"
+                  autoFocus
+                  disabled={isBusy}
+                />
+              </label>
 
-        <label className="create-campaign__field" htmlFor="campaign-description">
-          <span className="create-campaign__label">Description</span>
-          <textarea
-            id="campaign-description"
-            className="create-campaign__textarea"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Political intrigue in a decaying imperial capital."
-            rows={5}
-            disabled={isBusy}
-          />
-        </label>
+              <label className="create-campaign__field" htmlFor="campaign-description">
+                <span className="create-campaign__label">Description</span>
+                <textarea
+                  id="campaign-description"
+                  className="create-campaign__textarea"
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="Political intrigue in a decaying imperial capital."
+                  rows={5}
+                  disabled={isBusy}
+                />
+              </label>
 
-        {errorMessage ? (
-          <p className="create-campaign__error" role="alert">
-            {errorMessage}
-          </p>
-        ) : null}
-
-        <div className="create-campaign__actions">
-          <button type="button" className="create-campaign__button" onClick={onClose} disabled={isBusy}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="create-campaign__button create-campaign__button--primary"
-            disabled={isBusy}
-          >
-            {isBusy ? 'Creating...' : 'Create Campaign'}
-          </button>
-        </div>
+              {errorMessage ? (
+                <p className="create-campaign__error" role="alert">
+                  {errorMessage}
+                </p>
+              ) : null}
+            </div>
+          )}
+          footer={(
+            <ModalFooter
+              actions={(
+                <>
+                  <button type="button" className="modal-footer__button" onClick={onClose} disabled={isBusy}>
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="modal-footer__button modal-footer__button--primary"
+                    disabled={isBusy}
+                  >
+                    {isBusy ? 'Creating...' : 'Create Campaign'}
+                  </button>
+                </>
+              )}
+            />
+          )}
+        />
       </form>
     </Modal>
   )
