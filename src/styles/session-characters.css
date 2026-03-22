@@ -1,0 +1,136 @@
+/**
+ * src/styles/session-characters.css
+ * Styles for the session character management modal.
+ */
+
+.modal--session-characters {
+  width: 720px;
+}
+
+.session-characters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.session-characters__intro,
+.session-characters__empty {
+  color: var(--text-color-secondary);
+  line-height: 1.6;
+}
+
+.session-characters__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.session-characters__item {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+}
+
+.session-characters__item--disabled {
+  opacity: 0.72;
+}
+
+.session-characters__avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background-color: var(--surface-bg-emphasis);
+  color: var(--text-color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+}
+
+.session-characters__avatar--image {
+  background-repeat: no-repeat;
+}
+
+.session-characters__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-characters__name-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.session-characters__name {
+  color: var(--text-color-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.session-characters__pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background-color: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-color-primary);
+  font-size: var(--font-size-label);
+}
+
+.session-characters__pill--player {
+  background-color: var(--surface-bg-user-message);
+  border-color: var(--border-color-accent);
+}
+
+.session-characters__meta {
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-label);
+}
+
+.session-characters__warning {
+  color: var(--text-color-brand);
+  font-size: var(--font-size-caption);
+  line-height: 1.4;
+}
+
+.session-characters__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.session-characters__toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--surface-bg-accent);
+}
+
+@media (max-width: 720px) {
+  .modal--session-characters {
+    width: calc(100vw - 24px);
+  }
+
+  .session-characters__item {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .session-characters__toggle {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}

@@ -32,6 +32,7 @@ import { AiDebugModal } from './components/AiDebugModal'
 import { ModelLoaderModal } from './components/ModelLoaderModal'
 import { ModelParametersModal } from './components/ModelParametersModal'
 import { Modal } from './components/Modal'
+import { SessionCharactersModal } from './components/SessionCharactersModal'
 
 import { streamCompletion } from './services/aiService'
 import { estimateLocalModelFit } from './services/modelFitService'
@@ -85,6 +86,7 @@ const MAX_UNTAGGED_ASSISTANT_ATTEMPTS = 3
 const SUMMARY_RECENT_MESSAGE_COUNT = 10
 const SUMMARY_IDLE_DELAY_MS = 1500
 const SUMMARY_REBUILD_CONTEXT_FRACTION = 0.75
+const MODEL_LOADER_SERVER_KINDS = new Set(['lmstudio', 'text-generation-webui', 'llama.cpp'])
 
 /**
  * Determine whether a message content string is the non-display placeholder
@@ -864,6 +866,8 @@ export default function App() {
 
   /** True while the system prompt editor modal is open. */
   const [isCharactersOpen, setIsCharactersOpen] = useState(false)
+  /** True while the session character management modal is open. */
+  const [isSessionCharactersOpen, setIsSessionCharactersOpen] = useState(false)
   /** True while the current session summary modal is open. */
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false)
   /** True while the current summary is being rebuilt manually. */
@@ -926,6 +930,8 @@ export default function App() {
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false)
   /** True while the model loader modal is open. */
   const [isModelLoaderOpen, setIsModelLoaderOpen] = useState(false)
+  /** Server/source currently selected in the model loader modal. */
+  const [modelLoaderServerId, setModelLoaderServerId] = useState<string | null>(null)
   /** True while the runtime model parameters modal is open. */
   const [isModelParametersOpen, setIsModelParametersOpen] = useState(false)
   /** True while a remote model load request is in flight. */
@@ -1098,8 +1104,37 @@ export default function App() {
     ? appSettings.models.filter((model) => model.serverId === activeServer.id)
     : []
 
-  /** True when the selected server supports explicit model load actions. */
-  const canLoadModel = activeServer?.kind === 'text-generation-webui' || activeServer?.kind === 'llama.cpp'
+  /** Server profiles that can appear in the model loader source selector. */
+  const modelLoaderServers = useMemo(
+    () => appSettings.servers.filter((server) => MODEL_LOADER_SERVER_KINDS.has(server.kind)),
+    [appSettings.servers],
+  )
+
+  /** Currently selected server/source inside the model loader modal. */
+  const modelLoaderServer =
+    modelLoaderServers.find((server) => server.id === modelLoaderServerId) ??
+    modelLoaderServers[0] ??
+    null
+
+  /** Model presets available for the server/source currently selected in the model loader. */
+  const modelLoaderServerModels: ModelPreset[] = modelLoaderServer
+    ? appSettings.models.filter((model) => model.serverId === modelLoaderServer.id)
+    : []
+
+  /** Current model selection associated with the chosen model-loader source. */
+  const modelLoaderCurrentModelSlug =
+    modelLoaderServer && appSettings.activeServerId === modelLoaderServer.id
+      ? appSettings.activeModelSlug
+      : null
+
+  /** Effective model preset shown as selected inside the model loader. */
+  const modelLoaderActiveModel =
+    modelLoaderServerModels.find((model) => model.slug === modelLoaderCurrentModelSlug) ??
+    modelLoaderServerModels[0] ??
+    null
+
+  /** True when at least one compatible source is available in the model loader. */
+  const canLoadModel = modelLoaderServers.length > 0
 
   /** True when the selected server is the managed local llama.cpp provider. */
   const isLocalLlamaActive = activeServer?.kind === 'llama.cpp'
@@ -1120,6 +1155,52 @@ export default function App() {
       : null,
     [activeModel, hardwareInfo, isLocalLlamaActive],
   )
+
+  /** Heuristic GPU fit guidance for the selected model-loader source, when local llama.cpp is chosen. */
+  const modelLoaderLocalModelFit = useMemo(
+    () => modelLoaderServer?.kind === 'llama.cpp'
+      ? estimateLocalModelFit(modelLoaderActiveModel, hardwareInfo, modelLoaderActiveModel?.contextWindowTokens ?? null)
+      : null,
+    [modelLoaderActiveModel, modelLoaderServer?.kind, hardwareInfo],
+  )
+
+  /** True when the selected model-loader source already has a model selected or running. */
+  const modelLoaderHasLoadedModel = modelLoaderServer?.kind === 'llama.cpp'
+    ? localRuntimeStatus?.serverId === modelLoaderServer.id &&
+      localRuntimeStatus.state === 'running' &&
+      localRuntimeStatus.modelSlug !== null
+    : modelLoaderServer != null &&
+      appSettings.activeServerId === modelLoaderServer.id &&
+      appSettings.activeModelSlug !== null
+
+  /**
+   * Keep the model-loader source pinned to a valid compatible server profile.
+   */
+  useEffect(() => {
+    if (modelLoaderServerId && modelLoaderServers.some((server) => server.id === modelLoaderServerId)) {
+      return
+    }
+
+    setModelLoaderServerId(modelLoaderServers[0]?.id ?? null)
+  }, [modelLoaderServerId, modelLoaderServers])
+
+  /**
+   * Refresh llama.cpp binary status whenever the model loader opens on an embedded source.
+   */
+  useEffect(() => {
+    if (!isModelLoaderOpen) {
+      return
+    }
+
+    if (modelLoaderServer?.kind === 'llama.cpp') {
+      window.api.checkLlamaBinary(modelLoaderServer.id)
+        .then((result) => { setModelLoaderBinaryCheck(result) })
+        .catch(() => { setModelLoaderBinaryCheck(null) })
+      return
+    }
+
+    setModelLoaderBinaryCheck(null)
+  }, [isModelLoaderOpen, modelLoaderServer?.id, modelLoaderServer?.kind])
 
   /** Stable system-context payload for the active campaign. */
   const systemContextMessages = useMemo(() => {
@@ -1876,6 +1957,20 @@ export default function App() {
   }
 
   /**
+   * Open the session character management modal.
+   */
+  function handleOpenSessionCharacters(): void {
+    setIsSessionCharactersOpen(true)
+  }
+
+  /**
+   * Close the session character management modal.
+   */
+  function handleCloseSessionCharacters(): void {
+    setIsSessionCharactersOpen(false)
+  }
+
+  /**
    * Open the current session summary modal.
    */
   function handleOpenSummaryModal(): void {
@@ -1992,22 +2087,18 @@ export default function App() {
   }
 
   /**
-   * Open the model loader modal for text-generation-webui.
-   * For llama.cpp servers, also runs a binary check so the modal can show
-   * the install banner if llama-server is missing.
+   * Open the model loader modal and default the source selector to the active
+   * provider when it is compatible.
    */
   function handleOpenModelLoader(): void {
     setModelLoaderStatusKind(null)
     setModelLoaderStatusMessage(null)
+    const defaultModelLoaderServer =
+      activeServer && MODEL_LOADER_SERVER_KINDS.has(activeServer.kind)
+        ? activeServer
+        : modelLoaderServers[0] ?? null
+    setModelLoaderServerId(defaultModelLoaderServer?.id ?? null)
     setIsModelLoaderOpen(true)
-    const activeServer = appSettings.servers.find((s) => s.id === appSettings.activeServerId)
-    if (activeServer?.kind === 'llama.cpp') {
-      window.api.checkLlamaBinary(activeServer.id)
-        .then((result) => { setModelLoaderBinaryCheck(result) })
-        .catch(() => { setModelLoaderBinaryCheck(null) })
-    } else {
-      setModelLoaderBinaryCheck(null)
-    }
   }
 
   /**
@@ -2031,6 +2122,17 @@ export default function App() {
    */
   function handleCloseModelLoader(): void {
     setIsModelLoaderOpen(false)
+  }
+
+  /**
+   * Switch the active source shown inside the model loader modal.
+   *
+   * @param serverId - Compatible server profile chosen from the source dropdown.
+   */
+  function handleModelLoaderServerSelect(serverId: string): void {
+    setModelLoaderStatusKind(null)
+    setModelLoaderStatusMessage(null)
+    setModelLoaderServerId(serverId)
   }
 
   /**
@@ -2672,13 +2774,13 @@ export default function App() {
    * @param temperature - Sampling temperature used for future completions.
    */
   async function handleLoadModel(modelSlug: string, contextWindowTokens: number, temperature: number): Promise<void> {
-    if (!activeServer || !canLoadModel) {
+    if (!modelLoaderServer || !canLoadModel) {
       setModelLoaderStatusKind('error')
-      setModelLoaderStatusMessage('Model loading is not available for the selected provider.')
+      setModelLoaderStatusMessage('Model loading is not available for the selected source.')
       return
     }
 
-    const selectedModel = activeServerModels.find((model) => model.slug === modelSlug)
+    const selectedModel = modelLoaderServerModels.find((model) => model.slug === modelSlug)
     if (!selectedModel) {
       setModelLoaderStatusKind('error')
       setModelLoaderStatusMessage('Select a model before sending the load request.')
@@ -2710,41 +2812,46 @@ export default function App() {
       const nextSettings: AppSettings = {
         ...appSettings,
         models: nextModels,
-        activeServerId: activeServer.id,
+        activeServerId: modelLoaderServer.id,
         activeModelSlug: selectedModel.slug,
       }
 
       await appendAiDebugEntry('request', 'ai.model.load.request', {
-        serverId: activeServer.id,
-        serverName: activeServer.name,
-        baseUrl: activeServer.baseUrl,
+        serverId: modelLoaderServer.id,
+        serverName: modelLoaderServer.name,
+        baseUrl: modelLoaderServer.baseUrl,
         modelSlug: selectedModel.slug,
         contextWindowTokens: normalizedContextWindowTokens,
         temperature: normalizedTemperature,
       })
 
       await persistSettings(nextSettings)
-      if (activeServer.kind === 'llama.cpp') {
-        const status = await window.api.loadLocalModel(activeServer.id, selectedModel.slug)
+      if (modelLoaderServer.kind === 'llama.cpp') {
+        const status = await window.api.loadLocalModel(modelLoaderServer.id, selectedModel.slug)
         setLocalRuntimeStatus(status)
+      } else if (modelLoaderServer.kind === 'lmstudio') {
+        // LM Studio does not expose an explicit "load model" API. Persist the selection so
+        // future completions target the chosen model while the user manages loading in LM Studio.
       } else {
-        await window.api.loadModel(activeServer.id, selectedModel.slug, normalizedContextWindowTokens)
+        await window.api.loadModel(modelLoaderServer.id, selectedModel.slug, normalizedContextWindowTokens)
       }
       await appendAiDebugEntry('response', 'ai.model.load.success', {
-        serverId: activeServer.id,
+        serverId: modelLoaderServer.id,
         modelSlug: selectedModel.slug,
         contextWindowTokens: normalizedContextWindowTokens,
         temperature: normalizedTemperature,
       })
       setModelLoaderStatusKind('success')
       setModelLoaderStatusMessage(
-        activeServer.kind === 'llama.cpp'
+        modelLoaderServer.kind === 'llama.cpp'
           ? `Started ${selectedModel.name} in llama.cpp with ${normalizedContextWindowTokens.toLocaleString()} tokens.`
-          : `Loaded ${selectedModel.name} with ${normalizedContextWindowTokens.toLocaleString()} tokens and temperature ${normalizedTemperature.toFixed(1)}.`,
+          : modelLoaderServer.kind === 'lmstudio'
+            ? `Selected ${selectedModel.name} from LM Studio. Start or switch the model in LM Studio if it is not already active.`
+            : `Loaded ${selectedModel.name} with ${normalizedContextWindowTokens.toLocaleString()} tokens and temperature ${normalizedTemperature.toFixed(1)}.`,
       )
     } catch (err) {
       await appendAiDebugEntry('error', 'ai.model.load.error', {
-        serverId: activeServer.id,
+        serverId: modelLoaderServer.id,
         modelSlug: selectedModel.slug,
         temperature: normalizedTemperature,
         message: err instanceof Error ? err.message : String(err),
@@ -3303,12 +3410,10 @@ export default function App() {
 
           {/* Right column: session details */}
           <DetailsPanel
-            campaign={campaign}
             activeSession={activeSession}
-            characters={characters}
-            onToggleSessionCharacter={handleToggleSessionCharacter}
-            activeServerName={activeServer?.name ?? null}
-            activeModelName={activeModel?.name ?? null}
+            activeCharacters={enabledSessionCharacters}
+            totalCharacterCount={characters.length}
+            onOpenSessionCharacters={handleOpenSessionCharacters}
           />
         </div>
       ) : (
@@ -3395,10 +3500,14 @@ export default function App() {
 
       {isModelLoaderOpen ? (
         <ModelLoaderModal
-          serverKind={activeServer?.kind ?? null}
-          models={activeServerModels}
-          activeModelSlug={activeModel?.slug ?? null}
-          fitEstimate={activeLocalModelFit}
+          servers={modelLoaderServers}
+          selectedServerId={modelLoaderServer?.id ?? null}
+          onSelectServer={handleModelLoaderServerSelect}
+          serverKind={modelLoaderServer?.kind ?? null}
+          models={modelLoaderServerModels}
+          currentModelSlug={modelLoaderCurrentModelSlug}
+          hasLoadedModel={modelLoaderHasLoadedModel}
+          fitEstimate={modelLoaderLocalModelFit}
           localRuntimeStatus={localRuntimeStatus}
           binaryInstallProgress={binaryInstallProgress}
           binaryCheckResult={modelLoaderBinaryCheck}
@@ -3408,8 +3517,7 @@ export default function App() {
           onClose={handleCloseModelLoader}
           onLoadModel={(modelSlug, contextWindowTokens, temperature) => handleLoadModel(modelSlug, contextWindowTokens, temperature)}
           onInstallBinary={() => {
-            const server = appSettings.servers.find((s) => s.id === appSettings.activeServerId)
-            if (server?.kind === 'llama.cpp') void window.api.installLlamaBinary(server.id)
+            if (modelLoaderServer?.kind === 'llama.cpp') void window.api.installLlamaBinary(modelLoaderServer.id)
           }}
         />
       ) : null}
@@ -3438,6 +3546,14 @@ export default function App() {
             void handleCreateCharacter()
           }}
           onSaveCharacter={(character) => handleSaveCharacter(character)}
+        />
+      ) : null}
+      {isSessionCharactersOpen ? (
+        <SessionCharactersModal
+          activeSession={activeSession}
+          characters={characters}
+          onToggleCharacter={handleToggleSessionCharacter}
+          onClose={handleCloseSessionCharacters}
         />
       ) : null}
       {isSummaryModalOpen ? (

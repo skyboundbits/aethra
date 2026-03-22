@@ -25,7 +25,14 @@ import type {
   ThemeDefinition,
 } from '../types'
 
-type SettingsSectionId = 'interface' | 'ai'
+type SettingsSectionId =
+  | 'interface'
+  | 'campaign'
+  | 'session'
+  | 'chat'
+  | 'remote-ai'
+  | 'local-ai'
+  | 'embedded-ai'
 
 const BUILT_IN_THEME_DESCRIPTIONS: Record<string, string> = {
   default: 'Original dark theme',
@@ -153,6 +160,33 @@ function buildModelDescription(model: AvailableModel | ModelPreset): string {
 }
 
 /**
+ * Normalize a Hugging Face repository reference into owner/repo form.
+ *
+ * @param value - User-entered repository text or URL.
+ * @returns Normalized repository id, or an empty string when invalid.
+ */
+function normalizeHuggingFaceRepoId(value: string): string {
+  const trimmedValue = value.trim()
+  if (trimmedValue.length === 0) {
+    return ''
+  }
+
+  const directMatch = trimmedValue.match(/^([^/\s]+\/[^/\s]+)$/)
+  if (directMatch) {
+    return directMatch[1]
+  }
+
+  const urlMatch = trimmedValue.match(
+    /^https?:\/\/(?:www\.)?huggingface(?:\.co)?\/([^/\s]+\/[^/\s]+?)(?:\/+)?$/i,
+  )
+  if (urlMatch) {
+    return urlMatch[1]
+  }
+
+  return trimmedValue
+}
+
+/**
  * SettingsModal
  * Renders interface settings plus remote/local AI configuration in a single modal.
  */
@@ -210,13 +244,23 @@ export function SettingsModal({
   const [huggingFaceRepoValue, setHuggingFaceRepoValue] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
-  const activeServer = servers.find((server) => server.id === activeServerId) ?? servers[0] ?? null
+  const localAiServers = servers.filter((server) => server.kind !== 'llama.cpp')
+  const embeddedAiServers = servers.filter((server) => server.kind === 'llama.cpp')
+  const localAiServer = localAiServers.find((server) => server.id === activeServerId) ?? localAiServers[0] ?? null
+  const embeddedAiServer =
+    embeddedAiServers.find((server) => server.id === activeServerId) ?? embeddedAiServers[0] ?? null
+  const activeServer =
+    activeSection === 'local-ai'
+      ? localAiServer
+      : activeSection === 'embedded-ai'
+        ? embeddedAiServer
+        : servers.find((server) => server.id === activeServerId) ?? servers[0] ?? null
   const visibleModels = activeServer
     ? models.filter((model) => model.serverId === activeServer.id)
     : []
   const modelOptions = availableModels.length > 0 ? availableModels : visibleModels
   const activeModel = visibleModels.find((model) => model.slug === activeModelSlug) ?? null
-  const isLocalServer = activeServer?.kind === 'llama.cpp'
+  const isEmbeddedServer = activeServer?.kind === 'llama.cpp'
 
   /**
    * Keep remote and local fields aligned with the selected server profile.
@@ -249,25 +293,23 @@ export function SettingsModal({
    * Run a binary check whenever the active server changes to a llama.cpp server.
    */
   useEffect(() => {
-    const currentActiveServer = servers.find((s) => s.id === activeServerId)
-    if (currentActiveServer?.kind !== 'llama.cpp') {
+    if (!embeddedAiServer) {
       setBinaryCheckResult(null)
       return
     }
-    window.api.checkLlamaBinary(currentActiveServer.id).then(setBinaryCheckResult).catch(() => {
+    window.api.checkLlamaBinary(embeddedAiServer.id).then(setBinaryCheckResult).catch(() => {
       setBinaryCheckResult(null)
     })
-  }, [activeServerId, servers])
+  }, [embeddedAiServer?.id])
 
   /**
    * Re-check the binary after a successful install completes.
    */
   useEffect(() => {
     if (binaryInstallProgress?.status !== 'complete') return
-    const currentActiveServer = servers.find((s) => s.id === activeServerId)
-    if (currentActiveServer?.kind !== 'llama.cpp') return
-    window.api.checkLlamaBinary(currentActiveServer.id).then(setBinaryCheckResult).catch(() => {})
-  }, [binaryInstallProgress?.status, activeServerId, servers])
+    if (!embeddedAiServer) return
+    window.api.checkLlamaBinary(embeddedAiServer.id).then(setBinaryCheckResult).catch(() => {})
+  }, [binaryInstallProgress?.status, embeddedAiServer?.id])
 
   /**
    * Open the hidden file input for theme import.
@@ -324,20 +366,33 @@ export function SettingsModal({
    * Persist the currently visible AI settings and close the modal.
    */
   async function handleSaveAndClose(): Promise<void> {
-    if (activeSection === 'ai' && activeServer) {
+    if (activeSection === 'local-ai' && activeServer) {
       setIsSaving(true)
       try {
-        if (isLocalServer) {
-          await onSaveLocalServerConfig(activeServer.id, {
-            modelsDirectory: modelsDirectoryValue,
-            executablePath: executablePathValue,
-            host: hostValue,
-            port: Number(portValue),
-            huggingFaceToken: huggingFaceTokenValue,
-          })
-        } else {
-          await onSaveServerAddress(activeServer.id, serverAddressValue)
+        await onSaveServerAddress(activeServer.id, serverAddressValue)
+
+        if (activeModel) {
+          const trimmedValue = contextWindowValue.trim()
+          await onSaveModelContext(
+            activeModel.slug,
+            trimmedValue.length === 0 ? null : Number(trimmedValue),
+          )
         }
+      } finally {
+        setIsSaving(false)
+      }
+    }
+
+    if (activeSection === 'embedded-ai' && activeServer) {
+      setIsSaving(true)
+      try {
+        await onSaveLocalServerConfig(activeServer.id, {
+          modelsDirectory: modelsDirectoryValue,
+          executablePath: executablePathValue,
+          host: hostValue,
+          port: Number(portValue),
+          huggingFaceToken: huggingFaceTokenValue,
+        })
 
         if (activeModel) {
           const trimmedValue = contextWindowValue.trim()
@@ -377,9 +432,49 @@ export function SettingsModal({
               onSelect={handleSectionSelect}
             />
             <SettingsSectionTab
-              id="ai"
-              label="AI"
-              description="Remote and local models"
+              id="campaign"
+              label="Campaign"
+              description="Campaign-wide settings"
+              icon={<PaletteIcon />}
+              activeSection={activeSection}
+              onSelect={handleSectionSelect}
+            />
+            <SettingsSectionTab
+              id="session"
+              label="Session"
+              description="Per-session behavior"
+              icon={<PaletteIcon />}
+              activeSection={activeSection}
+              onSelect={handleSectionSelect}
+            />
+            <SettingsSectionTab
+              id="chat"
+              label="Chat"
+              description="Reserved for chat settings"
+              icon={<PaletteIcon />}
+              activeSection={activeSection}
+              onSelect={handleSectionSelect}
+            />
+            <SettingsSectionTab
+              id="remote-ai"
+              label="Remote AI"
+              description="Cloud and hosted providers"
+              icon={<SparklesIcon />}
+              activeSection={activeSection}
+              onSelect={handleSectionSelect}
+            />
+            <SettingsSectionTab
+              id="local-ai"
+              label="Local AI"
+              description="LM Studio and local servers"
+              icon={<SparklesIcon />}
+              activeSection={activeSection}
+              onSelect={handleSectionSelect}
+            />
+            <SettingsSectionTab
+              id="embedded-ai"
+              label="Embedded AI"
+              description="Managed llama.cpp runtime"
               icon={<SparklesIcon />}
               activeSection={activeSection}
               onSelect={handleSectionSelect}
@@ -411,44 +506,6 @@ export function SettingsModal({
                     accept=".json,application/json"
                     onChange={handleFileChange}
                   />
-                </div>
-
-                <div className="settings-modal__field-grid">
-                  <div className="settings-modal__field">
-                    <label className="settings-modal__label" htmlFor="settings-chat-text-size">
-                      Chat Text Size
-                    </label>
-                    <select
-                      id="settings-chat-text-size"
-                      className="settings-modal__select"
-                      value={chatTextSize}
-                      onChange={(event) => onChatTextSizeSelect(event.target.value as ChatTextSize)}
-                    >
-                      <option value="small">Small (Default)</option>
-                      <option value="medium">Medium</option>
-                      <option value="large">Large</option>
-                      <option value="extra-large">Extra-Large</option>
-                    </select>
-                    <p className="settings-modal__field-hint">
-                      Adjusts the text size used inside chat bubbles.
-                    </p>
-                  </div>
-
-                  <label className="settings-modal__toggle" htmlFor="settings-rolling-summaries">
-                    <span className="settings-modal__toggle-body">
-                      <span className="settings-modal__label">Rolling Scene Summaries</span>
-                      <span className="settings-modal__field-hint">
-                        Send the rolling scene summary plus the latest 10 chats instead of the full transcript.
-                      </span>
-                    </span>
-                    <input
-                      id="settings-rolling-summaries"
-                      className="settings-modal__toggle-input"
-                      type="checkbox"
-                      checked={enableRollingSummaries}
-                      onChange={(event) => onRollingSummariesToggle(event.target.checked)}
-                    />
-                  </label>
                 </div>
 
                 <div className="settings-modal__group">
@@ -490,12 +547,96 @@ export function SettingsModal({
                   )}
                 </div>
               </section>
-            ) : (
+            ) : activeSection === 'campaign' ? (
               <section className="settings-modal__section">
                 <div>
-                  <h2 className="settings-modal__heading">AI</h2>
+                  <h2 className="settings-modal__heading">Campaign</h2>
                   <p className="settings-modal__subheading">
-                    Switch between remote servers and a managed local llama.cpp runtime.
+                    Campaign settings will appear here.
+                  </p>
+                </div>
+
+                <div className="settings-modal__empty-panel">
+                  No campaign settings yet.
+                </div>
+              </section>
+            ) : activeSection === 'session' ? (
+              <section className="settings-modal__section">
+                <div>
+                  <h2 className="settings-modal__heading">Session</h2>
+                  <p className="settings-modal__subheading">
+                    Session behavior and context controls.
+                  </p>
+                </div>
+
+                <div className="settings-modal__field-grid">
+                  <label className="settings-modal__toggle" htmlFor="settings-rolling-summaries">
+                    <span className="settings-modal__toggle-body">
+                      <span className="settings-modal__label">Rolling Scene Summaries</span>
+                      <span className="settings-modal__field-hint">
+                        Send the rolling scene summary plus the latest 10 chats instead of the full transcript.
+                      </span>
+                    </span>
+                    <input
+                      id="settings-rolling-summaries"
+                      className="settings-modal__toggle-input"
+                      type="checkbox"
+                      checked={enableRollingSummaries}
+                      onChange={(event) => onRollingSummariesToggle(event.target.checked)}
+                    />
+                  </label>
+                </div>
+              </section>
+            ) : activeSection === 'chat' ? (
+              <section className="settings-modal__section">
+                <div>
+                  <h2 className="settings-modal__heading">Chat</h2>
+                  <p className="settings-modal__subheading">
+                    Chat appearance settings.
+                  </p>
+                </div>
+
+                <div className="settings-modal__field-grid">
+                  <div className="settings-modal__field">
+                    <label className="settings-modal__label" htmlFor="settings-chat-text-size">
+                      Chat Text Size
+                    </label>
+                    <select
+                      id="settings-chat-text-size"
+                      className="settings-modal__select"
+                      value={chatTextSize}
+                      onChange={(event) => onChatTextSizeSelect(event.target.value as ChatTextSize)}
+                    >
+                      <option value="small">Small (Default)</option>
+                      <option value="medium">Medium</option>
+                      <option value="large">Large</option>
+                      <option value="extra-large">Extra-Large</option>
+                    </select>
+                    <p className="settings-modal__field-hint">
+                      Adjusts the text size used inside chat bubbles.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            ) : activeSection === 'remote-ai' ? (
+              <section className="settings-modal__section">
+                <div>
+                  <h2 className="settings-modal__heading">Remote AI</h2>
+                  <p className="settings-modal__subheading">
+                    Remote AI settings will appear here.
+                  </p>
+                </div>
+
+                <div className="settings-modal__empty-panel">
+                  No remote AI settings yet.
+                </div>
+              </section>
+            ) : activeSection === 'local-ai' ? (
+              <section className="settings-modal__section">
+                <div>
+                  <h2 className="settings-modal__heading">Local AI</h2>
+                  <p className="settings-modal__subheading">
+                    Configure local AI servers such as LM Studio and text-generation-webui.
                   </p>
                 </div>
 
@@ -509,12 +650,12 @@ export function SettingsModal({
                       className="settings-modal__select"
                       value={activeServer?.id ?? ''}
                       onChange={(event) => onServerSelect(event.target.value)}
-                      disabled={servers.length === 0}
+                      disabled={localAiServers.length === 0}
                     >
-                      {servers.length === 0 ? (
-                        <option value="">No servers configured</option>
+                      {localAiServers.length === 0 ? (
+                        <option value="">No local AI servers configured</option>
                       ) : (
-                        servers.map((server) => (
+                        localAiServers.map((server) => (
                           <option key={server.id} value={server.id}>
                             {server.name}
                           </option>
@@ -523,7 +664,118 @@ export function SettingsModal({
                     </select>
                   </div>
 
-                  {isLocalServer ? (
+                  <div className="settings-modal__field">
+                    <label className="settings-modal__label" htmlFor="settings-server-address">
+                      Server Address
+                    </label>
+                    <input
+                      id="settings-server-address"
+                      className="settings-modal__select"
+                      type="text"
+                      placeholder="http://localhost:1234/v1"
+                      value={serverAddressValue}
+                      onChange={(event) => setServerAddressValue(event.target.value)}
+                      disabled={!activeServer}
+                    />
+                    <p className="settings-modal__field-hint">
+                      LM Studio uses its native chat API automatically when selected; other servers use OpenAI-compatible endpoints.
+                    </p>
+                  </div>
+
+                  <div className="settings-modal__field">
+                    <div className="settings-modal__field-row">
+                      <label className="settings-modal__label" htmlFor="settings-model-list">
+                        Models
+                      </label>
+                      <button
+                        type="button"
+                        className="settings-modal__refresh-btn"
+                        onClick={onBrowseModels}
+                        disabled={!activeServer || isBrowsingModels}
+                      >
+                        {isBrowsingModels ? 'Refreshing...' : 'Browse Models'}
+                      </button>
+                    </div>
+                    <div
+                      id="settings-model-list"
+                      className="settings-modal__model-list"
+                      role="radiogroup"
+                      aria-label="Available models"
+                    >
+                      {modelOptions.length === 0 ? (
+                        <p className="settings-modal__empty">
+                          No models loaded yet. Browse the active server to fetch its available models.
+                        </p>
+                      ) : (
+                        modelOptions.map((model) => (
+                          <ModelOption
+                            key={model.id}
+                            id={model.slug}
+                            name={model.name}
+                            description={buildModelDescription(model)}
+                            checked={activeModelSlug === model.slug}
+                            onSelect={onModelSelect}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="settings-modal__field">
+                    <label className="settings-modal__label" htmlFor="settings-context-budget">
+                      Context Budget
+                    </label>
+                    <input
+                      id="settings-context-budget"
+                      className="settings-modal__select"
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="e.g. 8192"
+                      value={contextWindowValue}
+                      onChange={(event) => setContextWindowValue(event.target.value)}
+                      disabled={!activeModel}
+                    />
+                    <p className="settings-modal__field-hint">
+                      Override the selected model&apos;s total context window in tokens.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            ) : (
+              <section className="settings-modal__section">
+                <div>
+                  <h2 className="settings-modal__heading">Embedded AI</h2>
+                  <p className="settings-modal__subheading">
+                    Configure the managed llama.cpp runtime and its local models.
+                  </p>
+                </div>
+
+                <div className="settings-modal__field-grid">
+                  <div className="settings-modal__field">
+                    <label className="settings-modal__label" htmlFor="settings-server-select">
+                      Provider
+                    </label>
+                    <select
+                      id="settings-server-select"
+                      className="settings-modal__select"
+                      value={activeServer?.id ?? ''}
+                      onChange={(event) => onServerSelect(event.target.value)}
+                      disabled={embeddedAiServers.length === 0}
+                    >
+                      {embeddedAiServers.length === 0 ? (
+                        <option value="">No embedded AI servers configured</option>
+                      ) : (
+                        embeddedAiServers.map((server) => (
+                          <option key={server.id} value={server.id}>
+                            {server.name}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+
+                  {isEmbeddedServer ? (
                     <>
                       <div className="settings-modal__field">
                         <label className="settings-modal__label" htmlFor="settings-models-directory">
@@ -633,30 +885,32 @@ export function SettingsModal({
 
                       <HardwareCard hardwareInfo={hardwareInfo} runtimeStatus={localRuntimeStatus} />
                       <div className="settings-modal__group">
-                        <div className="settings-modal__field-row">
-                          <div className="settings-modal__group-title">Hugging Face</div>
-                          <button
-                            type="button"
-                            className="settings-modal__refresh-btn"
-                            onClick={() => onBrowseHuggingFaceModels(huggingFaceRepoValue)}
-                            disabled={isBrowsingHuggingFace || huggingFaceRepoValue.trim().length === 0}
-                          >
-                            {isBrowsingHuggingFace ? 'Browsing...' : 'Browse Repo'}
-                          </button>
-                        </div>
-
                         <div className="settings-modal__field">
+                          <div className="settings-modal__group-title">Hugging Face</div>
                           <label className="settings-modal__label" htmlFor="settings-hf-repo">
                             Repository
                           </label>
-                          <input
-                            id="settings-hf-repo"
-                            className="settings-modal__select"
-                            type="text"
-                            placeholder="e.g. bartowski/Llama-3.2-3B-Instruct-GGUF"
-                            value={huggingFaceRepoValue}
-                            onChange={(event) => setHuggingFaceRepoValue(event.target.value)}
-                          />
+                          <div className="settings-modal__inline-input">
+                            <input
+                              id="settings-hf-repo"
+                              className="settings-modal__select"
+                              type="text"
+                              placeholder="e.g. bartowski/Llama-3.2-3B-Instruct-GGUF or https://huggingface.co/..."
+                              value={huggingFaceRepoValue}
+                              onChange={(event) => setHuggingFaceRepoValue(event.target.value)}
+                            />
+                            <button
+                              type="button"
+                              className="settings-modal__refresh-btn"
+                              onClick={() => onBrowseHuggingFaceModels(normalizeHuggingFaceRepoId(huggingFaceRepoValue))}
+                              disabled={isBrowsingHuggingFace || normalizeHuggingFaceRepoId(huggingFaceRepoValue).length === 0}
+                            >
+                              {isBrowsingHuggingFace ? 'Browsing...' : 'Browse Repo'}
+                            </button>
+                          </div>
+                          <p className="settings-modal__field-hint">
+                            Paste either `owner/repo` or the full Hugging Face repository URL.
+                          </p>
                         </div>
 
                         {modelDownloadProgress ? (
@@ -687,7 +941,7 @@ export function SettingsModal({
                                 <button
                                   type="button"
                                   className="settings-modal__refresh-btn"
-                                  onClick={() => onDownloadHuggingFaceModel(huggingFaceRepoValue, file.path)}
+                                  onClick={() => onDownloadHuggingFaceModel(normalizeHuggingFaceRepoId(huggingFaceRepoValue), file.path)}
                                   disabled={isDownloadingModel}
                                 >
                                   {isDownloadingModel ? 'Downloading...' : 'Download'}
@@ -697,87 +951,71 @@ export function SettingsModal({
                           </div>
                         )}
                       </div>
+
+                      <div className="settings-modal__field">
+                        <div className="settings-modal__field-row">
+                          <label className="settings-modal__label" htmlFor="settings-model-list">
+                            Local Models
+                          </label>
+                          <button
+                            type="button"
+                            className="settings-modal__refresh-btn"
+                            onClick={onBrowseModels}
+                            disabled={!activeServer || isBrowsingModels}
+                          >
+                            {isBrowsingModels ? 'Refreshing...' : 'Scan Models'}
+                          </button>
+                        </div>
+                        <div
+                          id="settings-model-list"
+                          className="settings-modal__model-list"
+                          role="radiogroup"
+                          aria-label="Available models"
+                        >
+                          {modelOptions.length === 0 ? (
+                            <p className="settings-modal__empty">
+                              No local GGUF files found yet. Scan the models directory or download one from Hugging Face.
+                            </p>
+                          ) : (
+                            modelOptions.map((model) => (
+                              <ModelOption
+                                key={model.id}
+                                id={model.slug}
+                                name={model.name}
+                                description={buildModelDescription(model)}
+                                checked={activeModelSlug === model.slug}
+                                onSelect={onModelSelect}
+                              />
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="settings-modal__field">
+                        <label className="settings-modal__label" htmlFor="settings-context-budget">
+                          Context Budget
+                        </label>
+                        <input
+                          id="settings-context-budget"
+                          className="settings-modal__select"
+                          type="number"
+                          min="1"
+                          step="1"
+                          placeholder="e.g. 8192"
+                          value={contextWindowValue}
+                          onChange={(event) => setContextWindowValue(event.target.value)}
+                          disabled={!activeModel}
+                        />
+                        <p className="settings-modal__field-hint">
+                          Override the selected model&apos;s total context window in tokens.
+                        </p>
+                      </div>
                     </>
                   ) : (
-                    <div className="settings-modal__field">
-                      <label className="settings-modal__label" htmlFor="settings-server-address">
-                        Server Address
-                      </label>
-                      <input
-                        id="settings-server-address"
-                        className="settings-modal__select"
-                        type="text"
-                        placeholder="http://localhost:1234/v1"
-                        value={serverAddressValue}
-                        onChange={(event) => setServerAddressValue(event.target.value)}
-                        disabled={!activeServer}
-                      />
-                      <p className="settings-modal__field-hint">
-                        LM Studio uses its native chat API automatically when selected; other servers use OpenAI-compatible endpoints.
-                      </p>
+                    <div className="settings-modal__empty-panel">
+                      No embedded AI server configured.
                     </div>
                   )}
-
-                  <div className="settings-modal__field">
-                    <div className="settings-modal__field-row">
-                      <label className="settings-modal__label" htmlFor="settings-model-list">
-                        {isLocalServer ? 'Local Models' : 'Models'}
-                      </label>
-                      <button
-                        type="button"
-                        className="settings-modal__refresh-btn"
-                        onClick={onBrowseModels}
-                        disabled={!activeServer || isBrowsingModels}
-                      >
-                        {isBrowsingModels ? 'Refreshing...' : isLocalServer ? 'Scan Models' : 'Browse Models'}
-                      </button>
-                    </div>
-                    <div
-                      id="settings-model-list"
-                      className="settings-modal__model-list"
-                      role="radiogroup"
-                      aria-label="Available models"
-                    >
-                      {modelOptions.length === 0 ? (
-                        <p className="settings-modal__empty">
-                          {isLocalServer
-                            ? 'No local GGUF files found yet. Scan the models directory or download one from Hugging Face.'
-                            : 'No models loaded yet. Browse the active server to fetch its available models.'}
-                        </p>
-                      ) : (
-                        modelOptions.map((model) => (
-                          <ModelOption
-                            key={model.id}
-                            id={model.slug}
-                            name={model.name}
-                            description={buildModelDescription(model)}
-                            checked={activeModelSlug === model.slug}
-                            onSelect={onModelSelect}
-                          />
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="settings-modal__field">
-                    <label className="settings-modal__label" htmlFor="settings-context-budget">
-                      Context Budget
-                    </label>
-                    <input
-                      id="settings-context-budget"
-                      className="settings-modal__select"
-                      type="number"
-                      min="1"
-                      step="1"
-                      placeholder="e.g. 8192"
-                      value={contextWindowValue}
-                      onChange={(event) => setContextWindowValue(event.target.value)}
-                      disabled={!activeModel}
-                    />
-                    <p className="settings-modal__field-hint">
-                      Override the selected model&apos;s total context window in tokens.
-                    </p>
-                  </div>
                 </div>
               </section>
             )}

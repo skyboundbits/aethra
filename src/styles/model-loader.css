@@ -14,8 +14,7 @@
 }
 
 .model-loader__intro,
-.model-loader__empty,
-.model-loader__hint {
+.model-loader__empty {
   color: var(--text-color-secondary);
   font-size: var(--font-size-body);
   line-height: 1.5;
@@ -96,7 +95,7 @@
 .model-loader__footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   margin-top: 8px;
 }
@@ -111,6 +110,7 @@
   border-radius: var(--radius-md);
   background-color: var(--surface-bg);
   color: var(--text-color-primary);
+  white-space: nowrap;
 }
 
 .model-loader__button--primary {
