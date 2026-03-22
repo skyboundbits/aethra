@@ -178,6 +178,11 @@ interface PartialMessageRecord {
 interface PartialSessionRecord {
   id?: unknown
   title?: unknown
+  sceneSetup?: unknown
+  openingNotes?: unknown
+  continuitySourceSessionId?: unknown
+  continuitySummary?: unknown
+  disabledCharacterIds?: unknown
   messages?: unknown
   rollingSummary?: unknown
   summarizedMessageCount?: unknown
@@ -1043,6 +1048,11 @@ function normalizeMessage(raw: PartialMessageRecord, fallbackTimestamp: number) 
 function normalizeSession(raw: PartialSessionRecord, fallbackTimestamp: number): Session {
   const createdAt = isFiniteNumber(raw.createdAt) ? raw.createdAt : fallbackTimestamp
   const updatedAt = isFiniteNumber(raw.updatedAt) ? raw.updatedAt : createdAt
+  const disabledCharacterIds = Array.isArray(raw.disabledCharacterIds)
+    ? raw.disabledCharacterIds
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim())
+    : []
   const messages = Array.isArray(raw.messages)
     ? raw.messages
       .filter(isRecord)
@@ -1054,6 +1064,14 @@ function normalizeSession(raw: PartialSessionRecord, fallbackTimestamp: number):
   return {
     id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : uid(),
     title: typeof raw.title === 'string' && raw.title.trim().length > 0 ? raw.title.trim() : 'New Chat',
+    sceneSetup: typeof raw.sceneSetup === 'string' ? raw.sceneSetup.trim() : '',
+    openingNotes: typeof raw.openingNotes === 'string' ? raw.openingNotes.trim() : '',
+    continuitySourceSessionId:
+      typeof raw.continuitySourceSessionId === 'string' && raw.continuitySourceSessionId.trim().length > 0
+        ? raw.continuitySourceSessionId.trim()
+        : undefined,
+    continuitySummary: typeof raw.continuitySummary === 'string' ? raw.continuitySummary.trim() : '',
+    disabledCharacterIds,
     messages,
     rollingSummary: typeof raw.rollingSummary === 'string' ? raw.rollingSummary.trim() : '',
     summarizedMessageCount: isFiniteNumber(raw.summarizedMessageCount)
@@ -1431,6 +1449,7 @@ function normalizeCharacter(raw: unknown, folderName: string): CharacterProfile 
  * @returns Saved normalized character profile.
  */
 function saveCharacter(folderPath: string, character: CharacterProfile): CharacterProfile {
+  const existingCharacters = listStoredCharacters(folderPath).filter((candidate) => candidate.id === character.id)
   const requestedFolderName = character.folderName.trim().length > 0
     ? character.folderName
     : character.name
@@ -1471,6 +1490,18 @@ function saveCharacter(folderPath: string, character: CharacterProfile): Charact
   }
 
   writeFileSync(characterFilePath(folderPath, folderName), JSON.stringify(normalizedCharacter, null, 2), 'utf-8')
+
+  for (const existingCharacter of existingCharacters) {
+    if (existingCharacter.folderName === folderName) {
+      continue
+    }
+
+    const staleFolderPath = join(ensureCharacterRoot(folderPath), existingCharacter.folderName)
+    if (existsSync(staleFolderPath)) {
+      rmSync(staleFolderPath, { recursive: true, force: true })
+    }
+  }
+
   return normalizedCharacter
 }
 
@@ -1540,14 +1571,29 @@ function createStoredCharacter(folderPath: string, name: string): CharacterProfi
  * @param characterId - Stable character identifier to remove.
  */
 function deleteStoredCharacter(folderPath: string, characterId: string): void {
-  const existingCharacter = listStoredCharacters(folderPath).find((character) => character.id === characterId)
-  if (!existingCharacter) {
-    return
-  }
+  const root = ensureCharacterRoot(folderPath)
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue
+    }
 
-  const targetFolderPath = join(ensureCharacterRoot(folderPath), existingCharacter.folderName)
-  if (existsSync(targetFolderPath)) {
-    rmSync(targetFolderPath, { recursive: true, force: true })
+    const targetFolderPath = join(root, entry.name)
+    const targetCharacterPath = characterFilePath(folderPath, entry.name)
+    if (!existsSync(targetCharacterPath)) {
+      continue
+    }
+
+    try {
+      const storedCharacter = normalizeCharacter(
+        JSON.parse(readFileSync(targetCharacterPath, 'utf-8')) as unknown,
+        entry.name,
+      )
+      if (storedCharacter.id === characterId) {
+        rmSync(targetFolderPath, { recursive: true, force: true })
+      }
+    } catch {
+      continue
+    }
   }
 }
 

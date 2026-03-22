@@ -57,6 +57,7 @@
 .panel--chat {
   flex: 1;                   /* fills remaining space between the two side panels */
   min-width: 0;              /* prevents flex blowout on long messages */
+  padding-top: var(--space-3);
 }
 
 /* ─── Details panel (right) ──────────────────────────────────────────────── */

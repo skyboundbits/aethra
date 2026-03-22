@@ -37,6 +37,14 @@ export interface Session {
   id: string
   /** Human-readable title shown in the sidebar. */
   title: string
+  /** User-authored opening scene framing for the session. */
+  sceneSetup: string
+  /** Optional freeform notes about the intended direction or constraints. */
+  openingNotes: string
+  /** ID of the previous session selected as a continuity source, if any. */
+  continuitySourceSessionId?: string
+  /** Frozen continuity snapshot copied from the previous session when linked. */
+  continuitySummary: string
   /** Campaign character IDs explicitly disabled for this session. */
   disabledCharacterIds?: string[]
   /** Ordered list of messages exchanged in this session. */

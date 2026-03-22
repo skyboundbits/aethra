@@ -1,0 +1,51 @@
+/**
+ * src/styles/raw-message-modal.css
+ * Styles for the raw message inspection modal.
+ */
+
+.modal--raw-message {
+  width: min(860px, calc(100vw - 48px));
+  max-width: 860px;
+}
+
+.raw-message-modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+.raw-message-modal__hint {
+  margin: 0;
+  color: var(--text-color-secondary);
+}
+
+.raw-message-modal__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--font-size-caption);
+  color: var(--text-color-secondary);
+}
+
+.raw-message-modal__meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.raw-message-modal__content {
+  margin: 0;
+  min-height: 180px;
+  max-height: min(60vh, 560px);
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel-bg) 82%, black 18%);
+  color: var(--text-color-primary);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

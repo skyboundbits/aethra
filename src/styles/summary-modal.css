@@ -1,0 +1,36 @@
+/**
+ * src/styles/summary-modal.css
+ * Styles for the SummaryModal component.
+ */
+
+.summary-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.summary-modal__status {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  color: var(--text-color-secondary);
+  line-height: 1.5;
+}
+
+.summary-modal__status--error {
+  border-color: var(--status-border-error);
+  color: var(--status-color-error);
+}
+
+.summary-modal__text {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--text-color-primary);
+  line-height: 1.6;
+}
+
+.summary-modal__empty {
+  margin: 0;
+  color: var(--text-color-secondary);
+  line-height: 1.6;
+}

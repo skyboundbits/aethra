@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Modal } from './Modal'
 import { ModalFooter, ModalFormLayout } from './ModalLayouts'
 import '../styles/new-session.css'
-import type { CharacterProfile, ReusableCharacter } from '../types'
+import type { CharacterProfile, ReusableCharacter, Session } from '../types'
 
 const CHARACTER_EDITOR_AVATAR_SIZE = 220
 const MODAL_AVATAR_SIZE = 48
@@ -16,6 +16,8 @@ const MODAL_AVATAR_SIZE = 48
 interface NewSessionModalProps {
   /** Campaign-scoped characters already available. */
   campaignCharacters: CharacterProfile[]
+  /** Existing sessions available as continuity sources. */
+  sessions: Session[]
   /** Reusable global characters available for import. */
   reusableCharacters: ReusableCharacter[]
   /** Status message shown beneath the picker. */
@@ -27,7 +29,14 @@ interface NewSessionModalProps {
   /** Close the modal without creating a session. */
   onClose: () => void
   /** Start the session with the selected campaign and global characters. */
-  onStartSession: (campaignCharacterIds: string[], reusableCharacterIds: string[]) => Promise<void>
+  onStartSession: (
+    campaignCharacterIds: string[],
+    reusableCharacterIds: string[],
+    title: string,
+    sceneSetup: string,
+    continuitySourceSessionId: string | null,
+    openingNotes: string,
+  ) => Promise<void>
 }
 
 /**
@@ -93,6 +102,7 @@ function groupCharactersByController<T extends CharacterProfile | ReusableCharac
  */
 export function NewSessionModal({
   campaignCharacters,
+  sessions,
   reusableCharacters,
   statusMessage,
   statusKind,
@@ -119,11 +129,19 @@ export function NewSessionModal({
 
   const [selectedCampaignCharacterIds, setSelectedCampaignCharacterIds] = useState<string[]>([])
   const [selectedReusableCharacterIds, setSelectedReusableCharacterIds] = useState<string[]>([])
+  const [title, setTitle] = useState('')
+  const [sceneSetup, setSceneSetup] = useState('')
+  const [openingNotes, setOpeningNotes] = useState('')
+  const [continuitySourceSessionId, setContinuitySourceSessionId] = useState<string>('')
 
   useEffect(() => {
     setSelectedCampaignCharacterIds([])
     setSelectedReusableCharacterIds([])
-  }, [])
+    setTitle(`Session ${sessions.length + 1}`)
+    setSceneSetup('')
+    setOpeningNotes('')
+    setContinuitySourceSessionId('')
+  }, [sessions.length])
 
   const hasSelectedPlayerCharacter = useMemo(() => {
     const selectedCampaignPlayers = sortedCampaignCharacters.some((character) =>
@@ -148,6 +166,15 @@ export function NewSessionModal({
     )
   }, [sortedReusableCharacters])
 
+  const availableContinuitySessions = useMemo(
+    () => sessions.filter((session) => session.rollingSummary.trim().length > 0),
+    [sessions],
+  )
+  const selectedContinuitySession = useMemo(
+    () => availableContinuitySessions.find((session) => session.id === continuitySourceSessionId) ?? null,
+    [availableContinuitySessions, continuitySourceSessionId],
+  )
+
   function toggleCampaignCharacter(characterId: string): void {
     setSelectedCampaignCharacterIds((currentIds) => (
       currentIds.includes(characterId)
@@ -165,7 +192,14 @@ export function NewSessionModal({
   }
 
   async function handleStartSession(): Promise<void> {
-    await onStartSession(selectedCampaignCharacterIds, selectedReusableCharacterIds)
+    await onStartSession(
+      selectedCampaignCharacterIds,
+      selectedReusableCharacterIds,
+      title.trim(),
+      sceneSetup.trim(),
+      continuitySourceSessionId.trim() || null,
+      openingNotes.trim(),
+    )
   }
 
   function renderCharacterList<T extends CharacterProfile | ReusableCharacter>(
@@ -306,6 +340,78 @@ export function NewSessionModal({
               )}
             </section>
 
+            <section className="new-session__section" aria-labelledby="new-session-setup">
+              <div className="new-session__section-header">
+                <h2 id="new-session-setup" className="new-session__heading">Session Setup</h2>
+              </div>
+
+              <label className="new-session__field">
+                <span className="new-session__field-label">Session Name</span>
+                <input
+                  className="new-session__input"
+                  type="text"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  placeholder="Arrival at Blackglass Harbor"
+                  maxLength={120}
+                  disabled={isBusy}
+                />
+              </label>
+
+              <label className="new-session__field">
+                <span className="new-session__field-label">Scene Setup</span>
+                <textarea
+                  className="new-session__textarea"
+                  value={sceneSetup}
+                  onChange={(event) => setSceneSetup(event.target.value)}
+                  placeholder="Describe where the scene opens, who is present, the current pressure, and what has just happened."
+                  rows={5}
+                  disabled={isBusy}
+                />
+              </label>
+
+              <label className="new-session__field">
+                <span className="new-session__field-label">Continue From Previous Session</span>
+                <select
+                  className="new-session__select"
+                  value={continuitySourceSessionId}
+                  onChange={(event) => setContinuitySourceSessionId(event.target.value)}
+                  disabled={isBusy || availableContinuitySessions.length === 0}
+                >
+                  <option value="">No previous-session continuity</option>
+                  {availableContinuitySessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {session.title}
+                    </option>
+                  ))}
+                </select>
+                <span className="new-session__field-hint">
+                  {availableContinuitySessions.length > 0
+                    ? 'Copies a frozen continuity snapshot from the selected session summary.'
+                    : 'No previous sessions have a rolling summary yet.'}
+                </span>
+              </label>
+
+              {selectedContinuitySession ? (
+                <div className="new-session__summary-preview">
+                  <div className="new-session__field-label">Imported Continuity Preview</div>
+                  <p className="new-session__summary-preview-text">{selectedContinuitySession.rollingSummary}</p>
+                </div>
+              ) : null}
+
+              <label className="new-session__field">
+                <span className="new-session__field-label">Opening Notes</span>
+                <textarea
+                  className="new-session__textarea"
+                  value={openingNotes}
+                  onChange={(event) => setOpeningNotes(event.target.value)}
+                  placeholder="Optional: player goals, tone, pacing, boundaries, or details the model should keep in mind."
+                  rows={3}
+                  disabled={isBusy}
+                />
+              </label>
+            </section>
+
             {statusMessage ? (
               <div className={`new-session__status new-session__status--${statusKind ?? 'success'}`}>
                 {statusMessage}
@@ -326,7 +432,7 @@ export function NewSessionModal({
                   onClick={() => {
                     void handleStartSession()
                   }}
-                  disabled={isBusy || !hasSelectedPlayerCharacter}
+                  disabled={isBusy || !hasSelectedPlayerCharacter || title.trim().length === 0 || sceneSetup.trim().length === 0}
                 >
                   {isBusy ? 'Starting...' : 'Start Session'}
                 </button>

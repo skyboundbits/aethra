@@ -337,6 +337,32 @@ export function Trash2Icon(props: SVGProps<SVGSVGElement>) {
 }
 
 /**
+ * RotateCcwIcon
+ * Counter-clockwise rotate icon used for replay/regenerate actions.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function RotateCcwIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M3 2v6h6" />
+      <path d="M3 8a9 9 0 1 0 3-6.7L3 4" />
+    </svg>
+  )
+}
+
+/**
  * BugIcon
  * Debug/inspection icon based on the provided Lucide-style path definition.
  *
@@ -570,7 +596,6 @@ export function ChessKnightIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
-
 
 
 

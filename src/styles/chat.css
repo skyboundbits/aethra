@@ -13,7 +13,7 @@
   position: relative;
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-5) var(--panel-padding);
+  padding: 0 var(--panel-padding) var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -415,7 +415,17 @@
   color: var(--text-color-muted);
 }
 
-.message__delete {
+.message__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message--user .message__actions {
+  flex-direction: row-reverse;
+}
+
+.message__action-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -429,17 +439,17 @@
   transition: color var(--motion-base), background-color var(--motion-base), opacity var(--motion-base);
 }
 
-.message__delete:hover:not(:disabled) {
+.message__action-button:hover:not(:disabled) {
   color: var(--text-color-primary);
   background-color: var(--surface-bg-overlay);
 }
 
-.message__delete:disabled {
+.message__action-button:disabled {
   opacity: 0.4;
   cursor: default;
 }
 
-.message__delete svg {
+.message__action-button svg {
   width: 14px;
   height: 14px;
 }

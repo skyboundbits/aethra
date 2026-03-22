@@ -4,10 +4,11 @@
  * Automatically scrolls to the latest message whenever the message list changes.
  */
 
-import { Fragment, memo, useEffect, useMemo, useRef } from 'react'
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import '../styles/chat.css'
-import { Trash2Icon } from './icons'
+import { BookOpenTextIcon, RotateCcwIcon, Trash2Icon } from './icons'
+import { RawMessageModal } from './RawMessageModal'
 import type { ChatTextSize, CharacterProfile, Message } from '../types'
 
 const CHARACTER_EDITOR_AVATAR_SIZE = 220
@@ -27,6 +28,8 @@ interface ChatAreaProps {
   showMarkup: boolean
   /** Called when the user requests deletion of a message. */
   onDeleteMessage: (id: string) => void
+  /** Called when the user wants to replay the conversation from one message. */
+  onReplayFromMessage: (id: string) => void
   /** Called after a newly selected transcript has been positioned and can be revealed. */
   onReady?: () => void
   /** True while a different session transcript is being swapped in. */
@@ -47,11 +50,13 @@ export function ChatArea({
   textSize,
   showMarkup,
   onDeleteMessage,
+  onReplayFromMessage,
   onReady,
   isLoading = false,
   isBusy = false,
 }: ChatAreaProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const [rawMessage, setRawMessage] = useState<Message | null>(null)
   // Ref attached to the invisible sentinel div at the end of the feed,
   // used to scroll the latest message into view.
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -124,61 +129,69 @@ export function ChatArea({
   }, [activeSessionId, isLoading, onReady])
 
   return (
-    <div
-      ref={containerRef}
-      className={`chat-area${isLoading ? ' chat-area--loading' : ''}`}
-      aria-busy={isLoading ? 'true' : undefined}
-    >
-      <div className={`chat-area__content${isLoading ? ' chat-area__content--hidden' : ''}`}>
-        {messages.length === 0 ? (
-          /* ── Empty / welcome state ───────────────────────────────────── */
-          <div className="chat-area__empty">
-            <div className="chat-area__empty-title">Aethra</div>
-            <div className="chat-area__empty-sub">
-              Select a session or create a new one to begin your story.
+    <>
+      <div
+        ref={containerRef}
+        className={`chat-area${isLoading ? ' chat-area--loading' : ''}`}
+        aria-busy={isLoading ? 'true' : undefined}
+      >
+        <div className={`chat-area__content${isLoading ? ' chat-area__content--hidden' : ''}`}>
+          {messages.length === 0 ? (
+            /* ── Empty / welcome state ───────────────────────────────────── */
+            <div className="chat-area__empty">
+              <div className="chat-area__empty-title">Aethra</div>
+              <div className="chat-area__empty-sub">
+                Select a session or create a new one to begin your story.
+              </div>
+            </div>
+          ) : (
+            /* ── Message list ────────────────────────────────────────────── */
+            messages.map((msg) => {
+              const matchedCharacter = msg.characterId
+                ? (charactersById.get(msg.characterId) ?? null)
+                : null
+
+              return (
+                <MemoizedMessageBubble
+                  key={msg.id}
+                  message={msg}
+                  character={matchedCharacter}
+                  textSize={textSize}
+                  showMarkup={showMarkup}
+                  messageId={msg.id}
+                  onDeleteMessage={onDeleteMessage}
+                  onReplayFromMessage={onReplayFromMessage}
+                  onShowRawMessage={setRawMessage}
+                  isBusy={isBusy}
+                />
+              )
+            })
+          )}
+
+          {/* Invisible anchor for auto-scroll */}
+          <div ref={bottomRef} />
+        </div>
+
+        {isLoading ? (
+          <div className="chat-area__loading" aria-live="polite">
+            <div className="chat-area__loading-label">Loading chat...</div>
+            <div className="chat-area__loading-list" aria-hidden="true">
+              {LOADING_ROWS.map((row, index) => (
+                <LoadingRow
+                  key={`${row.alignment}-${index}`}
+                  alignment={row.alignment}
+                  widths={row.widths}
+                />
+              ))}
             </div>
           </div>
-        ) : (
-          /* ── Message list ────────────────────────────────────────────── */
-          messages.map((msg) => {
-            const matchedCharacter = msg.characterId
-              ? (charactersById.get(msg.characterId) ?? null)
-              : null
-
-            return (
-              <MemoizedMessageBubble
-                key={msg.id}
-                message={msg}
-                character={matchedCharacter}
-                textSize={textSize}
-                showMarkup={showMarkup}
-                messageId={msg.id}
-                onDeleteMessage={onDeleteMessage}
-                isBusy={isBusy}
-              />
-            )
-          })
-        )}
-
-        {/* Invisible anchor for auto-scroll */}
-        <div ref={bottomRef} />
+        ) : null}
       </div>
 
-      {isLoading ? (
-        <div className="chat-area__loading" aria-live="polite">
-          <div className="chat-area__loading-label">Loading chat...</div>
-          <div className="chat-area__loading-list" aria-hidden="true">
-            {LOADING_ROWS.map((row, index) => (
-              <LoadingRow
-                key={`${row.alignment}-${index}`}
-                alignment={row.alignment}
-                widths={row.widths}
-              />
-            ))}
-          </div>
-        </div>
+      {rawMessage ? (
+        <RawMessageModal message={rawMessage} onClose={() => setRawMessage(null)} />
       ) : null}
-    </div>
+    </>
   )
 }
 
@@ -244,6 +257,10 @@ interface MessageBubbleProps {
   showMarkup: boolean
   /** Called when the user requests deletion of this message. */
   onDeleteMessage: (id: string) => void
+  /** Called when the user wants to replay the conversation from this message. */
+  onReplayFromMessage: (id: string) => void
+  /** Called when the user wants to inspect the persisted message content. */
+  onShowRawMessage: (message: Message) => void
   /** True while message actions should be temporarily blocked. */
   isBusy: boolean
 }
@@ -276,6 +293,26 @@ function getCharacterInitials(characterName?: string): string | null {
 }
 
 /**
+ * Remove malformed leading speaker tags like `Innkeeper]`, `Innkeeper)`, or
+ * `Innkeeper}` when the matching opener is missing. This keeps old saved
+ * transcripts readable without mutating the persisted message content.
+ *
+ * Matches the same broad speaker-tag rules used elsewhere in chat:
+ * one to four words, no nested brackets, and only when the text sits on a
+ * token boundary where a speaker marker would plausibly appear.
+ *
+ * @param content - Raw persisted message content.
+ * @returns Content with unmatched closing speaker delimiters removed.
+ */
+function stripUnmatchedClosingSpeakerBrackets(content: string): string {
+  return content.replace(
+    /(^|[\s"'“‘(\[{])((?![\[{(])(?:[A-Za-z0-9][A-Za-z0-9'’-]*(?:[ \t]+|$)){1,4})[\]\)}](?=(?:[\s"'”’.,!?;:)\]}]|$))/gm,
+    (_match, boundary: string, speakerLikeText: string) =>
+      `${boundary}${speakerLikeText.trimEnd().replace(/[\]\)}]$/, '')}`,
+  )
+}
+
+/**
  * Remove bracketed speaker tags from message text for on-screen display while
  * keeping the stored transcript content unchanged.
  *
@@ -283,7 +320,9 @@ function getCharacterInitials(characterName?: string): string | null {
  * @returns Message content with speaker markers removed for display.
  */
 function normalizeDisplayContent(content: string, keepSpeakerTags: boolean): string {
-  return content
+  const sanitizedContent = stripUnmatchedClosingSpeakerBrackets(content)
+
+  return sanitizedContent
     .replace(/\\"/g, '"')
     .replace(/\[[^\]\r\n]*\]/g, keepSpeakerTags ? '$&' : '')
     .replace(/[ \t]*\.[ \t]*/g, '. ')
@@ -316,30 +355,37 @@ function getMarkupDisplayContent(content: string): string {
   return normalizeDisplayContent(content, true)
 }
 
+const INLINE_ACTION_OR_SPEECH_PATTERN = /(\*([^*\n]+)\*|\(([^()\n]+)\)|"([^"\n]+)")/g
+const INLINE_SEGMENT_PRESENCE_PATTERN = /(\*[^*\n]+\*|\([^()\n]+\)|"[^"\n]+")/
+
 /**
- * Render inline text, converting `*italic*` spans into emphasis.
+ * Render inline text, converting `*italic*` and `(action)` spans into emphasis.
  *
  * @param content - Raw inline text to display.
  * @param keyPrefix - Stable key prefix for generated nodes.
  * @returns Renderable inline nodes.
  */
 function renderInlineText(content: string, keyPrefix: string, showMarkup = false): ReactNode[] {
-  const parts = content.split(/(\*[^*\n]+\*)/g)
+  const parts = content.split(/(\*[^*\n]+\*|\([^()\n]+\))/g)
 
   return parts
     .filter((part) => part.length > 0)
     .map((part, index) => {
-      if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+      const isAsteriskAction = part.startsWith('*') && part.endsWith('*') && part.length > 2
+      const isParentheticalAction = part.startsWith('(') && part.endsWith(')') && part.length > 2
+
+      if (isAsteriskAction || isParentheticalAction) {
         const actionText = part.slice(1, -1)
         if (!showMarkup) {
           return <em key={`${keyPrefix}-${index}`}>{actionText}</em>
         }
 
+        const marker = isParentheticalAction ? ['(', ')'] : ['*', '*']
         return (
           <Fragment key={`${keyPrefix}-${index}`}>
-            <span className="message__markup">*</span>
+            <span className="message__markup">{marker[0]}</span>
             <em>{actionText}</em>
-            <span className="message__markup">*</span>
+            <span className="message__markup">{marker[1]}</span>
           </Fragment>
         )
       }
@@ -359,13 +405,21 @@ interface InlineSegment {
  * Parse supported inline markers from persisted transcript content.
  *
  * @param content - Raw message content to inspect.
+ * @param bareTextType - Segment type applied to unwrapped text between markers.
  * @returns Ordered list of parsed segments plus bare-text fallback runs.
  */
-function parseInlineSegments(content: string, showMarkup = false): Array<InlineSegment | string> {
+function parseInlineSegments(
+  content: string,
+  bareTextType: InlineSegmentType | null = null,
+  showMarkup = false,
+): Array<InlineSegment | string> {
   const source = showMarkup ? getMarkupDisplayContent(content) : getDisplayContent(content)
-  const matches = Array.from(source.matchAll(/(\*([^*\n]+)\*|"([^"\n]+)")/g))
+  const matches = Array.from(source.matchAll(INLINE_ACTION_OR_SPEECH_PATTERN))
 
   if (matches.length === 0) {
+    if (bareTextType && source.trim().length > 0) {
+      return [{ type: bareTextType, content: source.trim() }]
+    }
     return [source]
   }
 
@@ -373,19 +427,23 @@ function parseInlineSegments(content: string, showMarkup = false): Array<InlineS
   let previousIndex = 0
 
   for (const match of matches) {
-    const [rawMatch, , actionContent, speechContent] = match
+    const [rawMatch, , actionContentAsterisk, actionContentParen, speechContent] = match
     const startIndex = match.index ?? 0
 
     if (startIndex > previousIndex) {
       const leading = source.slice(previousIndex, startIndex)
       if (leading.trim().length > 0) {
-        segments.push(leading)
+        if (bareTextType) {
+          segments.push({ type: bareTextType, content: leading.trim() })
+        } else {
+          segments.push(leading)
+        }
       }
     }
 
     segments.push({
-      type: actionContent ? 'action' : 'speech',
-      content: (actionContent ?? speechContent ?? '').trim(),
+      type: actionContentAsterisk || actionContentParen ? 'action' : 'speech',
+      content: (actionContentAsterisk ?? actionContentParen ?? speechContent ?? '').trim(),
     })
 
     previousIndex = startIndex + rawMatch.length
@@ -394,7 +452,11 @@ function parseInlineSegments(content: string, showMarkup = false): Array<InlineS
   if (previousIndex < source.length) {
     const trailing = source.slice(previousIndex)
     if (trailing.trim().length > 0) {
-      segments.push(trailing)
+      if (bareTextType) {
+        segments.push({ type: bareTextType, content: trailing.trim() })
+      } else {
+        segments.push(trailing)
+      }
     }
   }
 
@@ -415,7 +477,7 @@ function parseLooseCharacterSegments(content: string, showMarkup = false): Array
 
   if (matches.length === 0) {
     return source.trim().length > 0
-      ? [{ type: 'speech', content: source.trim() }]
+      ? [{ type: 'action', content: source.trim() }]
       : []
   }
 
@@ -429,7 +491,7 @@ function parseLooseCharacterSegments(content: string, showMarkup = false): Array
     if (startIndex > previousIndex) {
       const leading = source.slice(previousIndex, startIndex).trim()
       if (leading.length > 0) {
-        segments.push({ type: 'speech', content: leading })
+        segments.push({ type: 'action', content: leading })
       }
     }
 
@@ -440,7 +502,7 @@ function parseLooseCharacterSegments(content: string, showMarkup = false): Array
   if (previousIndex < source.length) {
     const trailing = source.slice(previousIndex).trim()
     if (trailing.length > 0) {
-      segments.push({ type: 'speech', content: trailing })
+      segments.push({ type: 'action', content: trailing })
     }
   }
 
@@ -452,11 +514,18 @@ function parseLooseCharacterSegments(content: string, showMarkup = false): Array
  * styled spans while preserving plain-text fallback for older content.
  *
  * @param content - Raw message content to display.
+ * @param role - Author role for the message being rendered.
  * @returns Renderable inline nodes for the message bubble.
  */
-function renderMessageContent(content: string, speakerName?: string, showMarkup = false): ReactNode[] {
+function renderMessageContent(
+  content: string,
+  role: Message['role'],
+  speakerName?: string,
+  showMarkup = false,
+): ReactNode[] {
   const isSceneSpeaker = speakerName?.trim().toLocaleLowerCase() === 'scene'
   const isNamedSpeaker = typeof speakerName === 'string' && speakerName.trim().length > 0
+  const treatBareTextAsAction = role === 'assistant' && isNamedSpeaker
 
   if (isSceneSpeaker) {
     return [
@@ -466,9 +535,9 @@ function renderMessageContent(content: string, speakerName?: string, showMarkup 
     ]
   }
 
-  const parsedSegments = parseInlineSegments(content, showMarkup)
+  const parsedSegments = parseInlineSegments(content, treatBareTextAsAction ? 'action' : null, showMarkup)
   const recoveredSegments =
-    isNamedSpeaker && !hasInlineSegments(content)
+    treatBareTextAsAction && !hasInlineSegments(content)
       ? parseLooseCharacterSegments(content, showMarkup)
       : parsedSegments
 
@@ -514,7 +583,7 @@ function renderMessageContent(content: string, speakerName?: string, showMarkup 
  * @returns True when the message includes supported inline markers.
  */
 function hasInlineSegments(content: string): boolean {
-  return /(\*[^*\n]+\*|"[^"\n]+")/.test(getDisplayContent(content))
+  return INLINE_SEGMENT_PRESENCE_PATTERN.test(getDisplayContent(content))
 }
 
 /**
@@ -526,7 +595,7 @@ function hasInlineSegments(content: string): boolean {
  */
 function hasOnlyInlineSegments(content: string): boolean {
   const source = getDisplayContent(content)
-  const remainder = source.replace(/(\*[^*\n]+\*|"[^"\n]+")/g, '').trim()
+  const remainder = source.replace(/(\*[^*\n]+\*|\([^()\n]+\)|"[^"\n]+")/g, '').trim()
   return remainder.length === 0 && hasInlineSegments(content)
 }
 
@@ -551,7 +620,17 @@ function renderTypingIndicator(): ReactNode {
  * Renders a single chat message with appropriate alignment and styling
  * depending on the message role (user / assistant / system).
  */
-function MessageBubble({ message, messageId, character, textSize, showMarkup, onDeleteMessage, isBusy }: MessageBubbleProps) {
+function MessageBubble({
+  message,
+  messageId,
+  character,
+  textSize,
+  showMarkup,
+  onDeleteMessage,
+  onReplayFromMessage,
+  onShowRawMessage,
+  isBusy,
+}: MessageBubbleProps) {
   /** Format a Unix ms timestamp as HH:MM. */
   function formatTime(ts: number): string {
     return new Date(ts).toLocaleTimeString([], {
@@ -604,20 +683,49 @@ function MessageBubble({ message, messageId, character, textSize, showMarkup, on
                 `${showMarkup ? ' message__content--show-markup' : ''}`
               }
             >
-              {isTypingPlaceholder ? renderTypingIndicator() : renderMessageContent(message.content, message.characterName, showMarkup)}
+              {isTypingPlaceholder ? renderTypingIndicator() : renderMessageContent(
+                message.content,
+                message.role,
+                message.characterName,
+                showMarkup,
+              )}
             </div>
             <div className="message__meta">
               <div className="message__time">{formatTime(message.timestamp)}</div>
-              <button
-                type="button"
-                className="message__delete"
-                onClick={() => onDeleteMessage(messageId)}
-                aria-label="Delete message"
-                title="Delete message"
-                disabled={isBusy}
-              >
-                <Trash2Icon aria-hidden="true" />
-              </button>
+              <div className="message__actions">
+                <button
+                  type="button"
+                  className="message__action-button"
+                  onClick={() => onShowRawMessage(message)}
+                  aria-label="View raw message content"
+                  title="View raw message content"
+                  disabled={isBusy}
+                >
+                  <BookOpenTextIcon aria-hidden="true" />
+                </button>
+                {message.role === 'user' ? (
+                  <button
+                    type="button"
+                    className="message__action-button"
+                    onClick={() => onReplayFromMessage(messageId)}
+                    aria-label="Delete this message and later messages, then resend it"
+                    title="Replay from this message"
+                    disabled={isBusy}
+                  >
+                    <RotateCcwIcon aria-hidden="true" />
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="message__action-button"
+                  onClick={() => onDeleteMessage(messageId)}
+                  aria-label="Delete message"
+                  title="Delete message"
+                  disabled={isBusy}
+                >
+                  <Trash2Icon aria-hidden="true" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
