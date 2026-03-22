@@ -280,6 +280,36 @@ function buildSystemContext(
 }
 
 /**
+ * Read the disabled character list for one session as a stable de-duplicated
+ * array. Missing data is treated as "all campaign characters enabled".
+ *
+ * @param session - Session whose disabled character list should be read.
+ * @returns Stable array of disabled character IDs.
+ */
+function getSessionDisabledCharacterIds(session: Session | null): string[] {
+  if (!session?.disabledCharacterIds) {
+    return []
+  }
+
+  return [...new Set(session.disabledCharacterIds.filter((characterId) => characterId.trim().length > 0))]
+}
+
+/**
+ * Return the campaign characters currently enabled for a specific session.
+ *
+ * @param session - Active session, if any.
+ * @param characters - Campaign roster.
+ * @returns Characters enabled for that session.
+ */
+function getEnabledSessionCharacters(
+  session: Session | null,
+  characters: CharacterProfile[],
+): CharacterProfile[] {
+  const disabledCharacterIds = new Set(getSessionDisabledCharacterIds(session))
+  return characters.filter((character) => !disabledCharacterIds.has(character.id))
+}
+
+/**
  * Estimate token usage for the outbound request payload.
  * This is a rough UI hint, not an exact tokenizer count.
  *
@@ -698,41 +728,48 @@ function hydrateMessageAvatar(
 }
 
 /**
- * Reattach character IDs and avatar snapshots to loaded messages using the
- * active campaign character roster.
+ * Reattach character IDs, avatar snapshots, and session character toggle
+ * state using the active campaign character roster.
  *
  * @param campaign - Campaign whose session messages should be hydrated.
  * @param characters - Character roster available for matching.
  * @returns Campaign copy with message avatar metadata filled where possible.
  */
 function hydrateCampaignMessageAvatars(campaign: Campaign, characters: CharacterProfile[]): Campaign {
-  if (characters.length === 0) {
-    return campaign
-  }
-
   const charactersById = new Map(characters.map((character) => [character.id, character]))
   const charactersByName = new Map(
     characters.map((character) => [character.name.trim().toLocaleLowerCase(), character]),
   )
+  const validCharacterIds = new Set(characters.map((character) => character.id))
 
   let didChange = false
   const nextSessions = campaign.sessions.map((session) => {
     let sessionChanged = false
-    const nextMessages = session.messages.map((message) => {
-      const nextMessage = hydrateMessageAvatar(message, charactersById, charactersByName)
-      if (nextMessage !== message) {
-        sessionChanged = true
-      }
-      return nextMessage
-    })
+    const nextDisabledCharacterIds = getSessionDisabledCharacterIds(session)
+      .filter((characterId) => validCharacterIds.has(characterId))
+    const disabledIdsChanged =
+      !session.disabledCharacterIds ||
+      nextDisabledCharacterIds.length !== session.disabledCharacterIds.length ||
+      nextDisabledCharacterIds.some((characterId, index) => characterId !== session.disabledCharacterIds?.[index])
 
-    if (!sessionChanged) {
+    const nextMessages = characters.length > 0
+      ? session.messages.map((message) => {
+        const nextMessage = hydrateMessageAvatar(message, charactersById, charactersByName)
+        if (nextMessage !== message) {
+          sessionChanged = true
+        }
+        return nextMessage
+      })
+      : session.messages
+
+    if (!sessionChanged && !disabledIdsChanged) {
       return session
     }
 
     didChange = true
     return {
       ...session,
+      disabledCharacterIds: nextDisabledCharacterIds,
       messages: nextMessages,
     }
   })
@@ -1040,10 +1077,15 @@ export default function App() {
 
   /** Messages belonging to the active session. */
   const messages: Message[] = activeSession?.messages ?? []
+  /** Campaign characters currently enabled for the active session. */
+  const enabledSessionCharacters = useMemo(
+    () => getEnabledSessionCharacters(activeSession, characters),
+    [activeSession, characters],
+  )
 
   /** The character currently selected for the next outgoing user message. */
   const composerCharacter =
-    characters.find((character) => character.id === composerCharacterId) ?? null
+    enabledSessionCharacters.find((character) => character.id === composerCharacterId) ?? null
 
   /** The currently selected AI server from persisted settings. */
   const activeServer =
@@ -1087,7 +1129,7 @@ export default function App() {
 
     return buildSystemContext(
       campaign,
-      characters,
+      enabledSessionCharacters,
       appSettings.systemPrompt,
       getPromptSceneSummary(activeSession, appSettings.enableRollingSummaries),
     )
@@ -1096,7 +1138,7 @@ export default function App() {
     appSettings.enableRollingSummaries,
     appSettings.systemPrompt,
     campaign,
-    characters,
+    enabledSessionCharacters,
   ])
 
   /** Stable chat-history payload for the active session. */
@@ -1166,7 +1208,7 @@ export default function App() {
    */
   useEffect(() => {
     setLastTokenUsage(null)
-  }, [activeSessionId, campaignPath, activeModel?.id, campaign?.id, characters])
+  }, [activeSessionId, activeSession?.disabledCharacterIds, campaignPath, activeModel?.id, campaign?.id, characters])
 
   /**
    * Cancel delayed summary work whenever rolling summaries are disabled.
@@ -1201,23 +1243,25 @@ export default function App() {
    * Prefer a player-controlled character, then fall back to none.
    */
   useEffect(() => {
-    if (characters.length === 0) {
+    if (enabledSessionCharacters.length === 0) {
       if (composerCharacterId !== null) {
         setComposerCharacterId(null)
       }
       return
     }
 
-    const stillExists = characters.some((character) => character.id === composerCharacterId)
+    const stillExists = enabledSessionCharacters.some((character) => character.id === composerCharacterId)
     if (stillExists) {
       return
     }
 
     const defaultCharacter =
-      characters.find((character) => character.controlledBy === 'user') ?? null
+      enabledSessionCharacters.find((character) => character.controlledBy === 'user') ??
+      enabledSessionCharacters[0] ??
+      null
 
     setComposerCharacterId(defaultCharacter?.id ?? null)
-  }, [characters, composerCharacterId])
+  }, [composerCharacterId, enabledSessionCharacters])
 
   /**
    * Keep the active session selection valid whenever the campaign changes.
@@ -1427,6 +1471,7 @@ export default function App() {
     const newSession: Session = {
       id: uid(),
       title: 'New Chat',
+      disabledCharacterIds: [],
       messages: [],
       rollingSummary: '',
       summarizedMessageCount: 0,
@@ -1452,6 +1497,7 @@ export default function App() {
     const newSession: Session = {
       id:        uid(),
       title:     `Session ${sessions.length + 1}`,
+      disabledCharacterIds: [],
       messages:  [],
       rollingSummary: '',
       summarizedMessageCount: 0,
@@ -1471,6 +1517,63 @@ export default function App() {
    */
   function handleSelectSession(id: string) {
     setActiveSessionId(id)
+  }
+
+  /**
+   * Enable or disable one campaign character for the active session.
+   *
+   * If the character has already appeared in the transcript, disabling them
+   * requires confirmation because it can change continuity.
+   *
+   * @param characterId - Character being toggled.
+   */
+  function handleToggleSessionCharacter(characterId: string): void {
+    if (!activeSession) {
+      return
+    }
+
+    const character = characters.find((candidate) => candidate.id === characterId) ?? null
+    if (!character) {
+      return
+    }
+
+    const disabledCharacterIds = new Set(getSessionDisabledCharacterIds(activeSession))
+    const isCurrentlyEnabled = !disabledCharacterIds.has(characterId)
+
+    if (isCurrentlyEnabled) {
+      const normalizedCharacterName = character.name.trim().toLocaleLowerCase()
+      const appearsInSession = activeSession.messages.some((message) => (
+        message.characterId === characterId ||
+        message.characterName?.trim().toLocaleLowerCase() === normalizedCharacterName
+      ))
+
+      if (appearsInSession) {
+        const confirmed = window.confirm(
+          `${character.name} already appears in this session's chat history. Turning them off may affect continuity and the flow of the session. Continue?`,
+        )
+
+        if (!confirmed) {
+          return
+        }
+      }
+
+      disabledCharacterIds.add(characterId)
+    } else {
+      disabledCharacterIds.delete(characterId)
+    }
+
+    updateCampaign((prev) => ({
+      ...prev,
+      sessions: prev.sessions.map((session) => (
+        session.id === activeSession.id
+          ? {
+            ...session,
+            disabledCharacterIds: [...disabledCharacterIds],
+            updatedAt: Date.now(),
+          }
+          : session
+      )),
+    }))
   }
 
   /**
@@ -2973,6 +3076,7 @@ export default function App() {
     const sessionForPrompt: Session = targetSession ?? {
       id: sessionId,
       title: 'New Chat',
+      disabledCharacterIds: [],
       messages: [],
       rollingSummary: '',
       summarizedMessageCount: 0,
@@ -2981,7 +3085,7 @@ export default function App() {
     }
     const baseHistorySnapshot = buildRequestMessages(
       campaign,
-      characters,
+      enabledSessionCharacters,
       appSettingsRef.current,
       sessionForPrompt,
       [userMessage],
@@ -3019,7 +3123,7 @@ export default function App() {
     let accumulated = ''
     let pendingAnimationFrameId: number | null = null
     const playerControlledNames = new Set(
-      characters
+      enabledSessionCharacters
         .filter((character) => character.controlledBy === 'user')
         .map((character) => character.name.trim().toLocaleLowerCase())
         .filter((name) => name.length > 0),
@@ -3065,7 +3169,7 @@ export default function App() {
         ? baseHistorySnapshot
         : buildRequestMessages(
           campaign,
-          characters,
+          enabledSessionCharacters,
           appSettingsRef.current,
           sessionForPrompt,
           [userMessage],
@@ -3187,7 +3291,7 @@ export default function App() {
             />
             <InputBar
               value={inputValue}
-              characters={characters}
+              characters={enabledSessionCharacters}
               selectedCharacterId={composerCharacterId}
               onChange={setInputValue}
               onSelectCharacter={setComposerCharacterId}
@@ -3202,6 +3306,7 @@ export default function App() {
             campaign={campaign}
             activeSession={activeSession}
             characters={characters}
+            onToggleSessionCharacter={handleToggleSessionCharacter}
             activeServerName={activeServer?.name ?? null}
             activeModelName={activeModel?.name ?? null}
           />

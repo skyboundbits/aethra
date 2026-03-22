@@ -8,6 +8,9 @@
 import '../styles/details.css'
 import type { Campaign, CharacterProfile, Session } from '../types'
 
+const CHARACTER_EDITOR_AVATAR_SIZE = 220
+const DETAILS_AVATAR_SIZE = 52
+
 /** Props accepted by the DetailsPanel component. */
 interface DetailsPanelProps {
   /** The currently loaded campaign, or null when none is open. */
@@ -16,6 +19,8 @@ interface DetailsPanelProps {
   activeSession: Session | null
   /** Characters available in the active campaign. */
   characters: CharacterProfile[]
+  /** Called when one campaign character is enabled or disabled for this session. */
+  onToggleSessionCharacter: (characterId: string) => void
   /** Display name of the active AI server, or null if unavailable. */
   activeServerName: string | null
   /** Display name of the active AI model, or null if unavailable. */
@@ -82,6 +87,47 @@ function getActiveSpeakerNames(session: Session | null): string[] {
 }
 
 /**
+ * Build a short avatar label from a character name.
+ *
+ * @param characterName - Character name to abbreviate.
+ * @returns One or two uppercase initials, or null when unavailable.
+ */
+function getCharacterInitials(characterName: string): string | null {
+  const parts = characterName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (parts.length === 0) {
+    return null
+  }
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('')
+}
+
+/**
+ * Determine whether a character has already appeared in the active session.
+ *
+ * @param session - Active session, if any.
+ * @param character - Campaign character to inspect.
+ * @returns True when the character appears in the transcript.
+ */
+function hasCharacterAppearedInSession(session: Session | null, character: CharacterProfile): boolean {
+  if (!session) {
+    return false
+  }
+
+  const normalizedCharacterName = character.name.trim().toLocaleLowerCase()
+  return session.messages.some((message) => (
+    message.characterId === character.id ||
+    message.characterName?.trim().toLocaleLowerCase() === normalizedCharacterName
+  ))
+}
+
+/**
  * DetailsPanel
  * Renders the right-hand panel that will surface contextual information
  * about the active roleplay session and campaign.
@@ -90,12 +136,14 @@ export function DetailsPanel({
   campaign,
   activeSession,
   characters,
+  onToggleSessionCharacter,
   activeServerName,
   activeModelName,
 }: DetailsPanelProps) {
   const sortedCharacters = sortCharacters(characters)
   const playerCharacters = sortedCharacters.filter((character) => character.controlledBy === 'user')
   const aiCharacters = sortedCharacters.filter((character) => character.controlledBy === 'ai')
+  const disabledCharacterIds = new Set(activeSession?.disabledCharacterIds ?? [])
   const activeSpeakerNames = getActiveSpeakerNames(activeSession)
   const sessionMessageCount = activeSession?.messages.length ?? 0
   const userMessageCount = activeSession?.messages.filter((message) => message.role === 'user').length ?? 0
@@ -164,19 +212,64 @@ export function DetailsPanel({
 
         <div className="details__card">
           <div className="details__card-label">Active Cast</div>
-          {sortedCharacters.length > 0 ? (
+          {!activeSession ? (
+            <div className="details__card-placeholder">Select a session to manage its cast.</div>
+          ) : sortedCharacters.length > 0 ? (
             <div className="details__stack">
-              <div className="details__pill-row">
-                {playerCharacters.map((character) => (
-                  <span key={character.id} className="details__pill details__pill--player">
-                    {character.name}
-                  </span>
-                ))}
-                {aiCharacters.map((character) => (
-                  <span key={character.id} className="details__pill">
-                    {character.name}
-                  </span>
-                ))}
+              <div className="details__cast-list" role="list" aria-label="Session characters">
+                {sortedCharacters.map((character) => {
+                  const avatarLabel = getCharacterInitials(character.name)
+                  const avatarOffsetScale = DETAILS_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
+                  const avatarStyle = character.avatarImageData
+                    ? {
+                      backgroundImage: `url("${character.avatarImageData}")`,
+                      backgroundPosition: `${character.avatarCrop.x * avatarOffsetScale}px ${character.avatarCrop.y * avatarOffsetScale}px`,
+                      backgroundSize: `${character.avatarCrop.scale * 100}%`,
+                    }
+                    : undefined
+                  const isEnabled = !disabledCharacterIds.has(character.id)
+                  const hasAppeared = hasCharacterAppearedInSession(activeSession, character)
+
+                  return (
+                    <label
+                      key={character.id}
+                      className={`details__cast-item${isEnabled ? '' : ' details__cast-item--disabled'}`}
+                      role="listitem"
+                    >
+                      <div
+                        className={`details__cast-avatar${avatarStyle ? ' details__cast-avatar--image' : ''}`}
+                        style={avatarStyle}
+                        aria-hidden="true"
+                      >
+                        {avatarStyle ? null : avatarLabel}
+                      </div>
+                      <div className="details__cast-copy">
+                        <div className="details__cast-name-row">
+                          <span className="details__headline">{character.name}</span>
+                          <span className={`details__pill${character.controlledBy === 'user' ? ' details__pill--player' : ''}`}>
+                            {character.controlledBy === 'user' ? 'Player' : 'AI'}
+                          </span>
+                        </div>
+                        <div className="details__meta">
+                          {isEnabled ? 'Enabled for this session' : 'Disabled for this session'}
+                        </div>
+                        {hasAppeared ? (
+                          <div className="details__warning">
+                            Already appears in this chat. Disabling may affect session flow.
+                          </div>
+                        ) : null}
+                      </div>
+                      <span className="details__toggle">
+                        <input
+                          type="checkbox"
+                          checked={isEnabled}
+                          onChange={() => onToggleSessionCharacter(character.id)}
+                          aria-label={`${isEnabled ? 'Disable' : 'Enable'} ${character.name} for this session`}
+                        />
+                      </span>
+                    </label>
+                  )
+                })}
               </div>
               <div className="details__meta-list">
                 <div>{playerCharacters.length} player-controlled</div>

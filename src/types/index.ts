@@ -41,6 +41,8 @@ export interface Session {
   id: string
   /** Human-readable title shown in the sidebar. */
   title: string
+  /** Campaign character IDs explicitly disabled for this session. */
+  disabledCharacterIds?: string[]
   /** Ordered list of messages exchanged in this session. */
   messages: Message[]
   /** Rolling continuity summary covering archived messages outside the live prompt window. */

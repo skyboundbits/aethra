@@ -1,7 +1,10 @@
 # Aethra — Agent & Developer Reference
 
-> Comprehensive documentation for the Aethra AI-assisted roleplay web application.
-> See `CLAUDE.md` for the quick-start summary.
+> Comprehensive technical documentation for the Aethra Electron desktop application.
+>
+> **User & Developer Docs**: See `docs/app/` for complete guides (getting started, user guide, architecture, etc.)
+>
+> **Quick Start**: See `CLAUDE.md` for the development quick-start summary.
 
 ---
 
@@ -11,22 +14,32 @@
 2. [Tech Stack](#2-tech-stack)
 3. [Directory Structure](#3-directory-structure)
 4. [Architecture](#4-architecture)
-5. [Component Reference](#5-component-reference)
-6. [Type Reference](#6-type-reference)
+5. [IPC Channels](#5-ipc-channels)
+6. [State Management](#6-state-management)
 7. [Styling System](#7-styling-system)
 8. [AI Integration](#8-ai-integration)
-9. [Environment Variables](#9-environment-variables)
+9. [File Storage](#9-file-storage)
 10. [Coding Conventions](#10-coding-conventions)
-11. [Roadmap](#11-roadmap)
+11. [Key Services](#11-key-services)
+12. [Contributing](#12-contributing)
 
 ---
 
 ## 1. Project Overview
 
-**Aethra** is a browser-based roleplay application that pairs a clean chat-style UI
-with an external LLM backend (e.g. [LM Studio](https://lmstudio.ai/) or text-generation-webui).
-Users create and manage multiple roleplay *sessions*, each containing a full message
-history that is sent as context with every AI request.
+**Aethra** is a cross-platform desktop application (Electron) for interactive AI-assisted roleplay and storytelling.
+
+Key features:
+- **Campaigns**: Top-level projects containing multiple sessions and character profiles
+- **Sessions**: Separate conversation threads with full message history and rolling summaries
+- **Characters**: Custom profiles with descriptions, avatars, and control type (AI or user)
+- **Multi-server support**: Works with LM Studio, Ollama, llama.cpp, OpenAI-compatible APIs, or cloud services
+- **Local AI runtime**: Integrated llama.cpp with automatic binary download and GPU detection
+- **Persistent storage**: JSON-based campaign files stored locally with automatic settings backup
+- **Themes**: Customizable dark/light themes with semantic color tokens
+- **Rolling summaries**: Automatic compression of old messages to manage context windows
+
+Users create campaigns, add characters, create sessions, and chat with AI. All data is persisted locally.
 
 ---
 
@@ -34,11 +47,16 @@ history that is sent as context with every AI request.
 
 | Layer       | Technology                            |
 |-------------|---------------------------------------|
-| Framework   | React 18 (with hooks)                 |
-| Build tool  | Vite 6                                |
+| Desktop     | Electron 40 (cross-platform)          |
+| UI Framework | React 18 (with hooks)                |
+| Build tool  | Vite 6 + electron-vite 5              |
 | Language    | TypeScript 5 (strict mode)            |
 | Styling     | Custom CSS (CSS variables, no framework) |
-| LLM API     | OpenAI-compatible REST (LM Studio, text-generation-webui, Ollama, etc.) |
+| Main Process | Node.js (file I/O, IPC, AI streaming) |
+| Preload     | Context bridge for secure API access  |
+| AI API      | OpenAI-compatible REST (LM Studio, Ollama, llama.cpp, OpenAI, etc.) |
+| Streaming   | Server-Sent Events (SSE) from AI server |
+| Storage     | JSON files in app userData directory   |
 
 ---
 
@@ -46,265 +64,470 @@ history that is sent as context with every AI request.
 
 ```
 aethra/
-├── index.html               # HTML shell; Vite entry point
-├── vite.config.ts           # Vite + React plugin config
-├── tsconfig.json            # TypeScript project references root
-├── tsconfig.app.json        # TS config for src/
-├── tsconfig.node.json       # TS config for vite.config.ts
-├── .env.example             # Template for environment variables
-├── CLAUDE.md                # Quick-reference for Claude Code
-├── AGENTS.md                # This file
-└── src/
-    ├── main.tsx             # React root mount
-    ├── App.tsx              # Root component & top-level state
-    ├── types/
-    │   └── index.ts         # Shared TypeScript interfaces & enums
-    ├── components/
-    │   ├── Sidebar.tsx      # Left panel: session list
-    │   ├── ChatArea.tsx     # Centre panel: message feed
-    │   ├── InputBar.tsx     # Centre panel: message composer
-    │   └── DetailsPanel.tsx # Right panel: character/scene info
-    └── styles/
-        ├── global.css       # Reset, CSS variables, base styles
-        ├── layout.css       # Three-column floating panel layout
-        ├── sidebar.css      # Sidebar-specific styles
-        ├── chat.css         # ChatArea & InputBar styles
-        └── details.css      # DetailsPanel styles
+├── electron/
+│   ├── main/
+│   │   ├── index.ts                     # Main process: windows, IPC, AI streaming
+│   │   └── defaults/
+│   │       ├── servers.json             # Default server profiles
+│   │       └── models.json              # Default model presets
+│   ├── preload/
+│   │   └── index.ts                     # Context bridge: exposes window.api
+│   └── ...
+├── src/
+│   ├── index.html                       # Renderer entry (moved from root)
+│   ├── main.tsx                         # React app entry
+│   ├── App.tsx                          # Root component & state
+│   ├── types/
+│   │   ├── index.ts                     # Shared types: Message, Session, Campaign, etc.
+│   │   ├── electron.d.ts                # TypeScript for window.api
+│   │   └── vite-env.d.ts                # Vite client types
+│   ├── components/
+│   │   ├── RibbonBar.tsx                # Top navigation and tabs
+│   │   ├── TitleBar.tsx                 # Window chrome
+│   │   ├── Sidebar.tsx                  # Left panel: session list
+│   │   ├── ChatArea.tsx                 # Centre: message feed
+│   │   ├── InputBar.tsx                 # Centre: composer
+│   │   ├── DetailsPanel.tsx             # Right panel: character info
+│   │   ├── CampaignLauncher.tsx         # Startup screen
+│   │   ├── CampaignModal.tsx            # Campaign editor
+│   │   ├── CharactersModal.tsx          # Character manager
+│   │   ├── SettingsModal.tsx            # Settings (servers, models, theme)
+│   │   ├── ModelLoaderModal.tsx         # Model download UI
+│   │   ├── AiDebugModal.tsx             # AI request/response logs
+│   │   ├── Modal.tsx                    # Reusable modal component
+│   │   ├── LlamaBinaryBanner.tsx        # llama.cpp install status
+│   │   └── icons.tsx                    # SVG icon components
+│   ├── services/
+│   │   ├── aiService.ts                 # Wrapper around window.api.streamCompletion()
+│   │   ├── themeService.ts              # Theme loading and application
+│   │   └── modelFitService.ts           # Hardware detection and model fit estimation
+│   ├── prompts/
+│   │   └── campaignPrompts.ts           # System prompt builders
+│   └── styles/
+│       ├── global.css                   # CSS variables, reset, dark theme
+│       ├── layout.css                   # Three-column grid layout
+│       ├── modal.css                    # Modal dialogs
+│       ├── campaign-launcher.css        # Startup screen
+│       └── ...                          # Component-specific styles
+├── docs/app/                            # User & developer documentation
+├── .env.example                         # Environment variable template
+├── electron.vite.config.ts              # Electron + Vite config
+├── CLAUDE.md                            # Quick-start for developers
+├── AGENTS.md                            # This file
+└── package.json
 ```
 
 ---
 
 ## 4. Architecture
 
-### Layout
+### Process Model
 
-The UI uses a **three floating-column** layout driven by CSS flexbox:
+Aethra follows Electron's multi-process architecture:
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  app-layout  (flex row, gap, padding)                            │
-│                                                                  │
-│  ┌────────────┐  ┌──────────────────────────┐  ┌─────────────┐  │
-│  │  Sidebar   │  │       ChatArea           │  │DetailsPanel │  │
-│  │  260 px    │  │     (flex: 1)            │  │   280 px    │  │
-│  │            │  │  ┌────────────────────┐  │  │             │  │
-│  │  Sessions  │  │  │   message feed     │  │  │  Character  │  │
-│  │  list      │  │  │   (scrollable)     │  │  │  Scene      │  │
-│  │            │  │  └────────────────────┘  │  │  Model info │  │
-│  │            │  │  ┌────────────────────┐  │  │             │  │
-│  │            │  │  │     InputBar       │  │  │             │  │
-│  │            │  │  └────────────────────┘  │  │             │  │
-│  └────────────┘  └──────────────────────────┘  └─────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────┐
+│      Main Process (Node.js)      │
+│  - Window management             │
+│  - File I/O (campaigns, avatars) │
+│  - AI SSE streaming              │
+│  - llama.cpp process management  │
+│  - Hardware detection            │
+│  - IPC handlers                  │
+└──────────────────────────────────┘
+         ↕ IPC + contextBridge
+┌──────────────────────────────────┐
+│    Preload (Node.js context)     │
+│  - Secure API bridge             │
+│  - window.api exposure           │
+└──────────────────────────────────┘
+         ↕ window.api
+┌──────────────────────────────────┐
+│  Renderer (React + Browser)      │
+│  - UI components                 │
+│  - User interactions             │
+│  - Calls window.api methods      │
+└──────────────────────────────────┘
+```
+
+**Key insight**: The renderer cannot access Node.js directly. All OS access goes through `window.api` (preload bridge) to the main process via IPC.
+
+### UI Layout
+
+The main app uses a **three-column grid** layout:
+
+```
+┌──────────────────────────────────────────────────┐
+│  RibbonBar (tabs, menus)                         │
+├────────────┬────────────────────────┬────────────┤
+│ Sidebar    │ ChatArea               │ Details    │
+│ (260px)    │ (flex: 1)              │ (280px)    │
+│            │  ┌────────────────┐    │            │
+│ Sessions   │  │ Message feed   │    │ Character  │
+│ list       │  │ (scrollable)   │    │ Avatar     │
+│            │  └────────────────┘    │            │
+│            │  ┌────────────────┐    │ Info &     │
+│            │  │ InputBar       │    │ Status     │
+│            │  └────────────────┘    │            │
+└────────────┴────────────────────────┴────────────┘
 ```
 
 ### State Management
 
-State is managed with **React hooks** in `App.tsx`:
+State is managed with **React hooks** in `App.tsx`. Key state:
 
-| State          | Type        | Description                              |
-|----------------|-------------|------------------------------------------|
-| `sessions`     | `Session[]` | All roleplay sessions                    |
-| `activeSessionId` | `string \| null` | ID of the open session          |
-| `inputValue`   | `string`    | Controlled composer textarea value       |
+| State | Type | Description |
+|-------|------|-------------|
+| `campaign` | `Campaign \| null` | Current campaign |
+| `sessions` | `Session[]` | All sessions in campaign |
+| `activeSessionId` | `string \| null` | Current session |
+| `inputValue` | `string` | Composer text |
+| `isStreaming` | `boolean` | AI response in progress |
+| `selectedCharacterId` | `string \| null` | Active character |
+| `settings` | `AppSettings` | User preferences |
+| `activeTab` | `'campaign' \| 'debug' \| 'settings'` | Current ribbon tab |
 
-Derived values (`activeSession`, `messages`) are computed inline — no selectors needed at this scale.
-
----
-
-## 5. Component Reference
-
-### `<Sidebar>`
-
-**File:** `src/components/Sidebar.tsx`
-**Panel:** Left (260 px fixed width)
-
-| Prop | Type | Description |
-|------|------|-------------|
-| `sessions` | `Session[]` | All sessions to display |
-| `activeSessionId` | `string \| null` | Highlighted session |
-| `onSelectSession` | `(id: string) => void` | Switch active session |
-| `onNewSession` | `() => void` | Create a new session |
+Derived values (e.g., `activeSession = sessions.find(...)`) are computed inline.
 
 ---
 
-### `<ChatArea>`
+## 5. IPC Channels
 
-**File:** `src/components/ChatArea.tsx`
-**Panel:** Centre (flex: 1), scrollable
+Communication between main and renderer processes uses Electron IPC.
 
-| Prop | Type | Description |
-|------|------|-------------|
-| `messages` | `Message[]` | Messages to render |
+### Invoke Handlers (Renderer → Main, awaits response)
 
-Auto-scrolls to the latest message via a `useEffect` + `scrollIntoView`.
+| Channel | Payload | Returns | Purpose |
+|---------|---------|---------|---------|
+| `settings:get` | — | `AppSettings` | Load user preferences |
+| `settings:set` | `AppSettings` | `void` | Save settings to disk |
+| `campaign:create` | `{name, description}` | `CampaignFileHandle` | Create new campaign |
+| `campaign:open` | `path` | `CampaignFileHandle` | Load campaign from file |
+| `campaign:save` | `Campaign` | `void` | Save campaign to disk |
+| `file:selectFile` | `{properties}` | `string` | File picker dialog |
+| `llama:binary:install` | — | `void` | Start binary download |
 
----
+### Send Handlers (Main → Renderer, one-way)
 
-### `<InputBar>`
+| Channel | Payload | Purpose |
+|---------|---------|---------|
+| `ai:chunk` | `(id: string, text: string)` | Token from AI server |
+| `ai:done` | `(id: string)` | AI response complete |
+| `ai:error` | `(id: string, message: string)` | Error during streaming |
+| `llama:binary:install:progress` | `BinaryInstallProgress` | Binary DL/extract progress |
+| `server:status` | `LocalRuntimeStatus` | Status of local llama.cpp |
 
-**File:** `src/components/InputBar.tsx`
-**Panel:** Centre, pinned to bottom
+### Usage Example
 
-| Prop | Type | Description |
-|------|------|-------------|
-| `value` | `string` | Controlled textarea value |
-| `onChange` | `(v: string) => void` | Value change handler |
-| `onSend` | `() => void` | Submit handler |
-| `disabled` | `boolean` | Blocks input while AI generates |
+```typescript
+// Renderer: invoke main process
+const settings = await window.api.invoke('settings:get')
 
-**Keyboard:** `Enter` → send; `Shift+Enter` → newline.
+// Main: listen for renderer request
+ipcMain.handle('settings:get', async () => {
+  return loadSettingsFromDisk()
+})
 
----
-
-### `<DetailsPanel>`
-
-**File:** `src/components/DetailsPanel.tsx`
-**Panel:** Right (280 px fixed width)
-
-| Prop | Type | Description |
-|------|------|-------------|
-| `activeSession` | `Session \| null` | Session whose details are shown |
-
-Placeholder for character sheets, scene notes, and model configuration.
-
----
-
-## 6. Type Reference
-
-Defined in `src/types/index.ts`.
-
-### `MessageRole`
-```ts
-type MessageRole = 'user' | 'assistant' | 'system'
+// Main: send to renderer
+mainWindow.webContents.send('ai:chunk', messageId, 'token text')
 ```
 
-### `Message`
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | `string` | UUID |
-| `role` | `MessageRole` | Author of the message |
-| `content` | `string` | Text body |
-| `timestamp` | `number` | Unix ms |
+## 6. State Management
 
-### `Session`
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | `string` | UUID |
-| `title` | `string` | Display name |
-| `messages` | `Message[]` | Ordered history |
-| `createdAt` | `number` | Unix ms |
-| `updatedAt` | `number` | Unix ms |
+### App.tsx Top-Level State
 
-### `LLMConfig`
-| Field | Type | Description |
-|-------|------|-------------|
-| `baseUrl` | `string` | API base URL |
-| `apiKey` | `string` | Auth token |
-| `model` | `string` | Model identifier |
+All critical state is managed in `App.tsx` with `useState`:
+
+```typescript
+// Campaign & sessions
+const [campaign, setCampaign] = useState<Campaign | null>(null)
+const [sessions, setSessions] = useState<Session[]>([])
+const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+
+// Chat
+const [inputValue, setInputValue] = useState('')
+const [isStreaming, setIsStreaming] = useState(false)
+const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null)
+
+// UI
+const [activeTab, setActiveTab] = useState('campaign')
+const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
+
+// Modals
+const [showCharactersModal, setShowCharactersModal] = useState(false)
+const [showSettingsModal, setShowSettingsModal] = useState(false)
+```
+
+### Persisted State
+
+- **Campaigns**: Stored as JSON files in `<userData>/campaigns/`
+- **Settings**: Stored as JSON in `<userData>/settings.json`
+- **Characters**: Stored in `<userData>/campaigns/{id}/characters/`
+- **Sessions**: Stored in `<userData>/campaigns/{id}/sessions/`
 
 ---
 
 ## 7. Styling System
 
-All styles are **plain CSS** — no framework or preprocessor.
+All styles are **plain CSS** with **semantic tokens** — no CSS framework or preprocessor.
 
-### CSS Variables (defined in `global.css` `:root`)
+### CSS Variables (defined in `src/styles/global.css`)
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `--color-bg-base` | `#0d0f14` | Page background |
-| `--color-bg-panel` | `#13161e` | Floating panels |
-| `--color-bg-surface` | `#1b1f2b` | Bubbles, inputs |
-| `--color-bg-hover` | `#22273a` | List item hover |
-| `--color-border` | `#2a2f45` | Panel & element borders |
-| `--color-text-primary` | `#e2e6f0` | Body text |
-| `--color-text-secondary` | `#7a82a0` | Labels, headings |
-| `--color-text-muted` | `#4a5068` | Timestamps, hints |
-| `--color-accent` | `#5b7cf6` | Buttons, active border |
-| `--color-accent-hover` | `#7b96ff` | Hover accent |
-| `--color-user-bubble` | `#1e2d5a` | User message bubble |
+Semantic color tokens:
+
+| Token | Default (Dark) | Purpose |
+|-------|----------------|---------|
+| `--app-bg` | `#0d0f14` | Main background |
+| `--panel-bg` | `#1a1d24` | Sidebar/details bg |
+| `--surface-bg` | `#25292f` | Message bubbles |
+| `--surface-bg-emphasis` | `#32373f` | Hover state |
+| `--surface-bg-user-message` | `#1e3a5a` | User bubble |
+| `--surface-bg-accent` | `#6b5b95` | Accent backgrounds |
+| `--border-color` | `#404854` | Borders |
+| `--text-color-primary` | `#e8eaed` | Body text |
+| `--text-color-secondary` | `#a0a0a0` | Labels |
+| `--text-color-muted` | `#707070` | Timestamps |
+
+Layout tokens:
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
 | `--sidebar-width` | `260px` | Left panel width |
 | `--details-width` | `280px` | Right panel width |
 | `--column-gap` | `16px` | Gap between panels |
-| `--column-radius` | `12px` | Panel border-radius |
+| `--border-radius` | `8px` | Standard border-radius |
+
+### Themes
+
+Themes override CSS variables. Built-in dark theme is default. Custom themes can be imported as JSON files.
+
+**Theme token override example**:
+```json
+{
+  "id": "custom",
+  "name": "My Theme",
+  "mode": "dark",
+  "tokens": {
+    "app-bg": "#1a1a2e",
+    "surface-bg-accent": "#0f3460",
+    "text-color-brand": "#e94560"
+  }
+}
+```
 
 ### Adding New Styles
 
 1. Create a new file under `src/styles/` named after the component.
-2. Import it at the top of the relevant component file.
-3. Use CSS variables for all colours and spacing to stay theme-consistent.
+2. Import it at the top of the relevant component.
+3. Use CSS variables for all colors and spacing.
+4. Follow BEM naming: `.component__element--modifier`.
 
 ---
 
 ## 8. AI Integration
 
-The AI service is **not yet implemented**. The placeholder hook in `App.tsx → handleSend()` marks where the call will be dispatched.
+AI is fully integrated with streaming support. The main process handles SSE (Server-Sent Events) streaming from OpenAI-compatible APIs.
 
-### Planned implementation
+### Streaming Flow
 
-1. **Install the OpenAI SDK:**
-   ```bash
-   npm install openai
-   ```
-
-2. **Create `src/services/aiService.ts`:**
-   ```ts
-   import OpenAI from 'openai'
-
-   const client = new OpenAI({
-     baseURL: import.meta.env.VITE_LLM_BASE_URL,
-     apiKey:  import.meta.env.VITE_LLM_API_KEY,
-     dangerouslyAllowBrowser: true,   // acceptable for local dev
+1. **Renderer sends message** via IPC:
+   ```typescript
+   const response = await window.api.streamCompletion({
+     id: 'message-uuid',
+     messages: [...chatMessages],
+     serverId: 'server-uuid',
+     modelSlug: 'llama3.2-8b'
    })
-
-   export async function sendMessages(messages: ChatCompletionMessageParam[]) {
-     return client.chat.completions.create({
-       model:    import.meta.env.VITE_LLM_MODEL,
-       messages,
-       stream:   true,
-     })
-   }
    ```
 
-3. **Wire up in `App.tsx`** inside `handleSend()` after the user message is appended.
+2. **Main process** (`electron/main/index.ts`):
+   - Constructs OpenAI-compatible request payload
+   - Opens HTTPS/HTTP connection with `stream: true`
+   - Reads response stream line-by-line (SSE format)
+   - Parses JSON chunks: `data: {"choices":[{"delta":{"content":"token"}}]}`
 
-4. **Streaming:** Append a temporary assistant message and update its `content` chunk-by-chunk for a real-time feel.
+3. **Tokens stream back** to renderer:
+   - Main sends: `renderer.send('ai:chunk', messageId, 'token')`
+   - Renderer appends token to message in real-time
+   - User sees response appear as it's generated
+
+4. **Stream completes**:
+   - Main sends: `renderer.send('ai:done', messageId)`
+   - Renderer saves message to campaign file
+   - Chat is ready for next message
+
+### Supported AI Services
+
+- **LM Studio**: `http://localhost:1234/v1`
+- **Ollama**: `http://localhost:11434/v1`
+- **llama.cpp**: `http://localhost:3939/v1` (server mode)
+- **OpenAI**: `https://api.openai.com/v1` (API key required)
+- **Custom**: Any OpenAI-compatible endpoint
+
+### Error Handling
+
+If the server times out or returns an error:
+- Main sends: `renderer.send('ai:error', messageId, 'error message')`
+- Renderer displays error message in chat
+- Session remains editable; user can retry or continue
+
+### Model Context Window
+
+The renderer controls which messages are included in the prompt:
+- **Without rolling summaries**: All messages in the session
+- **With rolling summaries**: Old messages → auto-generated summary + recent messages (last 10)
 
 ---
 
-## 9. Environment Variables
+## 9. File Storage
 
-Copy `.env.example` to `.env` and set:
+All user data is stored locally in the app's userData directory.
 
-| Variable | Description |
-|----------|-------------|
-| `VITE_LLM_BASE_URL` | Base URL of the OpenAI-compatible server |
-| `VITE_LLM_API_KEY` | API key (any string for local servers) |
-| `VITE_LLM_MODEL` | Model slug to request |
+### Directory Structure
+
+```
+<userData>/
+├── settings.json                        # User preferences, servers, models, themes
+├── campaigns/
+│   ├── {campaign-id}/
+│   │   ├── campaign.json                # Campaign metadata + sessions array
+│   │   ├── sessions/
+│   │   │   ├── {session-id}.json        # Individual session transcripts
+│   │   │   └── ...
+│   │   └── characters/
+│   │       ├── {character-id}/
+│   │       │   ├── character.json       # Character profile
+│   │       │   └── avatar.png           # Avatar image (optional)
+│   │       └── ...
+│   └── ...
+└── llama-cpp/                           # Auto-managed local binary (if enabled)
+    └── ...
+```
+
+### Storage Locations
+
+- **Windows**: `%APPDATA%\Aethra\`
+- **macOS**: `~/Library/Application Support/Aethra/`
+- **Linux**: `~/.config/Aethra/` or `$XDG_CONFIG_HOME/Aethra/`
+
+### JSON Formats
+
+See `src/types/index.ts` for complete type definitions. Key types:
+
+- **`Campaign`**: `{id, name, description, sessions[], createdAt, updatedAt}`
+- **`Session`**: `{id, title, messages[], rollingSummary, summarizedMessageCount, createdAt, updatedAt}`
+- **`Message`**: `{id, role, content, characterId?, characterName?, characterAvatarImageData?, timestamp}`
+- **`CharacterProfile`**: `{id, name, role, gender, pronouns, description, personality, speakingStyle, goals, avatarImageData?, avatarCrop?, controlledBy, createdAt, updatedAt}`
+- **`AppSettings`**: `{servers[], models[], activeServerId?, activeModelSlug?, systemPrompt, enableRollingSummaries, chatTextSize, activeThemeId, customThemes[]}`
 
 ---
 
 ## 10. Coding Conventions
 
 - **TypeScript strict mode** — no implicit `any`, exhaustive null checks.
-- **All files** must have a header comment describing their purpose.
-- **All functions** must have a JSDoc comment (`/** ... */`).
-- **Component props** interfaces must be documented with inline comments.
-- **CSS** — use variables from `global.css`; avoid magic numbers.
-- **No external state libraries** at this stage — React hooks only.
-- **No default exports for components** — named exports only (except `App`).
-- Commit messages follow **Conventional Commits** (`feat:`, `fix:`, `chore:`, etc.).
+- **Header comments**: All files start with a JSDoc comment describing purpose and responsibilities.
+- **Function documentation**: All functions have JSDoc comments with `@param`, `@returns`, etc.
+- **Component documentation**: Component files have header comments; prop interfaces are annotated.
+- **CSS variables**: All colors, spacing, and sizing use variables from `global.css`. No magic numbers.
+- **No external state libraries**: React hooks only — no Redux, Zustand, etc.
+- **Named exports**: Components use named exports (except the default `App` export).
+- **BEM naming**: CSS classes follow BEM pattern: `.component__element--modifier`
+- **Commit messages**: Follow Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, etc.).
+- **IPC handlers**: All main process handlers in `electron/main/index.ts` are named consistently (`ai:*`, `settings:*`, etc.).
 
 ---
 
-## 11. Roadmap
+## 11. Key Services
 
-- [ ] AI service integration (`src/services/aiService.ts`)
-- [ ] Streaming token-by-token response display
-- [ ] Session persistence (localStorage or IndexedDB)
-- [ ] Character sheet editor in DetailsPanel
-- [ ] System prompt / persona configuration per session
-- [ ] Markdown rendering in message bubbles
-- [ ] Model selector UI
-- [ ] Export session to text/JSON
+### aiService.ts
+
+Renderer-side wrapper around `window.api.streamCompletion()`:
+
+```typescript
+export async function streamCompletion(
+  messages: ChatMessage[],
+  serverId: string,
+  modelSlug: string,
+  onChunk: (text: string) => void,
+  onDone: () => void,
+  onError: (error: string) => void
+)
+```
+
+Handles token streaming and callbacks. Used by `App.tsx → handleSend()`.
+
+### themeService.ts
+
+Theme import, parsing, and application:
+
+```typescript
+export function applyTheme(themeId: string)       // Apply a theme by ID
+export function parseImportedTheme(file: File)    // Parse imported JSON
+export function upsertCustomTheme(theme: ThemeDefinition) // Save custom theme
+```
+
+### modelFitService.ts
+
+Hardware detection and model sizing estimates:
+
+```typescript
+export function estimateLocalModelFit(
+  model: ModelPreset,
+  hardware: HardwareInfo
+): ModelFitEstimate
+```
+
+Provides warnings if a model is likely too large for the detected GPU.
+
+---
+
+## 12. Contributing
+
+### Setting Up Development
+
+```bash
+git clone <repo>
+cd aethra
+npm install
+npm run dev
+```
+
+### Running Tests (if applicable)
+
+```bash
+npm run test
+```
+
+### Build for Distribution
+
+```bash
+npm run build
+```
+
+### Key Areas
+
+- **Main process (`electron/main/index.ts`)**: Window management, IPC, AI streaming, file I/O
+- **Renderer (`src/App.tsx`)**: State management, routing, component orchestration
+- **Components (`src/components/`)**: UI logic and presentation
+- **Services (`src/services/`)**: Business logic (AI, themes, etc.)
+- **Styles (`src/styles/`)**: CSS with semantic variables
+- **Types (`src/types/index.ts`)**: Shared type definitions
+
+### Before Submitting a PR
+
+1. Run `npm run build` to ensure build succeeds
+2. Check TypeScript: `npx tsc --noEmit`
+3. Follow coding conventions (header comments, JSDoc, etc.)
+4. Update `AGENTS.md` if architecture changes
+5. Keep commits focused and descriptive
+
+---
+
+## Resources
+
+- **User Documentation**: See `docs/app/` for comprehensive guides
+- **CLAUDE.md**: Quick-start for developers
+- **Type Definitions**: `src/types/index.ts`
+- **Electron Docs**: https://www.electronjs.org/docs
+- **React Docs**: https://react.dev/
+- **TypeScript Docs**: https://www.typescriptlang.org/docs/
