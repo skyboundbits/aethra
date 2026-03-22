@@ -6,6 +6,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Modal } from './Modal'
 import { ModalFooter, ModalWorkspaceLayout } from './ModalLayouts'
+import { ConfirmModal } from './ConfirmModal'
+import { useConfirm } from '../hooks/useConfirm'
 import { AvatarLibraryModal } from './AvatarLibraryModal'
 import { UsersRoundIcon } from './icons'
 import '../styles/characters.css'
@@ -123,6 +125,7 @@ export function CharactersModal({
   onDeleteReusableCharacter,
   onImportReusableCharacter,
 }: CharactersModalProps) {
+  const { confirm, confirmState } = useConfirm()
   const [activeTab, setActiveTab] = useState<CharactersTabId>('new-character')
   const [editorMode, setEditorMode] = useState<CharacterEditorMode>('new-campaign')
   const [draft, setDraft] = useState<CharacterProfile>(createCampaignCharacterDraft())
@@ -161,12 +164,15 @@ export function CharactersModal({
     }))
   }
 
-  function handleTabClick(tabId: CharactersTabId): void {
+  async function handleTabClick(tabId: CharactersTabId): Promise<void> {
     if (tabId === activeTab && (isEditingCampaignCharacter || isEditingReusableCharacter)) {
-      if (!window.confirm('Discard unsaved changes and return to the character library?')) {
-        return
-      }
-
+      const confirmed = await confirm({
+        title: 'Discard Changes',
+        message: 'You have unsaved changes. Discard them and return to the library?',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep Editing',
+      })
+      if (!confirmed) return
       setEditorMode('new-campaign')
       return
     }
@@ -395,9 +401,7 @@ export function CharactersModal({
                       <button
                         type="button"
                         className="characters-modal__footer-btn"
-                        onClick={() => {
-                          handleTabClick(activeTab)
-                        }}
+                        onClick={() => { void handleTabClick(activeTab) }}
                       >
                         Back To Library
                       </button>
@@ -618,6 +622,7 @@ export function CharactersModal({
           onDeleteAvatar={onDeleteReusableAvatar}
         />
       ) : null}
+      {confirmState ? <ConfirmModal {...confirmState} /> : null}
     </>
   )
 }

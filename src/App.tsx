@@ -34,6 +34,8 @@ import { ModelParametersModal } from './components/ModelParametersModal'
 import { Modal } from './components/Modal'
 import { NewSessionModal } from './components/NewSessionModal'
 import { SessionCharactersModal } from './components/SessionCharactersModal'
+import { ConfirmModal } from './components/ConfirmModal'
+import { useConfirm } from './hooks/useConfirm'
 
 import { streamCompletion } from './services/aiService'
 import { estimateLocalModelFit } from './services/modelFitService'
@@ -84,6 +86,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   formattingRules: DEFAULT_CHAT_FORMATTING_RULES,
   rollingSummarySystemPrompt: DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
   enableRollingSummaries: false,
+  showChatMarkup: false,
   chatTextSize: 'small',
   assistantResponseRevealDelayMs: DEFAULT_ASSISTANT_RESPONSE_REVEAL_DELAY_MS,
   activeThemeId: 'default',
@@ -945,6 +948,8 @@ export default function App() {
   /** Absolute path of the active campaign folder. */
   const [campaignPath, setCampaignPath] = useState<string | null>(null)
 
+  const { confirm, confirmState } = useConfirm()
+
   /** ID of the session currently displayed in the chat area. */
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   /** ID of the session currently highlighted in the sidebar. */
@@ -1417,6 +1422,13 @@ export default function App() {
     activeServerModels.find((model) => model.slug === appSettings.activeModelSlug) ??
     activeServerModels[0] ??
     null
+
+  /** True when the active server has a model that is actually ready for chat. */
+  const isChatModelReady = activeServer?.kind === 'llama.cpp'
+    ? localRuntimeStatus?.serverId === activeServer.id &&
+      localRuntimeStatus.state === 'running' &&
+      localRuntimeStatus.modelSlug !== null
+    : activeServer != null && appSettings.activeModelSlug !== null
 
   /** True when runtime parameters can be edited for the active model preset. */
   const canEditModelParameters = activeModel !== null
@@ -1916,7 +1928,7 @@ export default function App() {
    *
    * @param characterId - Character being toggled.
    */
-  function handleToggleSessionCharacter(characterId: string): void {
+  async function handleToggleSessionCharacter(characterId: string): Promise<void> {
     if (!activeSession) {
       return
     }
@@ -1937,9 +1949,11 @@ export default function App() {
       ))
 
       if (appearsInSession) {
-        const confirmed = window.confirm(
-          `${character.name} already appears in this session's chat history. Turning them off may affect continuity and the flow of the session. Continue?`,
-        )
+        const confirmed = await confirm({
+          title: 'Turn Off Character',
+          message: `${character.name} already appears in this session's chat history. Turning them off may affect continuity and the flow of the session. Continue?`,
+          confirmLabel: 'Turn Off',
+        })
 
         if (!confirmed) {
           return
@@ -2639,6 +2653,32 @@ export default function App() {
       console.error('[Aethra] Could not save chat text size:', err)
       setSettingsStatusKind('error')
       setSettingsStatusMessage('Could not save the chat text size.')
+    }
+  }
+
+  /**
+   * Persist whether inline markup markers should remain visible in chat bubbles.
+   *
+   * @param enabled - Whether raw chat markup should be shown.
+   */
+  async function handleShowChatMarkupToggle(enabled: boolean): Promise<void> {
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      showChatMarkup: enabled,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage(
+        enabled
+          ? 'Chat markup is now visible.'
+          : 'Chat markup is now hidden.',
+      )
+    } catch (err) {
+      console.error('[Aethra] Could not save chat markup setting:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save the chat markup setting.')
     }
   }
 
@@ -3545,11 +3585,14 @@ export default function App() {
     }
 
     const affectedSessions = campaign.sessions.filter((session) => hasCharacterAppearedInSession(session, characterToDelete))
-    const confirmed = affectedSessions.length > 0
-      ? window.confirm(
-        `Delete ${characterToDelete.name} from this campaign?\n\nWarning: this character appears in ${affectedSessions.length} session${affectedSessions.length === 1 ? '' : 's'}. Deleting the character will also permanently delete those session${affectedSessions.length === 1 ? '' : 's'}.`,
-      )
-      : window.confirm(`Delete ${characterToDelete.name} from this campaign?`)
+    const confirmed = await confirm({
+      title: `Delete ${characterToDelete.name}?`,
+      message: `Delete ${characterToDelete.name} from this campaign?`,
+      warning: affectedSessions.length > 0
+        ? `This character appears in ${affectedSessions.length} session${affectedSessions.length === 1 ? '' : 's'}. Deleting the character will also permanently delete those session${affectedSessions.length === 1 ? '' : 's'}.`
+        : undefined,
+      confirmLabel: 'Delete',
+    })
 
     if (!confirmed) {
       return
@@ -4201,21 +4244,41 @@ export default function App() {
               messages={messages}
               characters={characters}
               textSize={appSettings.chatTextSize}
+              showMarkup={appSettings.showChatMarkup}
               onDeleteMessage={handleDeleteMessage}
               onReady={handleChatReady}
               isLoading={isChatLoading}
               isBusy={isStreaming}
             />
-            <InputBar
-              value={inputValue}
-              characters={enabledSessionCharacters}
-              selectedCharacterId={composerCharacterId}
-              onChange={setInputValue}
-              onSelectCharacter={setComposerCharacterId}
-              onSend={handleSend}
-              focusRequestKey={composerFocusRequestKey}
-              disabled={isStreaming || isChatLoading}
-            />
+            {isChatModelReady ? (
+              <InputBar
+                value={inputValue}
+                characters={enabledSessionCharacters}
+                selectedCharacterId={composerCharacterId}
+                onChange={setInputValue}
+                onSelectCharacter={setComposerCharacterId}
+                onSend={handleSend}
+                focusRequestKey={composerFocusRequestKey}
+                disabled={isStreaming || isChatLoading}
+              />
+            ) : (
+              <div className="chat-model-warning" role="status" aria-live="polite">
+                <div className="chat-model-warning__copy">
+                  <div className="chat-model-warning__title">No model loaded</div>
+                  <div className="chat-model-warning__text">
+                    Load a model to begin chatting in this session.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="chat-model-warning__button"
+                  onClick={handleOpenModelLoader}
+                  disabled={!canLoadModel}
+                >
+                  Load Model
+                </button>
+              </div>
+            )}
           </main>
 
           {/* Right column: session details */}
@@ -4258,6 +4321,7 @@ export default function App() {
           isDownloadingModel={isDownloadingModel}
           activeThemeId={appSettings.activeThemeId}
           chatTextSize={appSettings.chatTextSize}
+          showChatMarkup={appSettings.showChatMarkup}
           assistantResponseRevealDelayMs={appSettings.assistantResponseRevealDelayMs}
           campaignBasePrompt={appSettings.campaignBasePrompt}
           formattingRules={appSettings.formattingRules}
@@ -4291,6 +4355,9 @@ export default function App() {
           }}
           onChatTextSizeSelect={(textSize) => {
             void handleChatTextSizeSelect(textSize)
+          }}
+          onShowChatMarkupToggle={(enabled) => {
+            void handleShowChatMarkupToggle(enabled)
           }}
           onAssistantResponseRevealDelayChange={(delayMs) => {
             void handleAssistantResponseRevealDelayChange(delayMs)
@@ -4533,6 +4600,9 @@ export default function App() {
             </div>
           </div>
         </Modal>
+      ) : null}
+      {confirmState ? (
+        <ConfirmModal {...confirmState} />
       ) : null}
     </div>
   )

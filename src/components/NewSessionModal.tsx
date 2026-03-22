@@ -119,6 +119,12 @@ export function NewSessionModal({
 
   const [selectedCampaignCharacterIds, setSelectedCampaignCharacterIds] = useState<string[]>([])
   const [selectedReusableCharacterIds, setSelectedReusableCharacterIds] = useState<string[]>([])
+
+  useEffect(() => {
+    setSelectedCampaignCharacterIds([])
+    setSelectedReusableCharacterIds([])
+  }, [])
+
   const hasSelectedPlayerCharacter = useMemo(() => {
     const selectedCampaignPlayers = sortedCampaignCharacters.some((character) =>
       selectedCampaignCharacterIds.includes(character.id) && character.controlledBy === 'user',
@@ -180,7 +186,7 @@ export function NewSessionModal({
           const avatarStyle = getAvatarStyle(character.avatarImageData, character.avatarCrop)
 
           return (
-            <label
+            <div
               key={character.id}
               className={`new-session__item${isSelected ? ' new-session__item--selected' : ''}`}
               role="listitem"
@@ -211,7 +217,7 @@ export function NewSessionModal({
                 </div>
                 <div className="new-session__meta">{character.role || 'No role yet.'}</div>
               </div>
-            </label>
+            </div>
           )
         })}
       </div>

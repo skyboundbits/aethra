@@ -469,6 +469,7 @@ function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSet
         ? raw.rollingSummarySystemPrompt
         : DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
     enableRollingSummaries: raw?.enableRollingSummaries === true,
+    showChatMarkup: raw?.showChatMarkup === true,
     chatTextSize: isChatTextSize(raw?.chatTextSize) ? raw.chatTextSize : 'small',
     assistantResponseRevealDelayMs:
       typeof raw?.assistantResponseRevealDelayMs === 'number' && Number.isFinite(raw.assistantResponseRevealDelayMs)

@@ -23,6 +23,8 @@ interface ChatAreaProps {
   characters: CharacterProfile[]
   /** Persisted chat bubble text size preset. */
   textSize: ChatTextSize
+  /** Whether inline markup markers should remain visible in rendered output. */
+  showMarkup: boolean
   /** Called when the user requests deletion of a message. */
   onDeleteMessage: (id: string) => void
   /** Called after a newly selected transcript has been positioned and can be revealed. */
@@ -43,6 +45,7 @@ export function ChatArea({
   messages,
   characters,
   textSize,
+  showMarkup,
   onDeleteMessage,
   onReady,
   isLoading = false,
@@ -148,6 +151,7 @@ export function ChatArea({
                 message={msg}
                 character={matchedCharacter}
                 textSize={textSize}
+                showMarkup={showMarkup}
                 messageId={msg.id}
                 onDeleteMessage={onDeleteMessage}
                 isBusy={isBusy}
@@ -236,6 +240,8 @@ interface MessageBubbleProps {
   character: CharacterProfile | null
   /** Persisted chat bubble text size preset. */
   textSize: ChatTextSize
+  /** Whether inline markup markers should remain visible in rendered output. */
+  showMarkup: boolean
   /** Called when the user requests deletion of this message. */
   onDeleteMessage: (id: string) => void
   /** True while message actions should be temporarily blocked. */
@@ -276,10 +282,10 @@ function getCharacterInitials(characterName?: string): string | null {
  * @param content - Raw persisted message content.
  * @returns Message content with speaker markers removed for display.
  */
-function getDisplayContent(content: string): string {
+function normalizeDisplayContent(content: string, keepSpeakerTags: boolean): string {
   return content
     .replace(/\\"/g, '"')
-    .replace(/\[[^\]\r\n]*\]/g, '')
+    .replace(/\[[^\]\r\n]*\]/g, keepSpeakerTags ? '$&' : '')
     .replace(/[ \t]*\.[ \t]*/g, '. ')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/[ \t]+\n/g, '\n')
@@ -290,20 +296,52 @@ function getDisplayContent(content: string): string {
 }
 
 /**
+ * Remove hidden speaker markers from message text for standard on-screen
+ * display while keeping the stored transcript content unchanged.
+ *
+ * @param content - Raw persisted message content.
+ * @returns Message content with speaker markers removed for display.
+ */
+function getDisplayContent(content: string): string {
+  return normalizeDisplayContent(content, false)
+}
+
+/**
+ * Keep raw message formatting visible for markup-inspection mode.
+ *
+ * @param content - Raw persisted message content.
+ * @returns Message content normalized for display without stripping markers.
+ */
+function getMarkupDisplayContent(content: string): string {
+  return normalizeDisplayContent(content, true)
+}
+
+/**
  * Render inline text, converting `*italic*` spans into emphasis.
  *
  * @param content - Raw inline text to display.
  * @param keyPrefix - Stable key prefix for generated nodes.
  * @returns Renderable inline nodes.
  */
-function renderInlineText(content: string, keyPrefix: string): ReactNode[] {
+function renderInlineText(content: string, keyPrefix: string, showMarkup = false): ReactNode[] {
   const parts = content.split(/(\*[^*\n]+\*)/g)
 
   return parts
     .filter((part) => part.length > 0)
     .map((part, index) => {
       if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
-        return <em key={`${keyPrefix}-${index}`}>{part.slice(1, -1)}</em>
+        const actionText = part.slice(1, -1)
+        if (!showMarkup) {
+          return <em key={`${keyPrefix}-${index}`}>{actionText}</em>
+        }
+
+        return (
+          <Fragment key={`${keyPrefix}-${index}`}>
+            <span className="message__markup">*</span>
+            <em>{actionText}</em>
+            <span className="message__markup">*</span>
+          </Fragment>
+        )
       }
 
       return <Fragment key={`${keyPrefix}-${index}`}>{part}</Fragment>
@@ -323,8 +361,8 @@ interface InlineSegment {
  * @param content - Raw message content to inspect.
  * @returns Ordered list of parsed segments plus bare-text fallback runs.
  */
-function parseInlineSegments(content: string): Array<InlineSegment | string> {
-  const source = getDisplayContent(content)
+function parseInlineSegments(content: string, showMarkup = false): Array<InlineSegment | string> {
+  const source = showMarkup ? getMarkupDisplayContent(content) : getDisplayContent(content)
   const matches = Array.from(source.matchAll(/(\*([^*\n]+)\*|"([^"\n]+)")/g))
 
   if (matches.length === 0) {
@@ -371,8 +409,8 @@ function parseInlineSegments(content: string): Array<InlineSegment | string> {
  * @param content - Raw message content to inspect.
  * @returns Recovered segments plus bare-text fallback runs.
  */
-function parseLooseCharacterSegments(content: string): Array<InlineSegment | string> {
-  const source = getDisplayContent(content)
+function parseLooseCharacterSegments(content: string, showMarkup = false): Array<InlineSegment | string> {
+  const source = showMarkup ? getMarkupDisplayContent(content) : getDisplayContent(content)
   const matches = Array.from(source.matchAll(/"([^"\n]+)"/g))
 
   if (matches.length === 0) {
@@ -416,22 +454,22 @@ function parseLooseCharacterSegments(content: string): Array<InlineSegment | str
  * @param content - Raw message content to display.
  * @returns Renderable inline nodes for the message bubble.
  */
-function renderMessageContent(content: string, speakerName?: string): ReactNode[] {
+function renderMessageContent(content: string, speakerName?: string, showMarkup = false): ReactNode[] {
   const isSceneSpeaker = speakerName?.trim().toLocaleLowerCase() === 'scene'
   const isNamedSpeaker = typeof speakerName === 'string' && speakerName.trim().length > 0
 
   if (isSceneSpeaker) {
     return [
       <span key="scene-action" className="message__segment message__segment--action">
-        {renderInlineText(getDisplayContent(content), 'scene-action')}
+        {renderInlineText(showMarkup ? getMarkupDisplayContent(content) : getDisplayContent(content), 'scene-action', showMarkup)}
       </span>,
     ]
   }
 
-  const parsedSegments = parseInlineSegments(content)
+  const parsedSegments = parseInlineSegments(content, showMarkup)
   const recoveredSegments =
     isNamedSpeaker && !hasInlineSegments(content)
-      ? parseLooseCharacterSegments(content)
+      ? parseLooseCharacterSegments(content, showMarkup)
       : parsedSegments
 
   return recoveredSegments.flatMap((segment, index) => {
@@ -449,7 +487,7 @@ function renderMessageContent(content: string, speakerName?: string): ReactNode[
 
       nodes.push(
         <span key={`speech-${index}`} className="message__segment message__segment--speech">
-          {renderInlineText(plainText, `speech-${index}`)}
+          {renderInlineText(plainText, `speech-${index}`, showMarkup)}
         </span>,
       )
       return nodes
@@ -460,7 +498,7 @@ function renderMessageContent(content: string, speakerName?: string): ReactNode[
         key={`${segment.type}-${index}`}
         className={`message__segment message__segment--${segment.type}`}
       >
-        {renderInlineText(segment.content, `${segment.type}-${index}`)}
+        {renderInlineText(segment.content, `${segment.type}-${index}`, showMarkup)}
       </span>,
     )
 
@@ -513,7 +551,7 @@ function renderTypingIndicator(): ReactNode {
  * Renders a single chat message with appropriate alignment and styling
  * depending on the message role (user / assistant / system).
  */
-function MessageBubble({ message, messageId, character, textSize, onDeleteMessage, isBusy }: MessageBubbleProps) {
+function MessageBubble({ message, messageId, character, textSize, showMarkup, onDeleteMessage, isBusy }: MessageBubbleProps) {
   /** Format a Unix ms timestamp as HH:MM. */
   function formatTime(ts: number): string {
     return new Date(ts).toLocaleTimeString([], {
@@ -562,10 +600,11 @@ function MessageBubble({ message, messageId, character, textSize, onDeleteMessag
               className={
                 `message__content${isTypingPlaceholder ? ' message__content--typing' : ''}` +
                 `${isSegmentedMessage ? ' message__content--segmented' : ''}` +
-                `${isStrictSegmentedMessage ? ' message__content--segments-only' : ''}`
+                `${isStrictSegmentedMessage ? ' message__content--segments-only' : ''}` +
+                `${showMarkup ? ' message__content--show-markup' : ''}`
               }
             >
-              {isTypingPlaceholder ? renderTypingIndicator() : renderMessageContent(message.content, message.characterName)}
+              {isTypingPlaceholder ? renderTypingIndicator() : renderMessageContent(message.content, message.characterName, showMarkup)}
             </div>
             <div className="message__meta">
               <div className="message__time">{formatTime(message.timestamp)}</div>
@@ -597,6 +636,7 @@ const MemoizedMessageBubble = memo(
     prevProps.message === nextProps.message &&
     prevProps.character === nextProps.character &&
     prevProps.textSize === nextProps.textSize &&
+    prevProps.showMarkup === nextProps.showMarkup &&
     prevProps.isBusy === nextProps.isBusy &&
     prevProps.messageId === nextProps.messageId,
 )

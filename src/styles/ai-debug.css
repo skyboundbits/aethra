@@ -75,4 +75,6 @@
   line-height: 1.5;
   color: var(--text-color-primary);
   background: color-mix(in srgb, var(--panel-bg) 82%, black 18%);
+  white-space: pre-wrap;
+  word-break: break-word;
 }

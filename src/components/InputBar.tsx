@@ -45,6 +45,7 @@ export function InputBar({
   disabled = false,
 }: InputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const playerCharacters = characters.filter((character) => character.controlledBy === 'user')
 
   /**
    * Keep keyboard focus in the composer when it is interactive.
@@ -123,8 +124,7 @@ export function InputBar({
 
   return (
     <div className="input-bar">
-      <label className="input-bar__character-picker">
-        <span className="input-bar__character-label">Writing as</span>
+      <div className="input-bar__character-picker">
         <select
           className="input-bar__character-select app-select"
           value={selectedCharacterId ?? ''}
@@ -132,14 +132,13 @@ export function InputBar({
           disabled={disabled}
           aria-label="Select character speaker"
         >
-          <option value="">Narrator</option>
-          {characters.map((character) => (
+          {playerCharacters.map((character) => (
             <option key={character.id} value={character.id}>
               {character.name}
             </option>
           ))}
         </select>
-      </label>
+      </div>
       <textarea
         ref={textareaRef}
         className="input-bar__textarea"

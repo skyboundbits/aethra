@@ -249,6 +249,8 @@ interface SettingsModalProps {
   activeThemeId: string
   /** Currently active chat bubble text size preset. */
   chatTextSize: ChatTextSize
+  /** Whether hidden chat markup markers should be shown in the transcript. */
+  showChatMarkup: boolean
   /** Minimum delay before assistant text starts rendering, in milliseconds. */
   assistantResponseRevealDelayMs: number
   /** Base campaign roleplay instruction template. */
@@ -300,6 +302,8 @@ interface SettingsModalProps {
   onThemeSelect: (themeId: string) => void
   /** Called when the user selects a chat text size preset. */
   onChatTextSizeSelect: (textSize: ChatTextSize) => void
+  /** Called when the user toggles raw chat markup visibility. */
+  onShowChatMarkupToggle: (enabled: boolean) => void
   /** Called when the user changes the assistant response reveal delay. */
   onAssistantResponseRevealDelayChange: (delayMs: number) => void
   /** Called when the user toggles rolling summaries for campaign prompts. */
@@ -382,6 +386,7 @@ export function SettingsModal({
   isDownloadingModel,
   activeThemeId,
   chatTextSize,
+  showChatMarkup,
   assistantResponseRevealDelayMs,
   campaignBasePrompt,
   formattingRules,
@@ -403,6 +408,7 @@ export function SettingsModal({
   onDownloadHuggingFaceModel,
   onThemeSelect,
   onChatTextSizeSelect,
+  onShowChatMarkupToggle,
   onAssistantResponseRevealDelayChange,
   onRollingSummariesToggle,
   onSavePromptTemplates,
@@ -865,6 +871,21 @@ export function SettingsModal({
                 </div>
 
                 <div className="settings-modal__field-grid">
+                  <label className="settings-modal__toggle" htmlFor="settings-chat-show-markup">
+                    <span className="settings-modal__toggle-body">
+                      <span className="settings-modal__label">Show Chat Markup</span>
+                      <span className="settings-modal__field-hint">
+                        Reveal inline formatting markers from AI output and highlight the normally hidden parts.
+                      </span>
+                    </span>
+                    <input
+                      id="settings-chat-show-markup"
+                      className="settings-modal__toggle-input"
+                      type="checkbox"
+                      checked={showChatMarkup}
+                      onChange={(event) => onShowChatMarkupToggle(event.target.checked)}
+                    />
+                  </label>
                   <div className="settings-modal__field">
                     <label className="settings-modal__label" htmlFor="settings-chat-text-size">
                       Chat Text Size

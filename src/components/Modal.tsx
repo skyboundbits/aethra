@@ -46,6 +46,14 @@ export function Modal({ title, onClose, className, variant = 'form', children }:
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
+  /** Save focus origin and restore it when the modal unmounts. */
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    return () => {
+      previouslyFocused?.focus()
+    }
+  }, [])
+
   /** Keep clicks inside the card isolated from the overlay container. */
   function handleCardClick(e: React.MouseEvent) {
     e.stopPropagation()
