@@ -168,3 +168,29 @@ export function buildCampaignBasePrompt(override?: string | null, formattingRule
 export function buildRollingSummarySystemPrompt(override?: string | null): string {
   return resolvePromptOverride(override, DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT)
 }
+
+/** System instruction for Pass 1 of relationship refresh: generate relationship-focused narrative. */
+export const DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT = `You analyse roleplay transcripts and write a concise relationship-focused narrative summary.
+
+For each pair of characters that interact, describe:
+- The current state of their relationship (trust, tension, warmth, hostility)
+- Key events or exchanges that shaped how they feel about each other
+- Any notable shifts in trust or affinity during this session
+
+Write in clear prose. Cover all character pairs that appear together. Be specific about events — name what happened, not just the outcome. Do not add commentary, headers, or structure beyond the per-pair narrative.`
+
+/** System instruction for Pass 2 of relationship refresh: extract structured relationship entries. */
+export const DEFAULT_RELATIONSHIP_EXTRACTION_SYSTEM_PROMPT = `You analyse roleplay transcripts and extract character relationship states.
+
+For each directed character pair (A→B), output a JSON array of relationship entries.
+Each entry must have:
+- fromCharacterId (string, exact character ID from the provided character list)
+- toCharacterId (string, exact character ID from the provided character list)
+- trustScore (integer 0–100)
+- affinityLabel (one of: hostile, wary, neutral, friendly, allied, devoted)
+- summary (1–3 sentences: how A currently perceives or feels toward B, grounded in transcript events only)
+
+Base all values strictly on evidence in the relationship summary.
+Do not invent events or relationships not evidenced in the summary.
+Do not generate entries where fromCharacterId equals toCharacterId (characters cannot have relationships with themselves).
+Output only a valid JSON array. No explanation, no markdown, no wrapper text.`

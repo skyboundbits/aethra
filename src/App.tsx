@@ -2098,6 +2098,7 @@ export default function App() {
   /**
    * Append or update a message inside a specific session.
    * If a message with `msg.id` already exists it is replaced; otherwise appended.
+   * Marks the session as needing a summary rebuild when a new message is added.
    * @param sessionId - Target session.
    * @param msg       - Message to upsert.
    */
@@ -2110,6 +2111,10 @@ export default function App() {
         const messages = exists
           ? s.messages.map((m) => (m.id === msg.id ? msg : m))
           : [...s.messages, msg]
+        // Mark session as dirty (needing summary rebuild) when a new message is added
+        if (!exists) {
+          summaryDirtySessionsRef.current.add(sessionId)
+        }
         return { ...s, messages, updatedAt: Date.now() }
       }),
     }))
@@ -2581,11 +2586,12 @@ export default function App() {
   }
 
   /**
-   * Trigger an LLM relationship refresh for the active campaign.
+   * Trigger an LLM relationship refresh for the active session.
    * On success, opens the RelationshipReviewModal with the merged graph.
+   * Only analyzes characters active in the current session and its messages.
    */
   async function handleRefreshRelationships(): Promise<void> {
-    if (!campaign || !campaignPath || characters.length < 2 || isRefreshingRelationships) return
+    if (!campaign || !campaignPath || !activeSession || characters.length < 2 || isRefreshingRelationships) return
     setIsRefreshingRelationships(true)
     setRefreshRelationshipsError(null)
     // Record the dispatch timestamp BEFORE the async call so entries updated
@@ -2594,11 +2600,12 @@ export default function App() {
     refreshStartedAtRef.current = startedAt
     setRefreshStartedAt(startedAt)
     try {
+      const sessionCharacters = getEnabledSessionCharacters(activeSession, characters)
       const merged = await window.api.refreshRelationships(
         campaignPath,
         campaign.id,
-        characters,
-        sessions,
+        sessionCharacters,
+        [activeSession],
       )
       setPendingRelationshipGraph(merged)
     } catch (err: unknown) {
@@ -2753,6 +2760,7 @@ export default function App() {
   /**
    * Rebuild the active session summary from as much raw transcript as the
    * current model context should allow in one request.
+   * Also generates a relationship-focused narrative summary after rebuild completes.
    */
   async function handleRebuildSummary(): Promise<void> {
     if (!activeSession || isRebuildingSummary) {
@@ -2795,11 +2803,45 @@ export default function App() {
       summaryDirtySessionsRef.current.delete(activeSession.id)
 
       setSummaryModalStatusKind('success')
-      setSummaryModalStatusMessage(
-        passCount > 1
-          ? `Summary rebuilt from ${summarizedMessageCount.toLocaleString()} visible messages across ${passCount.toLocaleString()} passes.`
-          : `Summary rebuilt from ${summarizedMessageCount.toLocaleString()} visible messages in a single pass.`,
-      )
+
+      // Generate relationship narrative
+      if (campaign && campaignPath) {
+        try {
+          setSummaryModalStatusMessage('Generating relationship summary...')
+          const sessionCharacters = getEnabledSessionCharacters(activeSession, characters)
+          const narrative = await window.api.generateRelationshipNarrative(
+            campaignPath,
+            campaign.id,
+            sessionCharacters,
+            [activeSession],
+          )
+          // Save narrative to the session
+          updateCampaign((prev) => ({
+            ...prev,
+            sessions: prev.sessions.map((session) =>
+              session.id === activeSession.id
+                ? {
+                  ...session,
+                  relationshipNarrativeSummary: narrative,
+                  updatedAt: Date.now(),
+                }
+                : session,
+            ),
+          }))
+          setSummaryModalStatusMessage('Summary and relationship narrative complete.')
+        } catch (err) {
+          console.error('[Aethra] Could not generate relationship narrative:', err)
+          setSummaryModalStatusMessage(
+            `Summary rebuilt, but relationship narrative failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+          )
+        }
+      } else {
+        setSummaryModalStatusMessage(
+          passCount > 1
+            ? `Summary rebuilt from ${summarizedMessageCount.toLocaleString()} visible messages across ${passCount.toLocaleString()} passes.`
+            : `Summary rebuilt from ${summarizedMessageCount.toLocaleString()} visible messages in a single pass.`,
+        )
+      }
     } catch (err) {
       console.error('[Aethra] Could not rebuild session summary:', err)
       setSummaryModalStatusKind('error')
@@ -4467,6 +4509,39 @@ export default function App() {
     }
     upsertMessage(sessionId, assistantMessage)
 
+    // Generate relationship narrative alongside the summary (catchUpRollingSummaryBeforeSend already rebuilt the summary)
+    if (
+      appSettingsRef.current.enableRollingSummaries
+      && latestSessionForPrompt
+      && campaign
+      && campaignPath
+    ) {
+      try {
+        const sessionCharacters = getEnabledSessionCharacters(latestSessionForPrompt, characters)
+        const relationshipNarrative = await window.api.generateRelationshipNarrative(
+          campaignPath,
+          campaign.id,
+          sessionCharacters,
+          [latestSessionForPrompt],
+        )
+        // Update session with relationship narrative
+        updateCampaign((prev) => ({
+          ...prev,
+          sessions: prev.sessions.map((session) =>
+            session.id === sessionId
+              ? {
+                ...session,
+                relationshipNarrativeSummary: relationshipNarrative,
+                updatedAt: Date.now(),
+              }
+              : session,
+          ),
+        }))
+      } catch (err) {
+        console.error('[Aethra] Could not generate relationship narrative before sending:', err)
+      }
+    }
+
     // Accumulate streamed text outside React state to avoid excessive re-renders,
     // then push the full string on each chunk.
     let accumulated = ''
@@ -4620,6 +4695,8 @@ export default function App() {
      * @param attemptNumber - 1-based attempt counter for malformed replies.
      */
     function streamAssistantAttempt(attemptNumber: number): void {
+      if (!currentCampaign || !campaignPath || !sessionId) return
+
       accumulated = ''
       streamFinished = false
       const historySnapshot = attemptNumber === 1
@@ -4698,54 +4775,7 @@ export default function App() {
      *
      * @param attemptNumber - 1-based attempt counter for malformed replies.
      */
-    void (async () => {
-      if (
-        appSettingsRef.current.enableRollingSummaries
-        && targetSession
-        && summaryDirtySessionsRef.current.has(sessionId)
-      ) {
-        try {
-          const rebuiltSummary = await rebuildSessionSummaryFromTranscript(
-            targetSession,
-            appSettingsRef.current.rollingSummarySystemPrompt,
-            activeModel?.contextWindowTokens ?? null,
-          )
-          requestSession = {
-            ...requestSession,
-            rollingSummary: rebuiltSummary.summary,
-            summarizedMessageCount: rebuiltSummary.summarizedMessageCount,
-          }
-          summaryDirtySessionsRef.current.delete(sessionId)
-          updateCampaign((prev) => ({
-            ...prev,
-            sessions: prev.sessions.map((session) =>
-              session.id === sessionId
-                ? {
-                  ...session,
-                  rollingSummary: rebuiltSummary.summary,
-                  summarizedMessageCount: rebuiltSummary.summarizedMessageCount,
-                  updatedAt: Date.now(),
-                }
-                : session,
-            ),
-          }))
-        } catch (err) {
-          console.error('[Aethra] Could not rebuild summary before sending:', err)
-        }
-      }
-
-      baseHistorySnapshot = buildRequestMessages(
-        currentCampaign,
-        enabledSessionCharacters,
-        appSettingsRef.current,
-        requestSession,
-        [userMessage],
-        undefined,
-        relationshipGraph,
-      )
-
-      streamAssistantAttempt(1)
-    })()
+    streamAssistantAttempt(1)
   }
 
   /**
@@ -5129,7 +5159,9 @@ export default function App() {
       {!isCampaignSwitchLoading && isSummaryModalOpen ? (
         <SummaryModal
           summary={activeSession?.rollingSummary ?? ''}
+          relationshipNarrativeSummary={activeSession?.relationshipNarrativeSummary ?? null}
           isRebuilding={isRebuildingSummary}
+          isRefreshingRelationships={false}
           statusMessage={summaryModalStatusMessage}
           statusKind={summaryModalStatusKind}
           onClose={handleCloseSummaryModal}

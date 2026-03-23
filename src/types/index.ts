@@ -55,6 +55,8 @@ export interface Session {
   rollingSummary: string
   /** Count of visible prompt messages already compressed into the rolling summary. */
   summarizedMessageCount: number
+  /** Relationship-focused narrative summary generated alongside rolling summary rebuild. */
+  relationshipNarrativeSummary?: string
   /** Unix timestamp (ms) when the session was created. */
   createdAt: number
   /** Unix timestamp (ms) of the most recent activity. */
@@ -194,6 +196,8 @@ export interface RelationshipGraph {
   entries: RelationshipEntry[]
   /** Unix timestamp (ms) of most recent refresh; null if never refreshed. */
   lastRefreshedAt: number | null
+  /** Pass 1 relationship-focused prose narrative from the last LLM refresh; null when never refreshed. */
+  narrativeSummary: string | null
 }
 
 /**

@@ -302,6 +302,25 @@ declare global {
       /**
        * Run an LLM analysis of campaign transcripts and return the merged relationship graph.
        * Does NOT write to disk — caller saves after user review.
+       * Generate a relationship-focused narrative summary (Pass 1 only).
+       * Used when rebuilding session summary to optionally add relationship context.
+       *
+       * @param campaignPath - Absolute path to the campaign folder.
+       * @param campaignId - Campaign.id for context (not persisted).
+       * @param characters - Campaign character roster.
+       * @param sessions - Campaign sessions to analyze.
+       * @returns Promise resolving to the narrative prose summary.
+       */
+      generateRelationshipNarrative: (
+        campaignPath: string,
+        campaignId: string,
+        characters: CharacterProfile[],
+        sessions: Session[],
+      ) => Promise<string>
+
+      /**
+       * Run LLM analysis and return the merged relationship graph without saving.
+       *
        * @param campaignPath - Absolute path to the campaign folder.
        * @param campaignId - Campaign.id written into the returned graph.
        * @param characters - Current campaign character roster.

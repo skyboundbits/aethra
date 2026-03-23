@@ -55,6 +55,8 @@ import {
   DEFAULT_CAMPAIGN_BASE_PROMPT,
   DEFAULT_CHAT_FORMATTING_RULES,
   DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
+  DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT,
+  DEFAULT_RELATIONSHIP_EXTRACTION_SYSTEM_PROMPT,
 } from '../../src/prompts/campaignPrompts'
 
 import defaultServersRaw from './defaults/servers.json'
@@ -4226,7 +4228,7 @@ function parseRelationshipEntries(
     const entry = item as Record<string, unknown>
     const fromId = typeof entry.fromCharacterId === 'string' ? entry.fromCharacterId : ''
     const toId = typeof entry.toCharacterId === 'string' ? entry.toCharacterId : ''
-    if (!fromId || !toId || !validCharacterIds.has(fromId) || !validCharacterIds.has(toId)) continue
+    if (!fromId || !toId || fromId === toId || !validCharacterIds.has(fromId) || !validCharacterIds.has(toId)) continue
     const summary = typeof entry.summary === 'string' ? entry.summary.trim() : ''
     if (!summary) continue
     const rawScore = typeof entry.trustScore === 'number' ? entry.trustScore : 50
@@ -4248,12 +4250,14 @@ function parseRelationshipEntries(
  * @param existing - Current persisted graph (or null when no graph exists yet).
  * @param campaignId - Campaign ID for the returned graph.
  * @param validated - Validated entries from the LLM response.
+ * @param narrativeSummary - Pass 1 relationship-focused prose summary.
  * @returns Updated graph (not yet saved to disk).
  */
 function mergeRelationshipEntries(
   existing: RelationshipGraph | null,
   campaignId: string,
   validated: Array<Omit<RelationshipEntry, 'manualNotes' | 'lastAiRefreshedAt'>>,
+  narrativeSummary: string,
 ): RelationshipGraph {
   const now = Date.now()
   const existingEntries: RelationshipEntry[] = existing?.entries ?? []
@@ -4282,7 +4286,7 @@ function mergeRelationshipEntries(
     }
   }
 
-  return { campaignId, entries: updated, lastRefreshedAt: now }
+  return { campaignId, entries: updated, lastRefreshedAt: now, narrativeSummary }
 }
 
 /* ── IPC handlers ──────────────────────────────────────────────────────── */
@@ -4596,6 +4600,98 @@ ipcMain.handle('relationships:set', (_event, campaignPath: string, graph: Relati
 })
 
 /**
+ * Relationships: generate narrative summary only (Pass 1).
+ * Used when rebuilding session summary to optionally add relationship context.
+ * Does not generate structured relationship entries or save anything.
+ */
+ipcMain.handle(
+  'relationships:generate-narrative',
+  async (
+    event,
+    campaignPath: string,
+    campaignId: string,
+    characters: CharacterProfile[],
+    sessions: Session[],
+  ): Promise<string> => {
+    const settings = loadSettings()
+    const server = settings.servers.find((s) => s.id === settings.activeServerId)
+    if (!server) {
+      throw new Error('No active server configured. Select a server in Settings before generating relationship summary.')
+    }
+    const modelSlug = settings.activeModelSlug
+    if (!modelSlug) {
+      throw new Error('No active model configured. Select a model in Settings before generating relationship summary.')
+    }
+    const activeModel = settings.models.find((candidate) =>
+      candidate.serverId === server.id && candidate.slug === modelSlug,
+    )
+    const transcript = buildRelationshipTranscript(sessions)
+    const contextWindowTokens =
+      typeof activeModel?.contextWindowTokens === 'number' && activeModel.contextWindowTokens > 0
+        ? activeModel.contextWindowTokens
+        : null
+
+    const debug = (direction: AiDebugEntry['direction'], label: string, details: unknown) => {
+      recordAiDebugEntry(event.sender, direction, label, {
+        serverId: server.id,
+        serverName: server.name,
+        model: modelSlug,
+        ...((isRecord(details) ? details : { value: details })),
+      })
+    }
+
+    debug('info', 'relationships.narrative.start', {
+      characterCount: characters.length,
+      sessionCount: sessions.length,
+      transcriptLength: transcript.length,
+      contextWindowTokens,
+    })
+
+    const summaryMessages: ChatMessage[] = [
+      {
+        role: 'system',
+        content: DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT,
+      },
+      {
+        role: 'user',
+        content: `Characters:\n${characters.map((c) => `${c.id}: ${c.name}`).join('\n')}\n\nTranscript:\n${transcript}\n\nWrite the relationship-focused summary.`,
+      },
+    ]
+
+    const summaryPromptEstimate = estimatePromptTokens(summaryMessages)
+    const summaryAvailableContextTokens = contextWindowTokens === null
+      ? null
+      : Math.max(contextWindowTokens - summaryPromptEstimate, 0)
+    const summaryFitsInContext = contextWindowTokens === null ? null : summaryPromptEstimate <= contextWindowTokens
+
+    debug('info', 'relationships.narrative.prompt-estimate', {
+      promptEstimate: summaryPromptEstimate,
+      availableContextTokens: summaryAvailableContextTokens,
+      fitsInContext: summaryFitsInContext,
+    })
+
+    if (summaryFitsInContext === false) {
+      debug('error', 'relationships.narrative.context_overflow', {
+        promptEstimate: summaryPromptEstimate,
+        contextWindowTokens,
+        overflowTokens: summaryPromptEstimate - (contextWindowTokens ?? 0),
+      })
+      throw new Error(
+        `Relationship narrative prompt is too large for the selected model context window (${summaryPromptEstimate.toLocaleString()} estimated tokens vs ${contextWindowTokens?.toLocaleString() ?? 'unknown'} available).`,
+      )
+    }
+
+    const narrative = await fetchRelationshipCompletion(server, modelSlug, summaryMessages, debug)
+
+    debug('info', 'relationships.narrative.complete', {
+      narrativeLength: narrative.length,
+    })
+
+    return narrative
+  },
+)
+
+/**
  * Relationships: run LLM analysis and return merged graph without saving.
  */
 ipcMain.handle(
@@ -4621,39 +4717,10 @@ ipcMain.handle(
     )
     const validIds = new Set(characters.map((c) => c.id))
     const transcript = buildRelationshipTranscript(sessions)
-
-    const messages: ChatMessage[] = [
-      {
-        role: 'system',
-        content: `You analyse roleplay transcripts and extract character relationship states.
-
-For each directed character pair (A→B), output a JSON array of relationship entries.
-Each entry must have:
-- fromCharacterId (string, exact character ID from the provided character list)
-- toCharacterId (string, exact character ID from the provided character list)
-- trustScore (integer 0–100)
-- affinityLabel (one of: hostile, wary, neutral, friendly, allied, devoted)
-- summary (1–3 sentences: how A currently perceives or feels toward B, grounded in transcript events only)
-
-Base all values strictly on evidence in the transcripts.
-Do not invent events or relationships not evidenced in the transcripts.
-Output only a valid JSON array. No explanation, no markdown, no wrapper text.`,
-      },
-      {
-        role: 'user',
-        content: `Characters:\n${characters.map((c) => `${c.id}: ${c.name}`).join('\n')}\n\nTranscripts (all sessions, oldest first):\n${transcript}\n\nGenerate relationship entries for all directed pairs where both characters appear in the transcripts.`,
-      },
-    ]
-
-    const promptEstimate = estimatePromptTokens(messages)
     const contextWindowTokens =
       typeof activeModel?.contextWindowTokens === 'number' && activeModel.contextWindowTokens > 0
         ? activeModel.contextWindowTokens
         : null
-    const availableContextTokens = contextWindowTokens === null
-      ? null
-      : Math.max(contextWindowTokens - promptEstimate, 0)
-    const fitsInContext = contextWindowTokens === null ? null : promptEstimate <= contextWindowTokens
 
     const debug = (direction: AiDebugEntry['direction'], label: string, details: unknown) => {
       recordAiDebugEntry(event.sender, direction, label, {
@@ -4668,34 +4735,97 @@ Output only a valid JSON array. No explanation, no markdown, no wrapper text.`,
       characterCount: characters.length,
       sessionCount: sessions.length,
       transcriptLength: transcript.length,
-      promptEstimate,
       contextWindowTokens,
-      availableContextTokens,
-      fitsInContext,
     })
 
-    if (fitsInContext === false) {
-      debug('error', 'relationships.refresh.context_overflow', {
-        promptEstimate,
+    /* ── PASS 1: Generate relationship-focused narrative summary ──────────────── */
+
+    const summaryMessages: ChatMessage[] = [
+      {
+        role: 'system',
+        content: DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT,
+      },
+      {
+        role: 'user',
+        content: `Characters:\n${characters.map((c) => `${c.id}: ${c.name}`).join('\n')}\n\nTranscript:\n${transcript}\n\nWrite the relationship-focused summary.`,
+      },
+    ]
+
+    const summaryPromptEstimate = estimatePromptTokens(summaryMessages)
+    const summaryAvailableContextTokens = contextWindowTokens === null
+      ? null
+      : Math.max(contextWindowTokens - summaryPromptEstimate, 0)
+    const summaryFitsInContext = contextWindowTokens === null ? null : summaryPromptEstimate <= contextWindowTokens
+
+    debug('info', 'relationships.summary.start', {
+      promptEstimate: summaryPromptEstimate,
+      availableContextTokens: summaryAvailableContextTokens,
+      fitsInContext: summaryFitsInContext,
+    })
+
+    if (summaryFitsInContext === false) {
+      debug('error', 'relationships.summary.context_overflow', {
+        promptEstimate: summaryPromptEstimate,
         contextWindowTokens,
-        overflowTokens: promptEstimate - contextWindowTokens,
-        availableContextTokens,
-        fitsInContext,
-        message: 'Relationship refresh prompt is estimated to exceed the selected model context window.',
+        overflowTokens: summaryPromptEstimate - (contextWindowTokens ?? 0),
+        message: 'Relationship summary prompt is estimated to exceed the selected model context window.',
       })
       throw new Error(
-        `Relationship refresh prompt is too large for the selected model context window (${promptEstimate.toLocaleString()} estimated tokens vs ${contextWindowTokens.toLocaleString()} available).`,
+        `Relationship summary prompt is too large for the selected model context window (${summaryPromptEstimate.toLocaleString()} estimated tokens vs ${contextWindowTokens?.toLocaleString() ?? 'unknown'} available).`,
       )
     }
 
-    const raw = await fetchRelationshipCompletion(server, modelSlug, messages, debug)
+    const relationshipSummary = await fetchRelationshipCompletion(server, modelSlug, summaryMessages, debug)
+
+    debug('info', 'relationships.summary.complete', {
+      summaryLength: relationshipSummary.length,
+    })
+
+    /* ── PASS 2: Extract structured relationship entries from summary ────────── */
+
+    const extractMessages: ChatMessage[] = [
+      {
+        role: 'system',
+        content: DEFAULT_RELATIONSHIP_EXTRACTION_SYSTEM_PROMPT,
+      },
+      {
+        role: 'user',
+        content: `Characters:\n${characters.map((c) => `${c.id}: ${c.name}`).join('\n')}\n\nRelationship summary:\n${relationshipSummary}\n\nGenerate relationship entries for all directed pairs where both characters appear in the summary.`,
+      },
+    ]
+
+    const extractPromptEstimate = estimatePromptTokens(extractMessages)
+    const extractAvailableContextTokens = contextWindowTokens === null
+      ? null
+      : Math.max(contextWindowTokens - extractPromptEstimate, 0)
+    const extractFitsInContext = contextWindowTokens === null ? null : extractPromptEstimate <= contextWindowTokens
+
+    debug('info', 'relationships.refresh.start', {
+      promptEstimate: extractPromptEstimate,
+      availableContextTokens: extractAvailableContextTokens,
+      fitsInContext: extractFitsInContext,
+    })
+
+    if (extractFitsInContext === false) {
+      debug('error', 'relationships.refresh.context_overflow', {
+        promptEstimate: extractPromptEstimate,
+        contextWindowTokens,
+        overflowTokens: extractPromptEstimate - (contextWindowTokens ?? 0),
+        message: 'Relationship extraction prompt is estimated to exceed the selected model context window.',
+      })
+      throw new Error(
+        `Relationship extraction prompt is too large for the selected model context window (${extractPromptEstimate.toLocaleString()} estimated tokens vs ${contextWindowTokens?.toLocaleString() ?? 'unknown'} available).`,
+      )
+    }
+
+    const raw = await fetchRelationshipCompletion(server, modelSlug, extractMessages, debug)
     const validated = parseRelationshipEntries(raw, validIds)
     const existing = loadRelationshipGraph(campaignPath, campaignId)
     debug('info', 'relationships.refresh.parsed', {
       validatedEntryCount: validated.length,
       existingEntryCount: existing?.entries.length ?? 0,
     })
-    return mergeRelationshipEntries(existing, campaignId, validated)
+    return mergeRelationshipEntries(existing, campaignId, validated, relationshipSummary)
   },
 )
 
