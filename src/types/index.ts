@@ -85,6 +85,8 @@ export interface CampaignFileHandle {
   path: string
   /** Parsed campaign content loaded from that file. */
   campaign: Campaign
+  /** Stored character profiles loaded alongside the campaign, when available. */
+  characters?: CharacterProfile[]
 }
 
 /**
@@ -151,6 +153,45 @@ export interface CharacterAvatarCrop {
   y: number
   /** Rendered image scale multiplier. */
   scale: number
+}
+
+/* ── Relationship graph ───────────────────────────────────────────────── */
+
+/** Broad affinity category for a directed character relationship. */
+export type AffinityLabel = 'hostile' | 'wary' | 'neutral' | 'friendly' | 'allied' | 'devoted'
+
+/**
+ * A directed relationship from one character's perspective toward another.
+ * Mira→Kael and Kael→Mira are separate entries.
+ */
+export interface RelationshipEntry {
+  /** ID of the character whose perspective this entry represents. */
+  fromCharacterId: string
+  /** ID of the character being related to. */
+  toCharacterId: string
+  /** Trust level 0 (no trust) to 100 (complete trust). */
+  trustScore: number
+  /** Broad relationship category. */
+  affinityLabel: AffinityLabel
+  /** AI-generated prose summary (1–3 sentences). */
+  summary: string
+  /** User-editable supplement; empty string when unused. */
+  manualNotes: string
+  /** Unix timestamp (ms) when AI last generated data for this entry. Manual edits do not update this. */
+  lastAiRefreshedAt: number
+}
+
+/**
+ * Campaign-level container for all directed character relationship entries.
+ * Persisted to <campaignFolderPath>/relationships.json.
+ */
+export interface RelationshipGraph {
+  /** Campaign.id — written on creation, used for integrity validation on load. */
+  campaignId: string
+  /** All directed relationship entries for this campaign. */
+  entries: RelationshipEntry[]
+  /** Unix timestamp (ms) of most recent refresh; null if never refreshed. */
+  lastRefreshedAt: number | null
 }
 
 /**
@@ -584,6 +625,22 @@ export interface LocalRuntimeLoadProgress {
   percent: number | null
   /** Human-readable progress text for the UI. */
   message: string
+}
+
+/**
+ * Progress update emitted while an existing campaign is loading from disk.
+ */
+export interface CampaignLoadProgress {
+  /** Current load phase for the campaign-open flow. */
+  status: 'reading-metadata' | 'loading-chats' | 'loading-characters' | 'complete' | 'error'
+  /** Completion percentage across the disk-loading portion of the flow. */
+  percent: number
+  /** Human-readable progress text for the launcher. */
+  message: string
+  /** Number of chat files processed so far. */
+  sessionsLoaded: number
+  /** Total chat files expected for this campaign. */
+  totalSessions: number
 }
 
 /**
