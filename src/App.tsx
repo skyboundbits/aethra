@@ -55,6 +55,7 @@ import type {
   AiDebugEntry,
   BinaryInstallProgress,
   Campaign,
+  CampaignLoadProgress,
   CampaignSummary,
   CharacterProfile,
   HardwareInfo,
@@ -65,6 +66,7 @@ import type {
   ChatMessage,
   ModelDownloadProgress,
   ModelPreset,
+  RelationshipGraph,
   ReusableAvatar,
   ReusableCharacter,
   Session,
@@ -111,6 +113,7 @@ const SUMMARY_RECENT_MESSAGE_COUNT = 10
 const SUMMARY_IDLE_DELAY_MS = 1500
 const SUMMARY_REBUILD_CONTEXT_FRACTION = 0.75
 const CHAT_LOADING_MIN_DURATION_MS = 220
+const CAMPAIGN_LAUNCHER_COMPLETION_HOLD_MS = 480
 const MODEL_LOADER_SERVER_KINDS = new Set(['lmstudio', 'text-generation-webui', 'llama.cpp'])
 
 /**
@@ -214,6 +217,40 @@ function toApiMessages(messages: Message[]): ChatMessage[] {
 }
 
 /**
+ * Build the inline Relationships block for one character's prompt entry.
+ * Returns null when no qualifying relationship entries exist.
+ *
+ * @param character - Character whose perspective to render.
+ * @param activeCharacterIds - IDs of all characters enabled in the current session.
+ * @param characterNamesById - Lookup map from character ID to display name.
+ * @param graph - Campaign relationship graph, or null when unavailable.
+ * @returns Formatted "Relationships:\n→ ..." block, or null.
+ */
+function buildCharacterRelationshipBlock(
+  character: CharacterProfile,
+  activeCharacterIds: Set<string>,
+  characterNamesById: Map<string, string>,
+  graph: RelationshipGraph | null,
+): string | null {
+  if (!graph || graph.entries.length === 0) return null
+
+  const entries = graph.entries.filter(
+    (entry) =>
+      entry.fromCharacterId === character.id &&
+      activeCharacterIds.has(entry.toCharacterId),
+  )
+  if (entries.length === 0) return null
+
+  const lines = entries.map((entry) => {
+    const targetName = characterNamesById.get(entry.toCharacterId) ?? entry.toCharacterId
+    const notesSuffix = entry.manualNotes.trim() ? ` [Note: ${entry.manualNotes.trim()}]` : ''
+    return `→ ${targetName} [trust: ${entry.trustScore}/100 | ${entry.affinityLabel}] ${entry.summary}${notesSuffix}`
+  })
+
+  return `Relationships:\n${lines.join('\n')}`
+}
+
+/**
  * Build the deterministic system-message context sent with every request.
  *
  * @param campaign - Active campaign metadata.
@@ -223,6 +260,7 @@ function toApiMessages(messages: Message[]): ChatMessage[] {
  * @param formattingRules - Persisted formatting rules appended after the base prompt.
  * @param customSystemPrompt - User-configured system prompt text.
  * @param sceneSummary - Rolling scene summary, if one exists for the session.
+ * @param relationshipGraph - Campaign relationship graph, if available.
  */
 function buildSystemContext(
   campaign: Campaign,
@@ -232,6 +270,7 @@ function buildSystemContext(
   formattingRules: string,
   customSystemPrompt: string,
   sceneSummary: string | null,
+  relationshipGraph: RelationshipGraph | null = null,
 ): ChatMessage[] {
   const normalizedCampaignBasePrompt =
     typeof campaignBasePrompt === 'string' ? campaignBasePrompt : DEFAULT_CAMPAIGN_BASE_PROMPT
@@ -290,6 +329,10 @@ function buildSystemContext(
     content: sessionContextSections.join('\n\n'),
   }
 
+  // Precompute for relationship injection — hoist outside the map loop
+  const activeCharacterIds = new Set(characters.map((c) => c.id))
+  const characterNamesById = new Map(characters.map((c) => [c.id, c.name]))
+
   const charactersContext: ChatMessage = {
     role: 'system',
     content: characters.length > 0
@@ -312,6 +355,17 @@ function buildSystemContext(
 
         if (character.goals) {
           sections.push(`Goals: ${character.goals}`)
+        }
+
+        // Build relationship block for this character (injected last, after Goals)
+        const relationshipBlock = buildCharacterRelationshipBlock(
+          character,
+          activeCharacterIds,
+          characterNamesById,
+          relationshipGraph,
+        )
+        if (relationshipBlock) {
+          sections.push(`\n${relationshipBlock}`)
         }
 
         return sections.join('\n')
@@ -417,6 +471,16 @@ interface SessionSummarySnapshot {
   transcript: Message[]
 }
 
+/** Renderer-side loading state shown on the launcher while a campaign opens. */
+interface CampaignLauncherLoadingState {
+  /** Headline describing the current open flow. */
+  title: string
+  /** Human-readable detail for the current phase. */
+  detail: string
+  /** Approximate completion percentage for the staged progress bar. */
+  percent: number | null
+}
+
 /**
  * Build the outbound prompt payload for a session.
  *
@@ -434,6 +498,7 @@ function buildRequestMessages(
   session: Session,
   pendingMessages: Message[] = [],
   trailingInstructions: ChatMessage[] = [],
+  relationshipGraph: RelationshipGraph | null = null,
 ): ChatMessage[] {
   return [
     ...buildSystemContext(
@@ -444,6 +509,7 @@ function buildRequestMessages(
       settings.formattingRules,
       settings.systemPrompt,
       getPromptSceneSummary(session, settings.enableRollingSummaries),
+      relationshipGraph,
     ),
     ...toApiMessages(getPromptWindowMessages(session, settings.enableRollingSummaries, pendingMessages)),
     ...trailingInstructions,
@@ -480,20 +546,6 @@ function createSessionSummarySnapshot(session: Session): SessionSummarySnapshot 
     nextSummarizedCount,
     transcript,
   }
-}
-
-/**
- * Build the dedicated prompt used to refresh a rolling scene summary.
- *
- * @param snapshot - Archived transcript slice being summarized.
- * @returns Chat payload for the background summary request.
- */
-function buildSummaryMessages(snapshot: SessionSummarySnapshot): ChatMessage[] {
-  return buildRollingSummaryUpdateMessages(
-    DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
-    snapshot.previousSummary,
-    snapshot.transcript,
-  )
 }
 
 /**
@@ -980,6 +1032,86 @@ function hydrateCampaignMessageCharacterIds(campaign: Campaign, characters: Char
 }
 
 /**
+ * Convert main-process campaign-load progress into launcher loading copy.
+ *
+ * @param progress - Current disk-loading progress update.
+ * @returns Launcher-friendly loading title, detail, and percent.
+ */
+function toCampaignLauncherLoadingState(progress: CampaignLoadProgress): CampaignLauncherLoadingState {
+  if (progress.status === 'loading-chats') {
+    const chatLabel = progress.totalSessions === 1 ? 'chat' : 'chats'
+    return {
+      title: progress.totalSessions > 0 ? 'Loading Chats' : 'Loading Campaign',
+      detail: progress.totalSessions > 0
+        ? `Loading ${chatLabel} ${progress.sessionsLoaded} of ${progress.totalSessions}…`
+        : 'Reading campaign data from disk…',
+      percent: progress.percent,
+    }
+  }
+
+  if (progress.status === 'loading-characters') {
+    const characterLabel = progress.totalSessions === 1 ? 'character' : 'characters'
+    return {
+      title: progress.totalSessions > 0 ? 'Loading Characters' : 'Finalizing Campaign',
+      detail: progress.totalSessions > 0
+        ? `Loading ${characterLabel} ${progress.sessionsLoaded} of ${progress.totalSessions}…`
+        : 'No stored characters found. Finalizing campaign…',
+      percent: progress.percent,
+    }
+  }
+
+  if (progress.status === 'complete') {
+    return {
+      title: 'Campaign Ready',
+      detail: progress.message,
+      percent: progress.percent,
+    }
+  }
+
+  if (progress.status === 'error') {
+    return {
+      title: 'Loading Campaign',
+      detail: progress.message,
+      percent: 0,
+    }
+  }
+
+  return {
+    title: 'Loading Campaign',
+    detail: progress.message,
+    percent: progress.percent,
+  }
+}
+
+/**
+ * Wait for the browser to paint one more frame so a loading-state update can
+ * appear before the next async step begins.
+ *
+ * @returns Promise resolving after two animation frames.
+ */
+function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        resolve()
+      })
+    })
+  })
+}
+
+/**
+ * Delay for a fixed number of milliseconds.
+ *
+ * @param ms - Minimum time to wait.
+ * @returns Promise resolving after the timeout elapses.
+ */
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+/**
  * App
  * Top-level component that wires together all panels and manages state.
  */
@@ -1027,6 +1159,10 @@ export default function App() {
   const charactersRef = useRef<CharacterProfile[]>([])
   /** Ref holding the current streaming state for idle summary scheduling. */
   const isStreamingRef = useRef(false)
+  /** Ref holding the latest campaign-load progress event emitted by the main process. */
+  const campaignLoadProgressRef = useRef<CampaignLoadProgress | null>(null)
+  /** Skip the next campaign-path-driven character refresh when characters were already loaded. */
+  const skipNextCharacterRefreshRef = useRef(false)
   /** Tracks whether any modal or confirmation dialog was open in the previous render. */
   const wasModalOpenRef = useRef(false)
   /** Per-session delayed summary timers. */
@@ -1110,6 +1246,10 @@ export default function App() {
 
   /** Status message shown in the campaign launcher. */
   const [campaignStatusMessage, setCampaignStatusMessage] = useState<string | null>(null)
+  /** Staged launcher loading state used while opening a campaign from the startup screen. */
+  const [campaignLauncherLoadingState, setCampaignLauncherLoadingState] = useState<CampaignLauncherLoadingState | null>(null)
+  /** Current main-process campaign-open progress, when one is active. */
+  const [campaignLoadProgress, setCampaignLoadProgress] = useState<CampaignLoadProgress | null>(null)
 
   /** Campaign summaries available to open from the launcher. */
   const [availableCampaigns, setAvailableCampaigns] = useState<CampaignSummary[]>([])
@@ -1273,6 +1413,10 @@ export default function App() {
         }
       }
     })
+    const disposeCampaignLoadListener = window.api.onCampaignLoadProgress((progress) => {
+      setCampaignLoadProgress(progress)
+      setCampaignLauncherLoadingState(toCampaignLauncherLoadingState(progress))
+    })
 
     return () => {
       cancelled = true
@@ -1280,12 +1424,14 @@ export default function App() {
       disposeRuntimeLoadProgressListener()
       disposeDownloadListener()
       disposeBinaryInstallListener()
+      disposeCampaignLoadListener()
     }
   }, [])
 
   // Keep the settings ref in sync so event listeners in empty-dep useEffects can read current values.
   appSettingsRef.current = appSettings
   campaignRef.current = campaign
+  campaignLoadProgressRef.current = campaignLoadProgress
   charactersRef.current = characters
   isStreamingRef.current = isStreaming
 
@@ -1316,6 +1462,11 @@ export default function App() {
       return
     }
 
+    if (skipNextCharacterRefreshRef.current) {
+      skipNextCharacterRefreshRef.current = false
+      return
+    }
+
     void refreshCharacters(campaignPath)
   }, [campaignPath])
 
@@ -1326,6 +1477,8 @@ export default function App() {
 
   /** The full session object for the active session (or null). */
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null
+  /** True while a campaign switch is showing the dedicated full-screen loading state. */
+  const isCampaignSwitchLoading = campaignLauncherLoadingState !== null
   /** True when any modal or confirmation dialog is currently covering the workspace. */
   const isAnyModalOpen =
     isSettingsOpen ||
@@ -1542,10 +1695,12 @@ export default function App() {
     return buildSystemContext(
       campaign,
       enabledSessionCharacters,
+      activeSession,
       appSettings.campaignBasePrompt,
       appSettings.formattingRules,
       appSettings.systemPrompt,
       getPromptSceneSummary(activeSession, appSettings.enableRollingSummaries),
+      relationshipGraph,
     )
   }, [
     activeSession,
@@ -1553,6 +1708,7 @@ export default function App() {
     appSettings.enableRollingSummaries,
     appSettings.formattingRules,
     appSettings.systemPrompt,
+    relationshipGraph,
     campaign,
     enabledSessionCharacters,
   ])
@@ -1799,6 +1955,17 @@ export default function App() {
       console.error('[Aethra] Could not list campaigns:', err)
       setCampaignStatusMessage('Could not load saved campaigns.')
     }
+  }
+
+  /**
+   * Update the launcher loading screen and yield long enough for the renderer
+   * to paint the next staged progress state.
+   *
+   * @param nextState - Loading title, detail, and progress percent.
+   */
+  async function stageCampaignLauncherLoading(nextState: CampaignLauncherLoadingState): Promise<void> {
+    setCampaignLauncherLoadingState(nextState)
+    await waitForNextPaint()
   }
 
   /**
@@ -2155,6 +2322,7 @@ export default function App() {
       const created = await window.api.createCampaign(name, description)
       const nextCharacters = await window.api.listCharacters(created.path)
       const hydratedCampaign = hydrateCampaignMessageCharacterIds(created.campaign, nextCharacters)
+      skipNextCharacterRefreshRef.current = true
       setCharacters(nextCharacters)
       setActiveCharacterId(nextCharacters[0]?.id ?? null)
       setCampaign(hydratedCampaign)
@@ -2181,14 +2349,32 @@ export default function App() {
   async function handleOpenCampaign(path: string): Promise<void> {
     setIsCampaignBusy(true)
     setCampaignStatusMessage(null)
+    setCampaignLoadProgress(null)
+    setIsCampaignModalOpen(false)
     setCharacters([])
     setActiveCharacterId(null)
     setComposerCharacterId(null)
 
     try {
+      await stageCampaignLauncherLoading({
+        title: 'Loading Campaign',
+        detail: 'Connecting to campaign storage…',
+        percent: 2,
+      })
+
       const opened = await window.api.openCampaign(path)
-      const nextCharacters = await window.api.listCharacters(opened.path)
+      const diskLoadState = campaignLoadProgressRef.current
+        ? toCampaignLauncherLoadingState(campaignLoadProgressRef.current)
+        : null
+      if (diskLoadState) {
+        await stageCampaignLauncherLoading(diskLoadState)
+      }
+      await wait(CAMPAIGN_LAUNCHER_COMPLETION_HOLD_MS)
+
+      const nextCharacters = opened.characters ?? []
       const hydratedCampaign = hydrateCampaignMessageCharacterIds(opened.campaign, nextCharacters)
+
+      skipNextCharacterRefreshRef.current = true
       setCharacters(nextCharacters)
       setActiveCharacterId(nextCharacters[0]?.id ?? null)
       setCampaign(hydratedCampaign)
@@ -2196,12 +2382,15 @@ export default function App() {
       setActiveSessionId(hydratedCampaign.sessions[0]?.id ?? null)
       setSelectedSessionId(hydratedCampaign.sessions[0]?.id ?? null)
       lastSavedCampaignRef.current = hydratedCampaign
-      setIsCampaignModalOpen(false)
+      setCampaignLauncherLoadingState(null)
+
       await refreshCampaigns()
     } catch (err) {
       console.error('[Aethra] Could not open campaign:', err)
       setCampaignStatusMessage(err instanceof Error ? err.message : 'Could not open campaign.')
     } finally {
+      setCampaignLoadProgress(null)
+      setCampaignLauncherLoadingState(null)
       setIsCampaignBusy(false)
     }
   }
@@ -2258,7 +2447,9 @@ export default function App() {
       console.error('[Aethra] Could not pick campaign file:', err)
       setCampaignStatusMessage(err instanceof Error ? err.message : 'Could not open campaign file.')
     } finally {
-      setIsCampaignBusy(false)
+      if (campaignRef.current === null && campaignLauncherLoadingState === null) {
+        setIsCampaignBusy(false)
+      }
     }
   }
 
@@ -3651,8 +3842,7 @@ export default function App() {
     try {
       const savedCharacter = await window.api.saveCharacter(campaignPath, character)
       setCharacters((prev) =>
-        prev
-          .map((candidate) => candidate.id === savedCharacter.id ? savedCharacter : candidate)
+        [savedCharacter, ...prev.filter((candidate) => candidate.id !== savedCharacter.id)]
           .sort((first, second) => second.updatedAt - first.updatedAt),
       )
       setActiveCharacterId(savedCharacter.id)
@@ -4091,6 +4281,8 @@ export default function App() {
       appSettingsRef.current,
       requestSession,
       [userMessage],
+      undefined,
+      relationshipGraph,
     )
     const playerControlledNames = new Set(
       enabledSessionCharacters
@@ -4242,6 +4434,7 @@ export default function App() {
             role: 'user',
             content: 'Your previous reply was invalid. Retry and output only lines beginning with [Name]. Every line must start with [Scene] or the exact name of an AI-controlled character. Do not write any content for player-controlled characters.',
           }],
+          relationshipGraph,
         )
 
       streamCompletion(
@@ -4347,6 +4540,8 @@ export default function App() {
         appSettingsRef.current,
         requestSession,
         [userMessage],
+        undefined,
+        relationshipGraph,
       )
 
       streamAssistantAttempt(1)
@@ -4435,7 +4630,7 @@ export default function App() {
     <div className="app-root">
       <TitleBar title="Aethra" />
 
-      {campaign ? (
+      {campaign && !isCampaignSwitchLoading ? (
         <RibbonBar
           activeTab={activeTab}
           onTabChange={handleTabChange}
@@ -4447,7 +4642,21 @@ export default function App() {
         />
       ) : null}
 
-      {campaign ? (
+      {isCampaignSwitchLoading ? (
+        <CampaignLauncher
+          campaigns={availableCampaigns}
+          isBusy={isCampaignBusy}
+          loadingState={campaignLauncherLoadingState}
+          statusMessage={campaignStatusMessage}
+          onCreateCampaign={handleCreateCampaign}
+          onOpenFromFile={() => {
+            void handleOpenCampaignFromFile()
+          }}
+          onOpenCampaign={(path) => {
+            void handleOpenCampaign(path)
+          }}
+        />
+      ) : campaign ? (
         <div className="app-layout">
           {/* Left column: session navigator */}
           <Sidebar
@@ -4527,6 +4736,7 @@ export default function App() {
         <CampaignLauncher
           campaigns={availableCampaigns}
           isBusy={isCampaignBusy}
+          loadingState={campaignLauncherLoadingState}
           statusMessage={campaignStatusMessage}
           onCreateCampaign={handleCreateCampaign}
           onOpenFromFile={() => {
@@ -4538,7 +4748,7 @@ export default function App() {
         />
       )}
 
-      {isSettingsOpen ? (
+      {!isCampaignSwitchLoading && isSettingsOpen ? (
         <SettingsModal
           servers={appSettings.servers}
           models={appSettings.models}
@@ -4607,7 +4817,7 @@ export default function App() {
         />
       ) : null}
 
-      {isAiDebugOpen ? (
+      {!isCampaignSwitchLoading && isAiDebugOpen ? (
         <AiDebugModal
           entries={aiDebugEntries}
           onClose={handleCloseAiDebug}
@@ -4617,7 +4827,7 @@ export default function App() {
         />
       ) : null}
 
-      {isModelLoaderOpen ? (
+      {!isCampaignSwitchLoading && isModelLoaderOpen ? (
         <ModelLoaderModal
           servers={modelLoaderServers}
           selectedServerId={modelLoaderServer?.id ?? null}
@@ -4642,7 +4852,7 @@ export default function App() {
         />
       ) : null}
 
-      {isModelParametersOpen ? (
+      {!isCampaignSwitchLoading && isModelParametersOpen ? (
         <ModelParametersModal
           model={activeModel}
           statusMessage={modelParametersStatusMessage}
@@ -4653,7 +4863,7 @@ export default function App() {
         />
       ) : null}
 
-      {isCharactersOpen ? (
+      {!isCampaignSwitchLoading && isCharactersOpen ? (
         <CharactersModal
           characters={characters}
           activeCharacterId={activeCharacterId}
@@ -4682,7 +4892,7 @@ export default function App() {
           onImportReusableCharacter={(character) => handleImportReusableCharacter(character)}
         />
       ) : null}
-      {isNewSessionModalOpen ? (
+      {!isCampaignSwitchLoading && isNewSessionModalOpen ? (
         <NewSessionModal
           sessions={sessions}
           campaignCharacters={characters}
@@ -4702,7 +4912,7 @@ export default function App() {
             )}
         />
       ) : null}
-      {isSessionCharactersOpen ? (
+      {!isCampaignSwitchLoading && isSessionCharactersOpen ? (
         <SessionCharactersModal
           activeSession={activeSession}
           characters={characters}
@@ -4710,7 +4920,7 @@ export default function App() {
           onClose={handleCloseSessionCharacters}
         />
       ) : null}
-      {isSummaryModalOpen ? (
+      {!isCampaignSwitchLoading && isSummaryModalOpen ? (
         <SummaryModal
           summary={activeSession?.rollingSummary ?? ''}
           isRebuilding={isRebuildingSummary}
@@ -4720,7 +4930,7 @@ export default function App() {
           onRebuild={() => { void handleRebuildSummary() }}
         />
       ) : null}
-      {isCreateCampaignOpen ? (
+      {!isCampaignSwitchLoading && isCreateCampaignOpen ? (
         <CreateCampaignModal
           isBusy={isCampaignBusy}
           onClose={() => {
@@ -4731,7 +4941,7 @@ export default function App() {
           }}
           />
         ) : null}
-      {isCampaignModalOpen ? (
+      {!isCampaignSwitchLoading && isCampaignModalOpen ? (
         <CampaignModal
           campaign={campaign}
           campaignPath={campaignPath}
@@ -4753,7 +4963,7 @@ export default function App() {
           }}
         />
       ) : null}
-      {pendingDeleteMessageId ? (
+      {!isCampaignSwitchLoading && pendingDeleteMessageId ? (
         <Modal
           title="Delete Message"
           onClose={handleCancelDeleteMessage}
@@ -4775,7 +4985,7 @@ export default function App() {
           </div>
         </Modal>
       ) : null}
-      {pendingDeleteSessionId ? (
+      {!isCampaignSwitchLoading && pendingDeleteSessionId ? (
         <ConfirmModal
           title="Delete Chat"
           message="This will permanently remove the selected chat and its full message history."
@@ -4784,7 +4994,7 @@ export default function App() {
           onCancel={handleCancelDeleteSession}
         />
       ) : null}
-      {confirmState ? (
+      {!isCampaignSwitchLoading && confirmState ? (
         <ConfirmModal {...confirmState} />
       ) : null}
     </div>
