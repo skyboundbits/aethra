@@ -19,6 +19,12 @@ interface DetailsPanelProps {
   totalCharacterCount: number
   /** Called when the user wants to manage session characters. */
   onOpenSessionCharacters: () => void
+  /** Called when user triggers a relationship refresh. */
+  onRefreshRelationships: () => void
+  /** True while a refresh LLM call is in progress. */
+  isRefreshingRelationships: boolean
+  /** Inline error message to show below the button; null when none. */
+  refreshRelationshipsError: string | null
 }
 
 /**
@@ -75,6 +81,9 @@ export function DetailsPanel({
   activeCharacters,
   totalCharacterCount,
   onOpenSessionCharacters,
+  onRefreshRelationships,
+  isRefreshingRelationships,
+  refreshRelationshipsError,
 }: DetailsPanelProps) {
   const activeSpeakerNames = getActiveSpeakerNames(activeSession)
 
@@ -145,6 +154,21 @@ export function DetailsPanel({
             <div className="details__card-placeholder">No characters are active for this session.</div>
           )}
         </div>
+        {activeCharacters.length >= 2 && (
+          <div className="details-panel__relationships">
+            <button
+              className="details-panel__refresh-relationships-btn"
+              onClick={onRefreshRelationships}
+              disabled={isRefreshingRelationships}
+              type="button"
+            >
+              {isRefreshingRelationships ? 'Refreshing…' : 'Refresh Relationships'}
+            </button>
+            {refreshRelationshipsError && (
+              <p className="details-panel__refresh-error">{refreshRelationshipsError}</p>
+            )}
+          </div>
+        )}
       </div>
     </aside>
   )

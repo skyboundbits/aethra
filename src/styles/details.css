@@ -156,3 +156,37 @@
     width: min(320px, 34vw);
   }
 }
+
+/* ── Relationship refresh ─────────────────────────────────────────────── */
+
+.details-panel__relationships {
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.details-panel__refresh-relationships-btn {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
+  border: none;
+  border-radius: var(--border-radius);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.details-panel__refresh-relationships-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.details-panel__refresh-relationships-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.details-panel__refresh-error {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-color-secondary);
+}
