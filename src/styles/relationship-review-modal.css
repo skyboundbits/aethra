@@ -1,0 +1,148 @@
+/**
+ * src/styles/relationship-review-modal.css
+ * Styles for the RelationshipReviewModal post-refresh review dialog.
+ */
+
+/* ── Pair list (left pane) ───────────────────────────────────────────── */
+
+.rel-review__pair-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rel-review__pair-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  color: var(--text-color-primary);
+  font-size: 0.85rem;
+  transition: background 0.1s;
+}
+
+.rel-review__pair-item:hover {
+  background: var(--surface-bg-emphasis);
+}
+
+.rel-review__pair-item--selected {
+  background: var(--surface-bg-selected);
+}
+
+.rel-review__pair-item--updated::after {
+  content: 'updated';
+  font-size: 0.65rem;
+  background: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ── Affinity badge ──────────────────────────────────────────────────── */
+
+.rel-review__affinity-badge {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-bg-emphasis);
+  color: var(--text-color-secondary);
+  flex-shrink: 0;
+}
+
+.rel-review__affinity-badge--hostile { background: #5a1a1a; color: #f08080; }
+.rel-review__affinity-badge--wary    { background: #4a3a10; color: #d4a847; }
+.rel-review__affinity-badge--neutral { background: var(--surface-bg-emphasis); color: var(--text-color-secondary); }
+.rel-review__affinity-badge--friendly { background: #1a3a4a; color: #70c0d0; }
+.rel-review__affinity-badge--allied  { background: #1a3a1a; color: #70c870; }
+.rel-review__affinity-badge--devoted { background: #3a1a4a; color: #c080e0; }
+
+/* ── Detail view (right pane) ────────────────────────────────────────── */
+
+.rel-review__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.rel-review__detail-header {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-color-primary);
+  margin: 0;
+}
+
+.rel-review__field-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-color-secondary);
+  margin-bottom: 4px;
+}
+
+.rel-review__trust-input {
+  width: 80px;
+  padding: 4px 8px;
+  background: var(--surface-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-color-primary);
+  font-size: 0.85rem;
+}
+
+.rel-review__affinity-select {
+  padding: 4px 8px;
+  background: var(--surface-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-color-primary);
+  font-size: 0.85rem;
+}
+
+.rel-review__summary-text {
+  width: 100%;
+  min-height: 80px;
+  padding: 6px 8px;
+  background: var(--surface-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-color-secondary);
+  font-size: 0.85rem;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.rel-review__notes-input {
+  width: 100%;
+  min-height: 60px;
+  padding: 6px 8px;
+  background: var(--surface-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-color-primary);
+  font-size: 0.85rem;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.rel-review__empty-state {
+  color: var(--text-color-muted);
+  font-size: 0.85rem;
+  padding: 20px 0;
+  text-align: center;
+}
+
+.rel-review__no-selection {
+  color: var(--text-color-muted);
+  font-size: 0.85rem;
+  padding: 20px 0;
+}
