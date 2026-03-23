@@ -21,12 +21,14 @@ import { cpus, totalmem } from 'os'
 import { basename, dirname, extname, join, relative } from 'path'
 
 import type {
+  AffinityLabel,
   AppSettings,
   AiDebugEntry,
   AvailableModel,
   BinaryInstallProgress,
   Campaign,
   CampaignFileHandle,
+  CampaignLoadProgress,
   CampaignSummary,
   ChatTextSize,
   CharacterProfile,
@@ -40,6 +42,8 @@ import type {
   ModelDownloadProgress,
   ModelPreset,
   ChatMessage,
+  RelationshipEntry,
+  RelationshipGraph,
   ServerKind,
   ServerProfile,
   Session,
@@ -166,8 +170,6 @@ interface PartialMessageRecord {
   role?: unknown
   characterId?: unknown
   characterName?: unknown
-  characterAvatarImageData?: unknown
-  characterAvatarCrop?: unknown
   content?: unknown
   timestamp?: unknown
 }
@@ -704,21 +706,38 @@ function buildLocalModelPreset(
 ): ModelPreset {
   const fileName = basename(filePath)
   const stats = statSync(filePath)
-  const parsed = parseModelMetadataHints(existingModel?.huggingFaceFile ?? fileName)
   const slug = buildLocalModelSlug(server, filePath)
+  const storedModel = loadModelProfile(server.id, slug) ?? {}
+  const parsed = parseModelMetadataHints(
+    existingModel?.huggingFaceFile ??
+    (typeof storedModel.huggingFaceFile === 'string' && storedModel.huggingFaceFile.length > 0
+      ? storedModel.huggingFaceFile
+      : fileName),
+  )
 
-  return applyLocalModelDefaults(applyStoredModelProfile({
+  return applyLocalModelDefaults({
+    ...storedModel,
     ...(existingModel ?? {}),
-    id: existingModel?.id ?? `${server.id}:${slug}`,
+    id:
+      existingModel?.id ??
+      (typeof storedModel.id === 'string' && storedModel.id.length > 0 ? storedModel.id : `${server.id}:${slug}`),
     serverId: server.id,
-    name: existingModel?.name ?? fileName.replace(/\.gguf$/i, ''),
+    name:
+      existingModel?.name ??
+      (typeof storedModel.name === 'string' && storedModel.name.length > 0
+        ? storedModel.name
+        : fileName.replace(/\.gguf$/i, '')),
     slug,
-    source: existingModel?.source ?? (existingModel?.huggingFaceRepo ? 'huggingface' : 'local-file'),
+    source:
+      existingModel?.source ??
+      storedModel.source ??
+      ((existingModel?.huggingFaceRepo ?? storedModel.huggingFaceRepo) ? 'huggingface' : 'local-file'),
     localPath: filePath,
     fileSizeBytes: stats.size,
-    parameterSizeBillions: existingModel?.parameterSizeBillions ?? parsed.parameterSizeBillions,
-    quantization: existingModel?.quantization ?? parsed.quantization,
-  }))
+    parameterSizeBillions:
+      existingModel?.parameterSizeBillions ?? storedModel.parameterSizeBillions ?? parsed.parameterSizeBillions,
+    quantization: existingModel?.quantization ?? storedModel.quantization ?? parsed.quantization,
+  })
 }
 
 /**
@@ -1533,6 +1552,67 @@ function listStoredCharacters(folderPath: string): CharacterProfile[] {
 }
 
 /**
+ * Load all stored characters for a campaign while emitting progress updates.
+ *
+ * @param folderPath - Absolute campaign folder path.
+ * @param onProgress - Optional callback receiving character-load progress.
+ * @returns Stored character profiles sorted by last updated.
+ */
+function loadStoredCharactersWithProgress(
+  folderPath: string,
+  onProgress?: (progress: CampaignLoadProgress) => void,
+): CharacterProfile[] {
+  const root = ensureCharacterRoot(folderPath)
+  const folders = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+  const totalCharacters = folders.length
+  const loadedCharacters: CharacterProfile[] = []
+
+  const progressPercent = (loadedCount: number): number => {
+    if (totalCharacters <= 0) {
+      return 98
+    }
+
+    return Math.round(84 + (loadedCount / totalCharacters) * 14)
+  }
+
+  onProgress?.({
+    status: 'loading-characters',
+    percent: progressPercent(0),
+    message: totalCharacters > 0
+      ? `Loading characters 0 of ${totalCharacters}…`
+      : 'No stored characters found. Finalizing campaign…',
+    sessionsLoaded: 0,
+    totalSessions: totalCharacters,
+  })
+
+  folders.forEach((folderName, index) => {
+    const path = characterFilePath(folderPath, folderName)
+    if (existsSync(path)) {
+      try {
+        loadedCharacters.push(normalizeCharacter(JSON.parse(readFileSync(path, 'utf-8')) as unknown, folderName))
+      } catch {
+        // Skip invalid character files while continuing the load.
+      }
+    }
+
+    const loadedCount = index + 1
+    onProgress?.({
+      status: 'loading-characters',
+      percent: progressPercent(loadedCount),
+      message: totalCharacters > 0
+        ? `Loading characters ${loadedCount} of ${totalCharacters}…`
+        : 'No stored characters found. Finalizing campaign…',
+      sessionsLoaded: loadedCount,
+      totalSessions: totalCharacters,
+    })
+  })
+
+  return loadedCharacters.sort((first, second) => second.updatedAt - first.updatedAt)
+}
+
+/**
  * Create a new stored character for a campaign.
  *
  * @param folderPath - Absolute campaign folder path.
@@ -1659,15 +1739,45 @@ function saveCampaign(folderPath: string, campaign: Campaign): void {
  * @param folderPath - Absolute path to a campaign folder.
  * @returns Campaign file handle containing path and parsed content.
  */
-function loadCampaignFile(folderPath: string): CampaignFileHandle {
+function loadCampaignFile(
+  folderPath: string,
+  onProgress?: (progress: CampaignLoadProgress) => void,
+): CampaignFileHandle {
   const fallbackName = basename(folderPath)
+  onProgress?.({
+    status: 'reading-metadata',
+    percent: 6,
+    message: 'Reading campaign overview…',
+    sessionsLoaded: 0,
+    totalSessions: 0,
+  })
   const rawText = readFileSync(campaignFilePath(folderPath), 'utf-8')
 
   let campaign: Campaign
+  let characters: CharacterProfile[] | undefined
 
   try {
     const campaignRecord = normalizeCampaignRecord(JSON.parse(rawText) as unknown, fallbackName)
     const chatsPath = campaignChatsPath(folderPath)
+    const totalSessions = campaignRecord.sessions.length
+    const progressPercent = (sessionsLoaded: number): number => {
+      if (totalSessions <= 0) {
+        return 82
+      }
+
+      return Math.round(12 + (sessionsLoaded / totalSessions) * 70)
+    }
+
+    onProgress?.({
+      status: 'loading-chats',
+      percent: progressPercent(0),
+      message: totalSessions > 0
+        ? `Loading chats 0 of ${totalSessions}…`
+        : 'No stored chats found. Skipping transcript load…',
+      sessionsLoaded: 0,
+      totalSessions,
+    })
+
     const sessions = campaignRecord.sessions.flatMap((sessionRef, index) => {
       try {
         const sessionRaw = JSON.parse(
@@ -1676,6 +1786,17 @@ function loadCampaignFile(folderPath: string): CampaignFileHandle {
         return [normalizeSession(sessionRaw as PartialSessionRecord, campaignRecord.createdAt + index)]
       } catch {
         return []
+      } finally {
+        const sessionsLoaded = index + 1
+        onProgress?.({
+          status: 'loading-chats',
+          percent: progressPercent(sessionsLoaded),
+          message: totalSessions > 0
+            ? `Loading chats ${sessionsLoaded} of ${totalSessions}…`
+            : 'No stored chats found. Skipping transcript load…',
+          sessionsLoaded,
+          totalSessions,
+        })
       }
     })
 
@@ -1683,11 +1804,21 @@ function loadCampaignFile(folderPath: string): CampaignFileHandle {
       ...campaignRecord,
       sessions,
     }
+    characters = loadStoredCharactersWithProgress(folderPath, onProgress)
   } catch {
     campaign = normalizeCampaign(JSON.parse(rawText) as unknown, fallbackName)
+    characters = loadStoredCharactersWithProgress(folderPath, onProgress)
   }
 
-  return { path: folderPath, campaign }
+  onProgress?.({
+    status: 'complete',
+    percent: 100,
+    message: 'Campaign data is ready.',
+    sessionsLoaded: characters?.length ?? 0,
+    totalSessions: characters?.length ?? 0,
+  })
+
+  return { path: folderPath, campaign, characters }
 }
 
 /**
@@ -3683,7 +3814,7 @@ function estimatePromptTokens(messages: ChatMessage[]): number {
     .map((message) => `${message.role}:${message.content}`)
     .join('\n')
 
-  return Math.max(1, Math.ceil(serialized.length / 3))
+  return Math.max(1, Math.ceil(serialized.length / 4))
 }
 
 /**
@@ -3857,6 +3988,218 @@ async function loadServerModel(
   if (!response.ok) {
     throw new Error(`Server returned HTTP ${response.status}: ${await response.text()}`)
   }
+}
+
+/* ── Relationship graph helpers ────────────────────────────────────────── */
+
+/**
+ * Resolve the absolute path to a campaign's relationships.json file.
+ *
+ * @param campaignPath - Absolute path to the campaign folder.
+ * @returns Absolute path to relationships.json.
+ */
+function relationshipsFilePath(campaignPath: string): string {
+  return join(campaignPath, 'relationships.json')
+}
+
+/**
+ * Load the relationship graph from disk, returning null when absent or
+ * when the stored campaignId does not match the expected value.
+ *
+ * @param campaignPath - Absolute path to the campaign folder.
+ * @param campaignId - Expected campaign ID for integrity check.
+ * @returns Parsed graph or null.
+ */
+function loadRelationshipGraph(campaignPath: string, campaignId: string): RelationshipGraph | null {
+  const filePath = relationshipsFilePath(campaignPath)
+  if (!existsSync(filePath)) {
+    return null
+  }
+  try {
+    const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as RelationshipGraph
+    if (raw.campaignId !== campaignId) {
+      console.warn('[Aethra] relationships.json campaignId mismatch — ignoring stored graph')
+      return null
+    }
+    return raw
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Write a relationship graph to disk.
+ *
+ * @param campaignPath - Absolute path to the campaign folder.
+ * @param graph - Graph to persist.
+ */
+function saveRelationshipGraph(campaignPath: string, graph: RelationshipGraph): void {
+  writeFileSync(relationshipsFilePath(campaignPath), JSON.stringify(graph, null, 2), 'utf-8')
+}
+
+/** Valid affinity label set for LLM response validation. */
+const VALID_AFFINITY_LABELS = new Set<AffinityLabel>([
+  'hostile', 'wary', 'neutral', 'friendly', 'allied', 'devoted',
+])
+
+/**
+ * Assemble all session transcripts (oldest first) into a single string
+ * for the relationship refresh prompt. Prepends rolling summaries where present.
+ *
+ * @param sessions - All campaign sessions.
+ * @returns Formatted transcript string.
+ */
+function buildRelationshipTranscript(sessions: Session[]): string {
+  return sessions
+    .map((session) => {
+      const lines: string[] = [`--- Session: ${session.title || 'Untitled'} ---`]
+      if (session.rollingSummary.trim().length > 0) {
+        lines.push(`Summary of earlier events:\n${session.rollingSummary.trim()}`)
+      }
+      session.messages.forEach((message) => {
+        if (message.role === 'assistant' || message.role === 'user') {
+          const speaker = message.characterName?.trim() ?? (message.role === 'user' ? 'Player' : 'Assistant')
+          lines.push(`[${speaker}] ${message.content}`)
+        }
+      })
+      return lines.join('\n')
+    })
+    .join('\n\n')
+}
+
+/**
+ * Call the active LLM server with a non-streaming chat completion request
+ * for relationship analysis. Returns the raw response text.
+ *
+ * @param messages - Chat messages to send.
+ * @param settings - App settings containing active server/model config.
+ * @returns Raw response content string.
+ */
+async function fetchRelationshipCompletion(
+  messages: ChatMessage[],
+  settings: ReturnType<typeof loadSettings>,
+): Promise<string> {
+  const server = settings.servers.find((s) => s.id === settings.activeServerId)
+  if (!server) {
+    throw new Error('No active server configured. Select a server in Settings before refreshing relationships.')
+  }
+  const modelSlug = settings.activeModelSlug
+  if (!modelSlug) {
+    throw new Error('No active model configured. Select a model in Settings before refreshing relationships.')
+  }
+
+  const endpoint = `${server.baseUrl}/chat/completions`
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${server.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: modelSlug,
+      messages,
+      stream: false,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Server returned HTTP ${response.status}: ${await response.text()}`)
+  }
+
+  const json = await response.json() as { choices?: Array<{ message?: { content?: string } }> }
+  const content = json.choices?.[0]?.message?.content
+  if (typeof content !== 'string' || content.trim().length === 0) {
+    throw new Error('Model returned an empty response.')
+  }
+  return content.trim()
+}
+
+/**
+ * Parse and validate the raw JSON array returned by the LLM for relationship entries.
+ * Invalid or unknown entries are silently skipped; bad field values are clamped/defaulted.
+ *
+ * @param raw - Raw response text from the LLM.
+ * @param validCharacterIds - Set of known character IDs to validate against.
+ * @returns Validated array of partial entries (without manualNotes or lastAiRefreshedAt).
+ */
+function parseRelationshipEntries(
+  raw: string,
+  validCharacterIds: Set<string>,
+): Array<Omit<RelationshipEntry, 'manualNotes' | 'lastAiRefreshedAt'>> {
+  // Strip optional markdown code fences the model may wrap around the JSON
+  const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stripped)
+  } catch {
+    throw new Error('Refresh failed — model returned invalid data. Try again.')
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error('Refresh failed — model returned invalid data. Try again.')
+  }
+  const validated: Array<Omit<RelationshipEntry, 'manualNotes' | 'lastAiRefreshedAt'>> = []
+  for (const item of parsed) {
+    if (typeof item !== 'object' || item === null) continue
+    const entry = item as Record<string, unknown>
+    const fromId = typeof entry.fromCharacterId === 'string' ? entry.fromCharacterId : ''
+    const toId = typeof entry.toCharacterId === 'string' ? entry.toCharacterId : ''
+    if (!fromId || !toId || !validCharacterIds.has(fromId) || !validCharacterIds.has(toId)) continue
+    const summary = typeof entry.summary === 'string' ? entry.summary.trim() : ''
+    if (!summary) continue
+    const rawScore = typeof entry.trustScore === 'number' ? entry.trustScore : 50
+    const trustScore = Math.max(0, Math.min(100, Math.round(rawScore)))
+    const rawLabel = typeof entry.affinityLabel === 'string' ? entry.affinityLabel : ''
+    const affinityLabel: AffinityLabel = VALID_AFFINITY_LABELS.has(rawLabel as AffinityLabel)
+      ? (rawLabel as AffinityLabel)
+      : 'neutral'
+    validated.push({ fromCharacterId: fromId, toCharacterId: toId, trustScore, affinityLabel, summary })
+  }
+  return validated
+}
+
+/**
+ * Merge validated LLM entries into the existing relationship graph.
+ * Preserves manualNotes for existing entries; adds new entries for new pairs.
+ * Orphaned entries (deleted characters) are retained unchanged.
+ *
+ * @param existing - Current persisted graph (or null when no graph exists yet).
+ * @param campaignId - Campaign ID for the returned graph.
+ * @param validated - Validated entries from the LLM response.
+ * @returns Updated graph (not yet saved to disk).
+ */
+function mergeRelationshipEntries(
+  existing: RelationshipGraph | null,
+  campaignId: string,
+  validated: Array<Omit<RelationshipEntry, 'manualNotes' | 'lastAiRefreshedAt'>>,
+): RelationshipGraph {
+  const now = Date.now()
+  const existingEntries: RelationshipEntry[] = existing?.entries ?? []
+
+  const updated: RelationshipEntry[] = existingEntries.map((entry) => {
+    const match = validated.find(
+      (v) => v.fromCharacterId === entry.fromCharacterId && v.toCharacterId === entry.toCharacterId,
+    )
+    if (!match) return entry
+    return {
+      ...entry,
+      trustScore: match.trustScore,
+      affinityLabel: match.affinityLabel,
+      summary: match.summary,
+      lastAiRefreshedAt: now,
+    }
+  })
+
+  // Add new pairs not already in the graph
+  for (const v of validated) {
+    const exists = existingEntries.some(
+      (e) => e.fromCharacterId === v.fromCharacterId && e.toCharacterId === v.toCharacterId,
+    )
+    if (!exists) {
+      updated.push({ ...v, manualNotes: '', lastAiRefreshedAt: now })
+    }
+  }
+
+  return { campaignId, entries: updated, lastRefreshedAt: now }
 }
 
 /* ── IPC handlers ──────────────────────────────────────────────────────── */
@@ -4077,7 +4420,24 @@ ipcMain.handle('campaign:list', (): CampaignSummary[] => {
  * Campaigns: open an existing managed campaign by folder path.
  */
 ipcMain.handle('campaign:open', async (_event, path: string): Promise<CampaignFileHandle> => {
-  return loadCampaignFile(path)
+  const sendProgress = (progress: CampaignLoadProgress): void => {
+    if (!_event.sender.isDestroyed()) {
+      _event.sender.send('campaign:load:progress', progress)
+    }
+  }
+
+  try {
+    return loadCampaignFile(path, sendProgress)
+  } catch (error) {
+    sendProgress({
+      status: 'error',
+      percent: 0,
+      message: error instanceof Error ? error.message : 'Could not load campaign.',
+      sessionsLoaded: 0,
+      totalSessions: 0,
+    })
+    throw error
+  }
 })
 
 /**
@@ -4137,6 +4497,66 @@ ipcMain.handle('characters:save', (_event, campaignPath: string, character: Char
 ipcMain.handle('characters:delete', (_event, campaignPath: string, characterId: string): void => {
   deleteStoredCharacter(campaignPath, characterId)
 })
+
+/**
+ * Relationships: load the campaign relationship graph from disk.
+ */
+ipcMain.handle('relationships:get', (_event, campaignPath: string, campaignId: string): RelationshipGraph | null => {
+  return loadRelationshipGraph(campaignPath, campaignId)
+})
+
+/**
+ * Relationships: persist the campaign relationship graph to disk.
+ */
+ipcMain.handle('relationships:set', (_event, campaignPath: string, graph: RelationshipGraph): void => {
+  saveRelationshipGraph(campaignPath, graph)
+})
+
+/**
+ * Relationships: run LLM analysis and return merged graph without saving.
+ */
+ipcMain.handle(
+  'relationships:refresh',
+  async (
+    _event,
+    campaignPath: string,
+    campaignId: string,
+    characters: CharacterProfile[],
+    sessions: Session[],
+  ): Promise<RelationshipGraph> => {
+    const settings = loadSettings()
+    const validIds = new Set(characters.map((c) => c.id))
+    const transcript = buildRelationshipTranscript(sessions)
+
+    const messages: ChatMessage[] = [
+      {
+        role: 'system',
+        content: `You analyse roleplay transcripts and extract character relationship states.
+
+For each directed character pair (A→B), output a JSON array of relationship entries.
+Each entry must have:
+- fromCharacterId (string, exact character ID from the provided character list)
+- toCharacterId (string, exact character ID from the provided character list)
+- trustScore (integer 0–100)
+- affinityLabel (one of: hostile, wary, neutral, friendly, allied, devoted)
+- summary (1–3 sentences: how A currently perceives or feels toward B, grounded in transcript events only)
+
+Base all values strictly on evidence in the transcripts.
+Do not invent events or relationships not evidenced in the transcripts.
+Output only a valid JSON array. No explanation, no markdown, no wrapper text.`,
+      },
+      {
+        role: 'user',
+        content: `Characters:\n${characters.map((c) => `${c.id}: ${c.name}`).join('\n')}\n\nTranscripts (all sessions, oldest first):\n${transcript}\n\nGenerate relationship entries for all directed pairs where both characters appear in the transcripts.`,
+      },
+    ]
+
+    const raw = await fetchRelationshipCompletion(messages, settings)
+    const validated = parseRelationshipEntries(raw, validIds)
+    const existing = loadRelationshipGraph(campaignPath, campaignId)
+    return mergeRelationshipEntries(existing, campaignId, validated)
+  },
+)
 
 /**
  * Avatars: list globally stored reusable avatars.
