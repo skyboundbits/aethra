@@ -36,6 +36,7 @@ import { NewSessionModal } from './components/NewSessionModal'
 import { SessionCharactersModal } from './components/SessionCharactersModal'
 import { ConfirmModal } from './components/ConfirmModal'
 import { SummaryModal } from './components/SummaryModal'
+import { RelationshipReviewModal } from './components/RelationshipReviewModal'
 import { useConfirm } from './hooks/useConfirm'
 
 import { streamCompletion } from './services/aiService'
@@ -1124,6 +1125,21 @@ export default function App() {
   /** Absolute path of the active campaign folder. */
   const [campaignPath, setCampaignPath] = useState<string | null>(null)
 
+  /** Campaign-level character relationship graph; null until loaded. */
+  const [relationshipGraph, setRelationshipGraph] = useState<RelationshipGraph | null>(null)
+
+  /** True while a relationship refresh LLM call is in flight. */
+  const [isRefreshingRelationships, setIsRefreshingRelationships] = useState(false)
+
+  /** Inline error shown on the DetailsPanel refresh button. */
+  const [refreshRelationshipsError, setRefreshRelationshipsError] = useState<string | null>(null)
+
+  /** Merged graph returned by the LLM, pending user review in RelationshipReviewModal. */
+  const [pendingRelationshipGraph, setPendingRelationshipGraph] = useState<RelationshipGraph | null>(null)
+
+  /** Timestamp recorded when the most recent refresh call was dispatched. */
+  const [refreshStartedAt, setRefreshStartedAt] = useState<number>(0)
+
   const { confirm, confirmState } = useConfirm()
 
   /** ID of the session currently displayed in the chat area. */
@@ -1181,6 +1197,9 @@ export default function App() {
   const chatLoadingStartedAtRef = useRef<number | null>(null)
   /** Pending timeout used to keep the loading overlay visible long enough to register visually. */
   const chatLoadingTimeoutRef = useRef<number | null>(null)
+
+  /** Timestamp recorded the moment a relationship refresh call is dispatched. Used to badge "updated" entries in the review modal. */
+  const refreshStartedAtRef = useRef<number>(0)
 
   /** Detected local hardware inventory used for llama.cpp fit guidance. */
   const [hardwareInfo, setHardwareInfo] = useState<HardwareInfo | null>(null)
@@ -1459,6 +1478,7 @@ export default function App() {
       setCharacters([])
       setActiveCharacterId(null)
       setComposerCharacterId(null)
+      setRelationshipGraph(null)
       return
     }
 
@@ -1469,6 +1489,21 @@ export default function App() {
 
     void refreshCharacters(campaignPath)
   }, [campaignPath])
+
+  /**
+   * Load the relationship graph when a campaign opens.
+   */
+  useEffect(() => {
+    if (campaignPath && campaign?.id) {
+      void window.api.getRelationships(campaignPath, campaign.id).then((graph) => {
+        setRelationshipGraph(graph)
+      }).catch((err: unknown) => {
+        console.error('[Aethra] Could not load relationship graph:', err)
+      })
+    } else {
+      setRelationshipGraph(null)
+    }
+  }, [campaignPath, campaign?.id])
 
   /* ── Derived values ─────────────────────────────────────────────────── */
 
@@ -2451,6 +2486,72 @@ export default function App() {
         setIsCampaignBusy(false)
       }
     }
+  }
+
+  /**
+   * Trigger an LLM relationship refresh for the active campaign.
+   * On success, opens the RelationshipReviewModal with the merged graph.
+   */
+  async function handleRefreshRelationships(): Promise<void> {
+    if (!campaign || !campaignPath || characters.length < 2 || isRefreshingRelationships) return
+    setIsRefreshingRelationships(true)
+    setRefreshRelationshipsError(null)
+    // Record the dispatch timestamp BEFORE the async call so entries updated
+    // in this specific refresh can be identified in the review modal.
+    const startedAt = Date.now()
+    refreshStartedAtRef.current = startedAt
+    setRefreshStartedAt(startedAt)
+    try {
+      const merged = await window.api.refreshRelationships(
+        campaignPath,
+        campaign.id,
+        characters,
+        sessions,
+      )
+      setPendingRelationshipGraph(merged)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Refresh failed. Try again.'
+      setRefreshRelationshipsError(message)
+    } finally {
+      setIsRefreshingRelationships(false)
+    }
+  }
+
+  /**
+   * Persist the given relationship graph to disk and update renderer state.
+   *
+   * @param graph - Graph to save.
+   */
+  async function handleSaveRelationships(graph: RelationshipGraph): Promise<void> {
+    if (!campaignPath) return
+    await window.api.saveRelationships(campaignPath, graph)
+    setRelationshipGraph(graph)
+  }
+
+  /**
+   * Delete both directions of a relationship pair (A→B and B→A) after confirmation.
+   *
+   * @param fromId - Source character ID.
+   * @param toId - Target character ID.
+   */
+  async function handleDeleteRelationshipPair(fromId: string, toId: string): Promise<void> {
+    if (!campaignPath || !relationshipGraph) return
+    const fromName = characters.find((c) => c.id === fromId)?.name ?? fromId
+    const toName = characters.find((c) => c.id === toId)?.name ?? toId
+    const confirmed = await confirm({
+      title: 'Delete Relationship Pair',
+      message: `This will delete the relationship between ${fromName} and ${toName} in both directions.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    })
+    if (!confirmed) return
+    const nextEntries = relationshipGraph.entries.filter(
+      (entry) =>
+        !(entry.fromCharacterId === fromId && entry.toCharacterId === toId) &&
+        !(entry.fromCharacterId === toId && entry.toCharacterId === fromId),
+    )
+    const nextGraph: RelationshipGraph = { ...relationshipGraph, entries: nextEntries }
+    await handleSaveRelationships(nextGraph)
   }
 
   /**
@@ -4730,6 +4831,9 @@ export default function App() {
             activeCharacters={enabledSessionCharacters}
             totalCharacterCount={characters.length}
             onOpenSessionCharacters={handleOpenSessionCharacters}
+            onRefreshRelationships={() => { void handleRefreshRelationships() }}
+            isRefreshingRelationships={isRefreshingRelationships}
+            refreshRelationshipsError={refreshRelationshipsError}
           />
         </div>
       ) : (
@@ -4890,6 +4994,9 @@ export default function App() {
           onSaveReusableCharacter={(character) => handleSaveReusableCharacter(character)}
           onDeleteReusableCharacter={(characterId) => handleDeleteReusableCharacter(characterId)}
           onImportReusableCharacter={(character) => handleImportReusableCharacter(character)}
+          relationshipGraph={relationshipGraph}
+          onSaveRelationships={handleSaveRelationships}
+          onDeleteRelationshipPair={handleDeleteRelationshipPair}
         />
       ) : null}
       {!isCampaignSwitchLoading && isNewSessionModalOpen ? (
@@ -4930,6 +5037,18 @@ export default function App() {
           onRebuild={() => { void handleRebuildSummary() }}
         />
       ) : null}
+      {pendingRelationshipGraph && (
+        <RelationshipReviewModal
+          graph={pendingRelationshipGraph}
+          characters={characters}
+          refreshStartedAt={refreshStartedAt}
+          onSave={async (graph: RelationshipGraph) => {
+            await handleSaveRelationships(graph)
+            setPendingRelationshipGraph(null)
+          }}
+          onDiscard={() => { setPendingRelationshipGraph(null) }}
+        />
+      )}
       {!isCampaignSwitchLoading && isCreateCampaignOpen ? (
         <CreateCampaignModal
           isBusy={isCampaignBusy}
