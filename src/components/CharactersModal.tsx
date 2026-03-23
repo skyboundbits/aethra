@@ -12,9 +12,9 @@ import { AvatarLibraryModal } from './AvatarLibraryModal'
 import { UsersRoundIcon } from './icons'
 import '../styles/characters.css'
 
-import type { CharacterProfile, ReusableAvatar, ReusableCharacter } from '../types'
+import type { CharacterProfile, ReusableAvatar, ReusableCharacter, RelationshipGraph, RelationshipEntry, AffinityLabel } from '../types'
 
-type CharactersTabId = 'new-character' | 'existing-campaign-characters' | 'existing-characters' | 'app-characters'
+type CharactersTabId = 'new-character' | 'existing-campaign-characters' | 'existing-characters' | 'app-characters' | 'relationships'
 type CharacterEditorMode = 'new-campaign' | 'edit-campaign' | 'edit-custom'
 const CHARACTER_EDITOR_AVATAR_SIZE = 220
 const CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE = 96
@@ -51,6 +51,12 @@ interface CharactersModalProps {
   onSaveReusableCharacter: (character: ReusableCharacter) => Promise<void>
   onDeleteReusableCharacter: (characterId: string) => Promise<void>
   onImportReusableCharacter: (character: ReusableCharacter) => Promise<void>
+  /** Current persisted relationship graph for the campaign; null if none. */
+  relationshipGraph: RelationshipGraph | null
+  /** Persist an updated graph to disk immediately. */
+  onSaveRelationships: (graph: RelationshipGraph) => Promise<void>
+  /** Delete both directions of a pair (A→B and B→A) after confirmation. */
+  onDeleteRelationshipPair: (fromId: string, toId: string) => Promise<void>
 }
 
 function createCampaignCharacterDraft(): CharacterProfile {
@@ -100,6 +106,180 @@ function toCampaignCharacter(character: ReusableCharacter): CharacterProfile {
   }
 }
 
+/** Props for the Relationships tab content panel. */
+interface RelationshipsTabContentProps {
+  graph: RelationshipGraph | null
+  characters: CharacterProfile[]
+  onSave: (graph: RelationshipGraph) => Promise<void>
+  onDeletePair: (fromId: string, toId: string) => Promise<void>
+}
+
+/**
+ * Relationships tab rendered inside the CharactersModal workspace layout.
+ * Shows a pair list on the left and an editable detail view on the right.
+ * Edits are saved to disk immediately on change/blur.
+ */
+function RelationshipsTabContent({ graph, characters, onSave, onDeletePair }: RelationshipsTabContentProps) {
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => {
+    const first = graph?.entries[0]
+    return first ? `${first.fromCharacterId}:${first.toCharacterId}` : null
+  })
+
+  /** Resolve a character name by ID. */
+  function name(id: string): string {
+    return characters.find((c) => c.id === id)?.name ?? id
+  }
+
+  /** Immediately persist a field edit. */
+  async function handleFieldChange(
+    fromId: string,
+    toId: string,
+    patch: Partial<Pick<RelationshipEntry, 'trustScore' | 'affinityLabel' | 'manualNotes'>>,
+  ): Promise<void> {
+    if (!graph) return
+    const next: RelationshipGraph = {
+      ...graph,
+      entries: graph.entries.map((entry) =>
+        entry.fromCharacterId === fromId && entry.toCharacterId === toId
+          ? { ...entry, ...patch }
+          : entry,
+      ),
+    }
+    await onSave(next)
+  }
+
+  if (!graph || graph.entries.length === 0) {
+    return (
+      <div className="characters-modal__relationships-empty">
+        <p>No relationship data yet. Use the <strong>Refresh Relationships</strong> button in the session panel to generate relationship data from your campaign transcripts.</p>
+      </div>
+    )
+  }
+
+  const selectedEntry = selectedKey
+    ? graph.entries.find((e) => `${e.fromCharacterId}:${e.toCharacterId}` === selectedKey) ?? null
+    : null
+
+  // Group by source
+  const grouped = new Map<string, RelationshipEntry[]>()
+  for (const entry of graph.entries) {
+    const group = grouped.get(entry.fromCharacterId) ?? []
+    group.push(entry)
+    grouped.set(entry.fromCharacterId, group)
+  }
+
+  return (
+    <div className="characters-modal__relationships-layout">
+      {/* Left: pair list */}
+      <div className="characters-modal__relationships-list">
+        {[...grouped.entries()].map(([fromId, entries]) => (
+          <div key={fromId}>
+            <p className="characters-modal__relationships-group-header">{name(fromId)}</p>
+            {entries.map((entry) => {
+              const key = `${entry.fromCharacterId}:${entry.toCharacterId}`
+              return (
+                <div key={key} className="characters-modal__relationships-pair-row">
+                  <button
+                    type="button"
+                    className={[
+                      'characters-modal__relationships-pair-btn',
+                      selectedKey === key ? 'characters-modal__relationships-pair-btn--selected' : '',
+                    ].join(' ')}
+                    onClick={() => setSelectedKey(key)}
+                  >
+                    <span className={`rel-review__affinity-badge rel-review__affinity-badge--${entry.affinityLabel}`}>
+                      {entry.affinityLabel}
+                    </span>
+                    → {name(entry.toCharacterId)}
+                  </button>
+                  <button
+                    type="button"
+                    className="characters-modal__relationships-delete-btn"
+                    title="Delete this relationship pair"
+                    onClick={() => { void onDeletePair(entry.fromCharacterId, entry.toCharacterId) }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* Right: detail view */}
+      <div className="characters-modal__relationships-detail">
+        {selectedEntry ? (
+          <div className="rel-review__detail">
+            <h3 className="rel-review__detail-header">
+              {name(selectedEntry.fromCharacterId)} → {name(selectedEntry.toCharacterId)}
+            </h3>
+
+            <div>
+              <label className="rel-review__field-label" htmlFor="cm-rel-trust">Trust Score (0–100)</label>
+              <input
+                id="cm-rel-trust"
+                type="number"
+                min={0}
+                max={100}
+                className="rel-review__trust-input"
+                defaultValue={selectedEntry.trustScore}
+                key={`trust-${selectedEntry.fromCharacterId}-${selectedEntry.toCharacterId}`}
+                onBlur={(e) => {
+                  const val = Math.max(0, Math.min(100, Number(e.target.value) || 0))
+                  void handleFieldChange(selectedEntry.fromCharacterId, selectedEntry.toCharacterId, { trustScore: val })
+                }}
+              />
+            </div>
+
+            <div>
+              <label className="rel-review__field-label" htmlFor="cm-rel-affinity">Affinity</label>
+              <select
+                id="cm-rel-affinity"
+                className="rel-review__affinity-select"
+                defaultValue={selectedEntry.affinityLabel}
+                key={`affinity-${selectedEntry.fromCharacterId}-${selectedEntry.toCharacterId}`}
+                onBlur={(e) =>
+                  void handleFieldChange(selectedEntry.fromCharacterId, selectedEntry.toCharacterId, {
+                    affinityLabel: e.target.value as AffinityLabel,
+                  })
+                }
+              >
+                {(['hostile', 'wary', 'neutral', 'friendly', 'allied', 'devoted'] as AffinityLabel[]).map((label) => (
+                  <option key={label} value={label}>{label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="rel-review__field-label">AI Summary (read-only)</label>
+              <textarea className="rel-review__summary-text" value={selectedEntry.summary} readOnly />
+            </div>
+
+            <div>
+              <label className="rel-review__field-label" htmlFor="cm-rel-notes">Manual Notes</label>
+              <textarea
+                id="cm-rel-notes"
+                className="rel-review__notes-input"
+                defaultValue={selectedEntry.manualNotes}
+                key={`notes-${selectedEntry.fromCharacterId}-${selectedEntry.toCharacterId}`}
+                placeholder="Add personal notes or context overrides…"
+                onBlur={(e) =>
+                  void handleFieldChange(selectedEntry.fromCharacterId, selectedEntry.toCharacterId, {
+                    manualNotes: e.target.value,
+                  })
+                }
+              />
+            </div>
+          </div>
+        ) : (
+          <p className="rel-review__no-selection">Select a pair to view details.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function CharactersModal({
   characters,
   activeCharacterId,
@@ -124,6 +304,9 @@ export function CharactersModal({
   onSaveReusableCharacter,
   onDeleteReusableCharacter,
   onImportReusableCharacter,
+  relationshipGraph,
+  onSaveRelationships,
+  onDeleteRelationshipPair,
 }: CharactersModalProps) {
   const { confirm, confirmState } = useConfirm()
   const [activeTab, setActiveTab] = useState<CharactersTabId>('new-character')
@@ -289,11 +472,28 @@ export function CharactersModal({
               >
                 App Characters
               </button>
+              <div className="characters-modal__nav-divider">Relationships</div>
+              <button
+                type="button"
+                className={`characters-modal__tab${activeTab === 'relationships' ? ' characters-modal__tab--active' : ''}`}
+                onClick={() => {
+                  handleTabClick('relationships')
+                }}
+              >
+                Relationships
+              </button>
             </aside>
           )}
         panel={(
           <section className="characters-modal__panel">
-              {activeTab === 'app-characters' ? (
+              {activeTab === 'relationships' ? (
+                <RelationshipsTabContent
+                  graph={relationshipGraph}
+                  characters={characters}
+                  onSave={onSaveRelationships}
+                  onDeletePair={onDeleteRelationshipPair}
+                />
+              ) : activeTab === 'app-characters' ? (
                 <div className="characters-modal__blank">App characters are not available yet.</div>
               ) : activeTab === 'existing-campaign-characters' && !isEditingCampaignCharacter ? (
                 <div className="characters-modal__library">
