@@ -177,8 +177,8 @@ Modal UI is split into a low-level shell plus shared layout variants:
 Current usage:
 
 - **Workspace modals**: Settings, Campaign, Characters
-- **Form modals**: Create Campaign, Model Loader, Model Parameters
-- **Popup modals**: AI Debug
+- **Form modals**: Create Campaign, Model Loader, Model Parameters, New Session
+- **Popup modals**: AI Debug, Raw Message Inspector, Summary Viewer
 
 ### src/types/index.ts
 

@@ -69,6 +69,9 @@ const MIN_WINDOW_HEIGHT = 600
 const MAX_AI_DEBUG_ENTRIES = 200
 const AI_STREAM_INITIAL_TIMEOUT_MS = 30_000
 const AI_STREAM_IDLE_TIMEOUT_MS = 60_000
+const AWAITING_PLAYER_ACTION_MARKER = '[System] Awaiting player action...'
+const TRANSIENT_ERROR_MARKER = '[System Error]'
+const LEGACY_STREAM_ERROR_MESSAGE = '⚠️ Could not reach the selected AI server. Check that it is running and the server address is correct.'
 const LOCAL_LLAMACPP_SERVER_ID = 'llama-cpp-local'
 const LOCAL_LLAMACPP_DEFAULT_HOST = '127.0.0.1'
 const LOCAL_LLAMACPP_DEFAULT_PORT = 3939
@@ -184,6 +187,7 @@ interface PartialSessionRecord {
   openingNotes?: unknown
   continuitySourceSessionId?: unknown
   continuitySummary?: unknown
+  activeCharacterIds?: unknown
   disabledCharacterIds?: unknown
   messages?: unknown
   rollingSummary?: unknown
@@ -1067,6 +1071,11 @@ function normalizeMessage(raw: PartialMessageRecord, fallbackTimestamp: number) 
 function normalizeSession(raw: PartialSessionRecord, fallbackTimestamp: number): Session {
   const createdAt = isFiniteNumber(raw.createdAt) ? raw.createdAt : fallbackTimestamp
   const updatedAt = isFiniteNumber(raw.updatedAt) ? raw.updatedAt : createdAt
+  const activeCharacterIds = Array.isArray(raw.activeCharacterIds)
+    ? raw.activeCharacterIds
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim())
+    : undefined
   const disabledCharacterIds = Array.isArray(raw.disabledCharacterIds)
     ? raw.disabledCharacterIds
       .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
@@ -1090,6 +1099,7 @@ function normalizeSession(raw: PartialSessionRecord, fallbackTimestamp: number):
         ? raw.continuitySourceSessionId.trim()
         : undefined,
     continuitySummary: typeof raw.continuitySummary === 'string' ? raw.continuitySummary.trim() : '',
+    activeCharacterIds,
     disabledCharacterIds,
     messages,
     rollingSummary: typeof raw.rollingSummary === 'string' ? raw.rollingSummary.trim() : '',
@@ -3818,6 +3828,40 @@ function estimatePromptTokens(messages: ChatMessage[]): number {
 }
 
 /**
+ * Determine whether a message is the hidden "awaiting player action" marker.
+ *
+ * @param content - Message text to inspect.
+ * @returns True when the message should be excluded from transcripts.
+ */
+function isAwaitingPlayerActionMarker(content: string): boolean {
+  return content.trim() === AWAITING_PLAYER_ACTION_MARKER
+}
+
+/**
+ * Determine whether a message is a transient renderer error that should stay
+ * out of prompts and derived transcripts.
+ *
+ * @param content - Message text to inspect.
+ * @returns True when the message should be excluded from transcripts.
+ */
+function isTransientErrorMessage(content: string): boolean {
+  const normalized = content.trim()
+  return normalized === LEGACY_STREAM_ERROR_MESSAGE || normalized.startsWith(TRANSIENT_ERROR_MARKER)
+}
+
+/**
+ * Remove hidden placeholder markers from a relationship transcript session.
+ *
+ * @param session - Session whose transcript will be inspected.
+ * @returns Prompt-visible messages only.
+ */
+function getRelationshipVisibleMessages(session: Session): Session['messages'] {
+  return session.messages.filter((message) =>
+    !isAwaitingPlayerActionMarker(message.content) && !isTransientErrorMessage(message.content),
+  )
+}
+
+/**
  * Create timeout helpers for abortable AI streaming requests.
  * The initial timeout covers connection / first-byte latency; the idle timeout
  * covers streams that stop delivering data after they begin.
@@ -4053,10 +4097,14 @@ function buildRelationshipTranscript(sessions: Session[]): string {
   return sessions
     .map((session) => {
       const lines: string[] = [`--- Session: ${session.title || 'Untitled'} ---`]
+      const visibleMessages = getRelationshipVisibleMessages(session)
+      const summarizedCount = session.rollingSummary.trim().length > 0
+        ? Math.max(0, Math.min(Math.floor(session.summarizedMessageCount), visibleMessages.length))
+        : 0
       if (session.rollingSummary.trim().length > 0) {
         lines.push(`Summary of earlier events:\n${session.rollingSummary.trim()}`)
       }
-      session.messages.forEach((message) => {
+      visibleMessages.slice(summarizedCount).forEach((message) => {
         if (message.role === 'assistant' || message.role === 'user') {
           const speaker = message.characterName?.trim() ?? (message.role === 'user' ? 'Player' : 'Assistant')
           lines.push(`[${speaker}] ${message.content}`)
@@ -4076,41 +4124,76 @@ function buildRelationshipTranscript(sessions: Session[]): string {
  * @returns Raw response content string.
  */
 async function fetchRelationshipCompletion(
+  server: ServerProfile,
+  modelSlug: string,
   messages: ChatMessage[],
-  settings: ReturnType<typeof loadSettings>,
+  logger?: (direction: AiDebugEntry['direction'], label: string, payload: unknown) => void,
 ): Promise<string> {
-  const server = settings.servers.find((s) => s.id === settings.activeServerId)
-  if (!server) {
-    throw new Error('No active server configured. Select a server in Settings before refreshing relationships.')
-  }
-  const modelSlug = settings.activeModelSlug
-  if (!modelSlug) {
-    throw new Error('No active model configured. Select a model in Settings before refreshing relationships.')
+  const endpoint = `${server.baseUrl}/chat/completions`
+  const requestBody = {
+    model: modelSlug,
+    messages,
+    stream: false,
   }
 
-  const endpoint = `${server.baseUrl}/chat/completions`
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${server.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: modelSlug,
-      messages,
-      stream: false,
-    }),
+  logger?.('request', 'relationships.refresh.request', {
+    url: endpoint,
+    serverKind: server.kind,
+    body: requestBody,
+  })
+
+  let response: Response
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${server.apiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+    })
+  } catch (error) {
+    logger?.('error', 'relationships.refresh.fetch_error', {
+      url: endpoint,
+      message: error instanceof Error ? error.message : String(error),
+      cause:
+        error instanceof Error && 'cause' in error
+          ? String((error as Error & { cause?: unknown }).cause ?? '')
+          : null,
+    })
+    throw new Error(
+      'Relationship refresh could not reach the AI server. If the prompt is too large, reduce transcript size or rebuild summaries first.',
+    )
+  }
+
+  logger?.('response', 'relationships.refresh.response', {
+    status: response.status,
+    ok: response.ok,
+    url: endpoint,
   })
 
   if (!response.ok) {
-    throw new Error(`Server returned HTTP ${response.status}: ${await response.text()}`)
+    const errorText = await response.text()
+    logger?.('error', 'relationships.refresh.http_error', {
+      status: response.status,
+      body: errorText,
+      url: endpoint,
+    })
+    throw new Error(`Server returned HTTP ${response.status}: ${errorText}`)
   }
 
   const json = await response.json() as { choices?: Array<{ message?: { content?: string } }> }
   const content = json.choices?.[0]?.message?.content
   if (typeof content !== 'string' || content.trim().length === 0) {
+    logger?.('error', 'relationships.refresh.empty_response', {
+      url: endpoint,
+      response: json,
+    })
     throw new Error('Model returned an empty response.')
   }
+  logger?.('response', 'relationships.refresh.body', {
+    content: content.trim(),
+  })
   return content.trim()
 }
 
@@ -4518,13 +4601,24 @@ ipcMain.handle('relationships:set', (_event, campaignPath: string, graph: Relati
 ipcMain.handle(
   'relationships:refresh',
   async (
-    _event,
+    event,
     campaignPath: string,
     campaignId: string,
     characters: CharacterProfile[],
     sessions: Session[],
   ): Promise<RelationshipGraph> => {
     const settings = loadSettings()
+    const server = settings.servers.find((s) => s.id === settings.activeServerId)
+    if (!server) {
+      throw new Error('No active server configured. Select a server in Settings before refreshing relationships.')
+    }
+    const modelSlug = settings.activeModelSlug
+    if (!modelSlug) {
+      throw new Error('No active model configured. Select a model in Settings before refreshing relationships.')
+    }
+    const activeModel = settings.models.find((candidate) =>
+      candidate.serverId === server.id && candidate.slug === modelSlug,
+    )
     const validIds = new Set(characters.map((c) => c.id))
     const transcript = buildRelationshipTranscript(sessions)
 
@@ -4551,9 +4645,56 @@ Output only a valid JSON array. No explanation, no markdown, no wrapper text.`,
       },
     ]
 
-    const raw = await fetchRelationshipCompletion(messages, settings)
+    const promptEstimate = estimatePromptTokens(messages)
+    const contextWindowTokens =
+      typeof activeModel?.contextWindowTokens === 'number' && activeModel.contextWindowTokens > 0
+        ? activeModel.contextWindowTokens
+        : null
+    const availableContextTokens = contextWindowTokens === null
+      ? null
+      : Math.max(contextWindowTokens - promptEstimate, 0)
+    const fitsInContext = contextWindowTokens === null ? null : promptEstimate <= contextWindowTokens
+
+    const debug = (direction: AiDebugEntry['direction'], label: string, details: unknown) => {
+      recordAiDebugEntry(event.sender, direction, label, {
+        serverId: server.id,
+        serverName: server.name,
+        model: modelSlug,
+        ...((isRecord(details) ? details : { value: details })),
+      })
+    }
+
+    debug('info', 'relationships.refresh.start', {
+      characterCount: characters.length,
+      sessionCount: sessions.length,
+      transcriptLength: transcript.length,
+      promptEstimate,
+      contextWindowTokens,
+      availableContextTokens,
+      fitsInContext,
+    })
+
+    if (fitsInContext === false) {
+      debug('error', 'relationships.refresh.context_overflow', {
+        promptEstimate,
+        contextWindowTokens,
+        overflowTokens: promptEstimate - contextWindowTokens,
+        availableContextTokens,
+        fitsInContext,
+        message: 'Relationship refresh prompt is estimated to exceed the selected model context window.',
+      })
+      throw new Error(
+        `Relationship refresh prompt is too large for the selected model context window (${promptEstimate.toLocaleString()} estimated tokens vs ${contextWindowTokens.toLocaleString()} available).`,
+      )
+    }
+
+    const raw = await fetchRelationshipCompletion(server, modelSlug, messages, debug)
     const validated = parseRelationshipEntries(raw, validIds)
     const existing = loadRelationshipGraph(campaignPath, campaignId)
+    debug('info', 'relationships.refresh.parsed', {
+      validatedEntryCount: validated.length,
+      existingEntryCount: existing?.entries.length ?? 0,
+    })
     return mergeRelationshipEntries(existing, campaignId, validated)
   },
 )

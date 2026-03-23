@@ -45,6 +45,8 @@ export interface Session {
   continuitySourceSessionId?: string
   /** Frozen continuity snapshot copied from the previous session when linked. */
   continuitySummary: string
+  /** Campaign character IDs explicitly active for this session. */
+  activeCharacterIds?: string[]
   /** Campaign character IDs explicitly disabled for this session. */
   disabledCharacterIds?: string[]
   /** Ordered list of messages exchanged in this session. */

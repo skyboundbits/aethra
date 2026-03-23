@@ -15,6 +15,12 @@
     linear-gradient(180deg, transparent, color-mix(in srgb, var(--panel-bg) 70%, transparent));
 }
 
+.campaign-launcher--loading {
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--surface-bg-accent) 18%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--app-bg) 72%, transparent), color-mix(in srgb, var(--panel-bg) 78%, transparent));
+}
+
 .campaign-launcher__panel {
   width: min(560px, 100%);
   padding: clamp(24px, 4vw, 40px);
@@ -23,6 +29,10 @@
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--panel-bg) 96%, white 4%), var(--panel-bg));
   box-shadow: var(--shadow-panel);
+}
+
+.campaign-launcher__panel--loading {
+  width: min(520px, 100%);
 }
 
 .campaign-launcher__eyebrow {
@@ -43,6 +53,10 @@
   margin-top: var(--space-3);
   max-width: 44ch;
   color: var(--text-color-secondary);
+}
+
+.campaign-launcher__copy--loading {
+  max-width: none;
 }
 
 .campaign-launcher__actions {
@@ -168,6 +182,53 @@
 .campaign-launcher__campaign-meta {
   color: var(--text-color-muted);
   font-size: var(--font-size-caption);
+}
+
+.campaign-launcher__progress {
+  height: 8px;
+  margin-top: var(--space-6);
+  border-radius: 999px;
+  background: var(--surface-bg-emphasis);
+  overflow: hidden;
+}
+
+.campaign-launcher__progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, var(--surface-bg-accent), color-mix(in srgb, var(--surface-bg-accent) 55%, white));
+  transition: width 0.24s ease;
+}
+
+.campaign-launcher__progress-bar--indeterminate {
+  width: 34%;
+  animation: campaign-launcher-progress-indeterminate 1.2s ease-in-out infinite;
+}
+
+.campaign-launcher__progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  color: var(--text-color-muted);
+  font-size: var(--font-size-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@keyframes campaign-launcher-progress-indeterminate {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  50% {
+    transform: translateX(65%);
+  }
+
+  100% {
+    transform: translateX(260%);
+  }
 }
 
 @media (max-width: 640px) {

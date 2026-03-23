@@ -222,9 +222,25 @@ After 10 minutes (>20 unsummarized):
 
 ### Manual Summary Control
 
-You cannot manually trigger a summary in the current UI, but you can:
+You can manually view and rebuild the rolling summary:
+
+#### Viewing the Current Summary
+1. Open a session with a rolling summary
+2. Click **View Summary** in the session details or ribbon
+3. A modal appears showing the current summary text
+4. Review it to understand what context the AI is using
+
+#### Rebuilding the Summary
+If the summary becomes outdated or inaccurate:
+1. Open the **Summary Modal** (View Summary button)
+2. Click **Rebuild Summary**
+3. Aethra will regenerate the summary from scratch based on all current unsummarized messages
+4. You'll see a status message when complete
+
+#### Advanced Control
+If you need more control, you can:
 - **View the summary** in the session JSON (open the campaign file in a text editor)
-- **Clear the summary** by editing the campaign JSON directly
+- **Clear the summary** by editing the campaign JSON directly (set `rollingSummary: ""` and `summarizedMessageCount: 0`)
 - **Disable summaries** in Settings if they're too aggressive
 
 ## Exporting & Backing Up

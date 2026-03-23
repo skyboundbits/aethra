@@ -7,7 +7,7 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import '../styles/chat.css'
-import { BookOpenTextIcon, RotateCcwIcon, Trash2Icon } from './icons'
+import { BookOpenTextIcon, RotateCwIcon, Trash2Icon } from './icons'
 import { RawMessageModal } from './RawMessageModal'
 import type { ChatTextSize, CharacterProfile, Message } from '../types'
 
@@ -712,7 +712,7 @@ function MessageBubble({
                     title="Replay from this message"
                     disabled={isBusy}
                   >
-                    <RotateCcwIcon aria-hidden="true" />
+                    <RotateCwIcon aria-hidden="true" />
                   </button>
                 ) : null}
                 <button

@@ -76,6 +76,30 @@ function hasCharacterAppearedInSession(session: Session | null, character: Chara
 }
 
 /**
+ * Resolve the currently enabled character IDs for a session.
+ *
+ * @param session - Session being managed.
+ * @param characters - Campaign character roster.
+ * @returns Stable set of character IDs currently active in that session.
+ */
+function getEnabledCharacterIds(session: Session | null, characters: CharacterProfile[]): Set<string> {
+  if (!session) {
+    return new Set()
+  }
+
+  if (Array.isArray(session.activeCharacterIds)) {
+    return new Set(session.activeCharacterIds.filter((characterId) => characterId.trim().length > 0))
+  }
+
+  const disabledCharacterIds = new Set((session.disabledCharacterIds ?? []).filter((characterId) => characterId.trim().length > 0))
+  return new Set(
+    characters
+      .map((character) => character.id)
+      .filter((characterId) => !disabledCharacterIds.has(characterId)),
+  )
+}
+
+/**
  * SessionCharactersModal
  * Lists all campaign characters with avatar previews and per-session toggles.
  */
@@ -86,7 +110,7 @@ export function SessionCharactersModal({
   onClose,
 }: SessionCharactersModalProps) {
   const sortedCharacters = sortCharacters(characters)
-  const disabledCharacterIds = new Set(activeSession?.disabledCharacterIds ?? [])
+  const enabledCharacterIds = getEnabledCharacterIds(activeSession, characters)
 
   return (
     <Modal title="Session Characters" onClose={onClose} className="modal--session-characters">
@@ -101,7 +125,7 @@ export function SessionCharactersModal({
           </p>
           <div className="session-characters__list" role="list" aria-label="Campaign characters">
             {sortedCharacters.map((character) => {
-              const isEnabled = !disabledCharacterIds.has(character.id)
+              const isEnabled = enabledCharacterIds.has(character.id)
               const hasAppeared = hasCharacterAppearedInSession(activeSession, character)
               const avatarLabel = getCharacterInitials(character.name)
               const avatarOffsetScale = MODAL_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE

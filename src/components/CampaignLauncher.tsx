@@ -6,12 +6,24 @@
 import '../styles/campaign-launcher.css'
 import type { CampaignSummary } from '../types'
 
+/** Props describing the staged launcher loading UI. */
+interface CampaignLauncherLoadingState {
+  /** Headline shown above the staged loading details. */
+  title: string
+  /** Human-readable detail for the current phase. */
+  detail: string
+  /** Approximate completion percentage for the progress bar. */
+  percent: number | null
+}
+
 /** Props accepted by the CampaignLauncher component. */
 interface CampaignLauncherProps {
   /** Stored campaigns available to open from the launcher. */
   campaigns: CampaignSummary[]
   /** True while a campaign file operation is in progress. */
   isBusy: boolean
+  /** Optional staged loading state shown instead of the default launcher UI. */
+  loadingState?: CampaignLauncherLoadingState | null
   /** Optional status or error message shown under the action buttons. */
   statusMessage: string | null
   /** Called when the user wants to create a new campaign. */
@@ -30,11 +42,38 @@ interface CampaignLauncherProps {
 export function CampaignLauncher({
   campaigns,
   isBusy,
+  loadingState = null,
   statusMessage,
   onCreateCampaign,
   onOpenFromFile,
   onOpenCampaign,
 }: CampaignLauncherProps) {
+  if (loadingState) {
+    return (
+      <main className="campaign-launcher campaign-launcher--loading">
+        <section className="campaign-launcher__panel campaign-launcher__panel--loading" aria-live="polite">
+          <p className="campaign-launcher__eyebrow">Campaigns</p>
+          <h1 className="campaign-launcher__title">{loadingState.title}</h1>
+          <p className="campaign-launcher__copy campaign-launcher__copy--loading">
+            {loadingState.detail}
+          </p>
+
+          <div className="campaign-launcher__progress" aria-hidden="true">
+            <div
+              className={`campaign-launcher__progress-bar${loadingState.percent == null ? ' campaign-launcher__progress-bar--indeterminate' : ''}`}
+              style={loadingState.percent != null ? { width: `${loadingState.percent}%` } : undefined}
+            />
+          </div>
+
+          <div className="campaign-launcher__progress-meta">
+            <span>Opening existing campaign</span>
+            <span>{loadingState.percent != null ? `${loadingState.percent}%` : 'Working…'}</span>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="campaign-launcher">
       <section className="campaign-launcher__panel" aria-labelledby="campaign-launcher-title">

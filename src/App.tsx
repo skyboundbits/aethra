@@ -400,6 +400,21 @@ function buildSystemContext(
 }
 
 /**
+ * Read the explicitly active character list for one session as a stable
+ * de-duplicated array when available.
+ *
+ * @param session - Session whose disabled character list should be read.
+ * @returns Stable array of active character IDs, or null when no explicit list exists.
+ */
+function getSessionActiveCharacterIds(session: Session | null): string[] | null {
+  if (!session?.activeCharacterIds) {
+    return null
+  }
+
+  return [...new Set(session.activeCharacterIds.filter((characterId) => characterId.trim().length > 0))]
+}
+
+/**
  * Read the disabled character list for one session as a stable de-duplicated
  * array. Missing data is treated as "all campaign characters enabled".
  *
@@ -425,8 +440,52 @@ function getEnabledSessionCharacters(
   session: Session | null,
   characters: CharacterProfile[],
 ): CharacterProfile[] {
+  const activeCharacterIds = getSessionActiveCharacterIds(session)
+  if (activeCharacterIds) {
+    const enabledCharacterIds = new Set(activeCharacterIds)
+    return characters.filter((character) => enabledCharacterIds.has(character.id))
+  }
+
   const disabledCharacterIds = new Set(getSessionDisabledCharacterIds(session))
   return characters.filter((character) => !disabledCharacterIds.has(character.id))
+}
+
+/**
+ * Mark one newly added campaign character as inactive in every existing
+ * session so session membership stays opt-in.
+ *
+ * @param campaign - Campaign whose sessions should be updated.
+ * @param characterId - Campaign character ID that was just introduced.
+ * @returns Campaign copy with existing sessions updated when needed.
+ */
+function disableCharacterInExistingSessions(campaign: Campaign, characterId: string): Campaign {
+  let didChange = false
+  const nextSessions = campaign.sessions.map((session) => {
+    const activeCharacterIds = getSessionActiveCharacterIds(session)
+    if (activeCharacterIds) {
+      return session
+    }
+
+    const disabledCharacterIds = new Set(getSessionDisabledCharacterIds(session))
+    if (disabledCharacterIds.has(characterId)) {
+      return session
+    }
+
+    didChange = true
+    disabledCharacterIds.add(characterId)
+    return {
+      ...session,
+      disabledCharacterIds: [...disabledCharacterIds],
+      updatedAt: Date.now(),
+    }
+  })
+
+  return didChange
+    ? {
+      ...campaign,
+      sessions: nextSessions,
+    }
+    : campaign
 }
 
 /**
@@ -995,8 +1054,18 @@ function hydrateCampaignMessageCharacterIds(campaign: Campaign, characters: Char
   let didChange = false
   const nextSessions = campaign.sessions.map((session) => {
     let sessionChanged = false
+    const storedActiveCharacterIds = getSessionActiveCharacterIds(session)
+    const nextActiveCharacterIds = storedActiveCharacterIds
+      ? storedActiveCharacterIds.filter((characterId) => validCharacterIds.has(characterId))
+      : characters
+        .filter((character) => !getSessionDisabledCharacterIds(session).includes(character.id))
+        .map((character) => character.id)
     const nextDisabledCharacterIds = getSessionDisabledCharacterIds(session)
       .filter((characterId) => validCharacterIds.has(characterId))
+    const activeIdsChanged =
+      !session.activeCharacterIds ||
+      nextActiveCharacterIds.length !== session.activeCharacterIds.length ||
+      nextActiveCharacterIds.some((characterId, index) => characterId !== session.activeCharacterIds?.[index])
     const disabledIdsChanged =
       !session.disabledCharacterIds ||
       nextDisabledCharacterIds.length !== session.disabledCharacterIds.length ||
@@ -1012,13 +1081,14 @@ function hydrateCampaignMessageCharacterIds(campaign: Campaign, characters: Char
       })
       : session.messages
 
-    if (!sessionChanged && !disabledIdsChanged) {
+    if (!sessionChanged && !activeIdsChanged && !disabledIdsChanged) {
       return session
     }
 
     didChange = true
     return {
       ...session,
+      activeCharacterIds: nextActiveCharacterIds,
       disabledCharacterIds: nextDisabledCharacterIds,
       messages: nextMessages,
     }
@@ -2165,7 +2235,7 @@ export default function App() {
    * @param characterId - Character being toggled.
    */
   async function handleToggleSessionCharacter(characterId: string): Promise<void> {
-    if (!activeSession) {
+    if (!activeSession || !campaign) {
       return
     }
 
@@ -2174,8 +2244,11 @@ export default function App() {
       return
     }
 
+    const activeCharacterIds = new Set(
+      getSessionActiveCharacterIds(activeSession) ?? characters.map((candidate) => candidate.id),
+    )
     const disabledCharacterIds = new Set(getSessionDisabledCharacterIds(activeSession))
-    const isCurrentlyEnabled = !disabledCharacterIds.has(characterId)
+    const isCurrentlyEnabled = activeCharacterIds.has(characterId)
 
     if (isCurrentlyEnabled) {
       const normalizedCharacterName = character.name.trim().toLocaleLowerCase()
@@ -2197,22 +2270,41 @@ export default function App() {
       }
 
       disabledCharacterIds.add(characterId)
+      activeCharacterIds.delete(characterId)
     } else {
       disabledCharacterIds.delete(characterId)
+      activeCharacterIds.add(characterId)
     }
 
-    updateCampaign((prev) => ({
-      ...prev,
-      sessions: prev.sessions.map((session) => (
+    const now = Date.now()
+    const nextCampaign: Campaign = {
+      ...campaign,
+      updatedAt: now,
+      sessions: campaign.sessions.map((session) => (
         session.id === activeSession.id
           ? {
             ...session,
+            activeCharacterIds: characters
+              .filter((candidate) => activeCharacterIds.has(candidate.id))
+              .map((candidate) => candidate.id),
             disabledCharacterIds: [...disabledCharacterIds],
-            updatedAt: Date.now(),
+            updatedAt: now,
           }
           : session
       )),
-    }))
+    }
+
+    setCampaign(nextCampaign)
+    if (campaignPath) {
+      void window.api.saveCampaign(campaignPath, nextCampaign)
+        .then(() => {
+          lastSavedCampaignRef.current = nextCampaign
+        })
+        .catch((err) => {
+          console.error('[Aethra] Could not save session character changes:', err)
+          setCampaignStatusMessage('Could not save the active session cast.')
+        })
+    }
   }
 
   /**
@@ -3941,11 +4033,15 @@ export default function App() {
     setIsCharactersBusy(true)
 
     try {
+      const isNewCharacter = !characters.some((candidate) => candidate.id === character.id)
       const savedCharacter = await window.api.saveCharacter(campaignPath, character)
       setCharacters((prev) =>
         [savedCharacter, ...prev.filter((candidate) => candidate.id !== savedCharacter.id)]
           .sort((first, second) => second.updatedAt - first.updatedAt),
       )
+      if (isNewCharacter) {
+        updateCampaign((prev) => disableCharacterInExistingSessions(prev, savedCharacter.id))
+      }
       setActiveCharacterId(savedCharacter.id)
       setCharactersStatusKind('success')
       setCharactersStatusMessage(`Saved ${savedCharacter.name}.`)
@@ -4151,6 +4247,7 @@ export default function App() {
       [savedCharacter, ...prev.filter((candidate) => candidate.id !== savedCharacter.id)]
         .sort((first, second) => second.updatedAt - first.updatedAt),
     )
+    updateCampaign((prev) => disableCharacterInExistingSessions(prev, savedCharacter.id))
 
     return savedCharacter
   }
@@ -4260,6 +4357,7 @@ export default function App() {
         openingNotes,
         continuitySourceSessionId: selectedContinuitySession?.id,
         continuitySummary: selectedContinuitySession?.rollingSummary.trim() ?? '',
+        activeCharacterIds: [...selectedCharacterIds],
         disabledCharacterIds,
         messages: [],
         rollingSummary: '',
@@ -4337,6 +4435,7 @@ export default function App() {
       sceneSetup: '',
       openingNotes: '',
       continuitySummary: '',
+      activeCharacterIds: characters.map((character) => character.id),
       disabledCharacterIds: [],
       messages: [],
       rollingSummary: '',

@@ -57,11 +57,20 @@ Each message shows:
 - **Styling**: User messages have different background than AI messages
 
 #### Message Interactions
-- **Hover over a message**:
-  - Copy icon (📋): Copy message text to clipboard
-  - Delete icon (🗑️): Remove message (permanent for current session)
+Hover over any message to reveal action buttons:
+- **Copy icon (📋)**: Copy message text to clipboard
+- **Raw icon (≡)**: View the raw, unformatted message content (includes metadata like role, timestamp)
+- **Delete icon (🗑️)**: Remove message (permanent for current session)
+
+**Message Styling**:
 - **User messages**: Light blue/gray background with character avatar on left
 - **Assistant messages**: Darker background, appearing from the AI perspective
+
+**Raw Message Inspector**:
+When you click the raw message icon, a modal opens showing:
+- Exact stored message text (as saved in the transcript)
+- Message metadata (role, character name, timestamp)
+- Useful for debugging or verifying message content
 
 #### Composer (Bottom)
 The text input area where you write your roleplay message:
@@ -99,6 +108,7 @@ The right panel shows context for the current session:
 - **Session Title**: Name of the current conversation
 - **Messages Count**: Total messages in the session
 - **Created**: Date the session was created
+- **View Summary**: If rolling summaries are enabled, a button appears to view and rebuild the summary
 
 #### Model/Server Status
 - **Current Model**: Name of the active AI model
@@ -191,6 +201,13 @@ A **rolling summary** automatically compresses older messages to keep the AI con
 2. Go to the **Chat** tab
 3. Toggle **Enable Rolling Summaries**
 4. Save settings
+
+#### Viewing & Managing Summaries
+When rolling summaries are enabled, you can:
+1. **View Summary**: Click the "View Summary" button in the Details Panel
+2. **Inspect Current Summary**: A modal shows the exact summary text being used by the AI
+3. **Rebuild Summary**: Click "Rebuild Summary" to regenerate it from scratch if it becomes outdated
+4. **Track Coverage**: See how many messages have been compressed into the summary
 
 > **Best for**: Long campaigns with 100+ messages per session
 > **Best against**: Short campaigns (summaries can oversimplify context)
