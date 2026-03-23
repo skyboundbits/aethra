@@ -23,6 +23,7 @@ import type {
   BinaryInstallProgress,
   Campaign,
   CampaignFileHandle,
+  CampaignLoadProgress,
   CampaignSummary,
   CharacterProfile,
   ChatMessage,
@@ -33,7 +34,9 @@ import type {
   LocalRuntimeStatus,
   ModelDownloadProgress,
   ModelPreset,
+  RelationshipGraph,
   ReusableCharacter,
+  Session,
   TokenUsage,
   WindowControlsState,
 } from '../../src/types'
@@ -373,6 +376,23 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   /**
+   * Subscribe to progress updates while an existing campaign loads from disk.
+   *
+   * @param listener - Called whenever the main process emits a load update.
+   * @returns Cleanup function that removes the IPC listener.
+   */
+  onCampaignLoadProgress(listener: (progress: CampaignLoadProgress) => void): () => void {
+    function onProgress(_: IpcRendererEvent, progress: CampaignLoadProgress) {
+      listener(progress)
+    }
+
+    ipcRenderer.on('campaign:load:progress', onProgress)
+    return () => {
+      ipcRenderer.off('campaign:load:progress', onProgress)
+    }
+  },
+
+  /**
    * Open a native file picker for an existing campaign JSON file.
    *
    * @returns Promise resolving to the selected campaign folder path, or null.
@@ -431,6 +451,45 @@ contextBridge.exposeInMainWorld('api', {
    */
   deleteCharacter(campaignPath: string, characterId: string): Promise<void> {
     return ipcRenderer.invoke('characters:delete', campaignPath, characterId) as Promise<void>
+  },
+
+  /**
+   * Load the stored relationship graph for a campaign.
+   *
+   * @param campaignPath - Absolute path to the campaign folder.
+   * @param campaignId - Campaign.id for integrity validation.
+   * @returns Promise resolving to the graph, or null when absent.
+   */
+  getRelationships(campaignPath: string, campaignId: string): Promise<RelationshipGraph | null> {
+    return ipcRenderer.invoke('relationships:get', campaignPath, campaignId) as Promise<RelationshipGraph | null>
+  },
+
+  /**
+   * Persist the relationship graph to disk.
+   *
+   * @param campaignPath - Absolute path to the campaign folder.
+   * @param graph - Full graph to write.
+   */
+  saveRelationships(campaignPath: string, graph: RelationshipGraph): Promise<void> {
+    return ipcRenderer.invoke('relationships:set', campaignPath, graph) as Promise<void>
+  },
+
+  /**
+   * Run LLM analysis and return the merged relationship graph without saving.
+   *
+   * @param campaignPath - Absolute path to the campaign folder.
+   * @param campaignId - Campaign.id written into the returned graph.
+   * @param characters - Campaign character roster.
+   * @param sessions - All campaign sessions, oldest first.
+   * @returns Promise resolving to the merged graph for user review.
+   */
+  refreshRelationships(
+    campaignPath: string,
+    campaignId: string,
+    characters: CharacterProfile[],
+    sessions: Session[],
+  ): Promise<RelationshipGraph> {
+    return ipcRenderer.invoke('relationships:refresh', campaignPath, campaignId, characters, sessions) as Promise<RelationshipGraph>
   },
 
   /**

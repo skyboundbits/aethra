@@ -14,6 +14,7 @@ import type {
   BinaryInstallProgress,
   Campaign,
   CampaignFileHandle,
+  CampaignLoadProgress,
   CampaignSummary,
   CharacterProfile,
   ChatMessage,
@@ -24,7 +25,9 @@ import type {
       LocalRuntimeStatus,
   ModelDownloadProgress,
   ModelPreset,
+  RelationshipGraph,
   ReusableCharacter,
+  Session,
   TokenUsage,
   WindowControlsState,
 } from './index'
@@ -235,6 +238,13 @@ declare global {
       openCampaign: (path: string) => Promise<CampaignFileHandle>
 
       /**
+       * Subscribe to campaign-open progress updates from the main process.
+       * @param listener - Called whenever campaign loading advances.
+       * @returns Cleanup function to remove the listener.
+       */
+      onCampaignLoadProgress: (listener: (progress: CampaignLoadProgress) => void) => () => void
+
+      /**
        * Open a native file picker for an existing campaign JSON file.
        * @returns Promise resolving to the selected campaign folder path, or null when cancelled.
        */
@@ -273,6 +283,37 @@ declare global {
        * @param characterId - Stable character identifier to delete.
        */
       deleteCharacter: (campaignPath: string, characterId: string) => Promise<void>
+
+      /**
+       * Load the relationship graph for a campaign.
+       * @param campaignPath - Absolute path to the campaign folder.
+       * @param campaignId - Campaign.id for integrity validation.
+       * @returns Promise resolving to the stored graph, or null if none exists.
+       */
+      getRelationships: (campaignPath: string, campaignId: string) => Promise<RelationshipGraph | null>
+
+      /**
+       * Persist the relationship graph to disk.
+       * @param campaignPath - Absolute path to the campaign folder.
+       * @param graph - Full graph to write.
+       */
+      saveRelationships: (campaignPath: string, graph: RelationshipGraph) => Promise<void>
+
+      /**
+       * Run an LLM analysis of campaign transcripts and return the merged relationship graph.
+       * Does NOT write to disk — caller saves after user review.
+       * @param campaignPath - Absolute path to the campaign folder.
+       * @param campaignId - Campaign.id written into the returned graph.
+       * @param characters - Current campaign character roster.
+       * @param sessions - All campaign sessions (oldest first).
+       * @returns Promise resolving to the merged graph ready for review.
+       */
+      refreshRelationships: (
+        campaignPath: string,
+        campaignId: string,
+        characters: CharacterProfile[],
+        sessions: Session[],
+      ) => Promise<RelationshipGraph>
 
       /**
        * Load the global reusable avatar library.
