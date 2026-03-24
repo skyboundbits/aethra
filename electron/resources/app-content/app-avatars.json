@@ -1,0 +1,24 @@
+{
+  "avatars": [
+    {
+      "id": "avatar-001",
+      "name": "Noble Knight",
+      "imageData": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "scale": 1
+      }
+    },
+    {
+      "id": "avatar-002",
+      "name": "Mysterious Sage",
+      "imageData": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "scale": 1
+      }
+    }
+  ]
+}
