@@ -279,6 +279,49 @@
   gap: var(--space-3);
 }
 
+.settings-modal__warning {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: 14px;
+  border: 1px solid var(--status-border-warning, #8a6a1f);
+  border-radius: var(--radius-md);
+  background-color: var(--status-bg-warning, color-mix(in srgb, var(--surface-bg) 82%, #a97712 18%));
+}
+
+.settings-modal__warning-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--status-color-warning, #f0c15a);
+}
+
+.settings-modal__warning-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-modal__warning-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.settings-modal__warning-title {
+  color: var(--text-color-primary);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+}
+
+.settings-modal__warning-text {
+  margin: 0;
+  color: var(--text-color-secondary);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+}
+
 .settings-modal__prompt-editor {
   display: flex;
   flex-direction: column;

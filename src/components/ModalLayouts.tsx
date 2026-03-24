@@ -13,6 +13,10 @@ interface ModalWorkspaceLayoutProps {
   panel: React.ReactNode
   /** Optional footer row rendered beneath the body. */
   footer?: React.ReactNode
+  /** Optional ref forwarded to the scrollable nav column wrapper. */
+  navRef?: React.Ref<HTMLElement>
+  /** Optional wheel handler attached to the scrollable nav column wrapper. */
+  onNavWheel?: React.WheelEventHandler<HTMLElement>
 }
 
 /**
@@ -23,11 +27,13 @@ export function ModalWorkspaceLayout({
   nav,
   panel,
   footer,
+  navRef,
+  onNavWheel,
 }: ModalWorkspaceLayoutProps) {
   return (
     <div className="modal-layout modal-layout--workspace">
       <div className="modal-layout__body modal-layout__body--workspace">
-        <nav className="modal-layout__nav">{nav}</nav>
+        <nav ref={navRef} className="modal-layout__nav" onWheel={onNavWheel}>{nav}</nav>
         <div className="modal-layout__panel modal-layout__panel--workspace">{panel}</div>
       </div>
       {footer ? <div className="modal-layout__footer">{footer}</div> : null}

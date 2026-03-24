@@ -4,14 +4,15 @@
  * local llama.cpp configuration, model browsing, and theme selection.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LlamaBinaryBanner } from './LlamaBinaryBanner'
 import { ModalFooter, ModalWorkspaceLayout } from './ModalLayouts'
 import { Modal } from './Modal'
-import { MessageCircleMoreIcon, PaletteIcon, SettingsIcon, SparkleIcon, SparklesIcon, WandSparklesIcon, SwordsIcon, ListMinusIcon, ChessKnightIcon } from './icons'
+import { MessageCircleMoreIcon, PaletteIcon, SettingsIcon, SparkleIcon, SparklesIcon, WandSparklesIcon, SwordsIcon, ListMinusIcon, ChessKnightIcon, TriangleAlertIcon } from './icons'
 import {
   DEFAULT_CAMPAIGN_BASE_PROMPT,
   DEFAULT_CHAT_FORMATTING_RULES,
+  DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT,
   DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
 } from '../prompts/campaignPrompts'
 import { formatBytes } from '../services/modelFitService'
@@ -262,8 +263,12 @@ interface SettingsModalProps {
   formattingRules: string
   /** Rolling summary system instruction template. */
   rollingSummarySystemPrompt: string
+  /** Relationship summary system instruction template. */
+  relationshipSummarySystemPrompt: string
   /** Whether prompts should use rolling summaries plus a recent chat window. */
   enableRollingSummaries: boolean
+  /** Whether sessions should also maintain rolling relationship summaries. */
+  enableRollingRelationshipSummaries: boolean
   /** Number of recent prompt-visible messages kept verbatim when summaries are enabled. */
   recentMessagesWindow: number
   /** Current llama-server binary install progress, or null. */
@@ -315,6 +320,8 @@ interface SettingsModalProps {
   onAssistantResponseRevealDelayChange: (delayMs: number) => void
   /** Called when the user toggles rolling summaries for campaign prompts. */
   onRollingSummariesToggle: (enabled: boolean) => void
+  /** Called when the user toggles rolling relationship summaries for sessions. */
+  onRollingRelationshipSummariesToggle: (enabled: boolean) => void
   /** Called when the user changes the recent-message window size for rolling summaries. */
   onRecentMessagesWindowChange: (count: number) => void
   /** Called when the user saves edited prompt templates. */
@@ -322,6 +329,7 @@ interface SettingsModalProps {
     campaignBasePrompt: string
     formattingRules: string
     rollingSummarySystemPrompt: string
+    relationshipSummarySystemPrompt: string
   }) => Promise<void>
   /** Called when the modal should publish a footer status update. */
   onSetStatus: (kind: 'error' | 'success', message: string) => void
@@ -401,7 +409,9 @@ export function SettingsModal({
   campaignBasePrompt,
   formattingRules,
   rollingSummarySystemPrompt,
+  relationshipSummarySystemPrompt,
   enableRollingSummaries,
+  enableRollingRelationshipSummaries,
   recentMessagesWindow,
   binaryInstallProgress,
   statusMessage,
@@ -423,11 +433,13 @@ export function SettingsModal({
   onShowChatMarkupToggle,
   onAssistantResponseRevealDelayChange,
   onRollingSummariesToggle,
+  onRollingRelationshipSummariesToggle,
   onRecentMessagesWindowChange,
   onSavePromptTemplates,
   onSetStatus,
 }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('interface')
+  const settingsNavRef = useRef<HTMLElement | null>(null)
   const [binaryCheckResult, setBinaryCheckResult] = useState<{
     found: boolean
     path: string | null
@@ -445,6 +457,9 @@ export function SettingsModal({
   const [campaignBasePromptValue, setCampaignBasePromptValue] = useState(campaignBasePrompt)
   const [formattingRulesValue, setFormattingRulesValue] = useState(formattingRules)
   const [rollingSummarySystemPromptValue, setRollingSummarySystemPromptValue] = useState(rollingSummarySystemPrompt)
+  const [relationshipSummarySystemPromptValue, setRelationshipSummarySystemPromptValue] = useState(
+    relationshipSummarySystemPrompt,
+  )
   const [isSaving, setIsSaving] = useState(false)
 
   const localAiServers = servers.filter((server) => server.kind !== 'llama.cpp')
@@ -515,6 +530,13 @@ export function SettingsModal({
   }, [rollingSummarySystemPrompt])
 
   /**
+   * Keep the relationship-summary prompt editor aligned with persisted settings.
+   */
+  useEffect(() => {
+    setRelationshipSummarySystemPromptValue(relationshipSummarySystemPrompt)
+  }, [relationshipSummarySystemPrompt])
+
+  /**
    * Run a binary check whenever the active server changes to a llama.cpp server.
    */
   useEffect(() => {
@@ -566,6 +588,32 @@ export function SettingsModal({
   }
 
   /**
+   * Route wheel input to the settings nav rail so trackpads and mouse wheels
+   * can scroll the section list even inside the modal shell.
+   *
+   * @param event - Wheel event fired by the nav container.
+   */
+  function handleSettingsNavWheel(event: React.WheelEvent<HTMLElement>): void {
+    const navElement = settingsNavRef.current
+    if (!navElement) {
+      return
+    }
+
+    const maxScrollTop = navElement.scrollHeight - navElement.clientHeight
+    if (maxScrollTop <= 0) {
+      return
+    }
+
+    const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX
+    if (delta === 0) {
+      return
+    }
+
+    navElement.scrollTop = Math.max(0, Math.min(navElement.scrollTop + delta, maxScrollTop))
+    event.preventDefault()
+  }
+
+  /**
    * Persist the currently visible AI settings without closing the modal.
    */
   async function handleSaveSettings(): Promise<void> {
@@ -575,7 +623,9 @@ export function SettingsModal({
         try {
           await onSavePromptTemplates({
             campaignBasePrompt: campaignBasePromptValue,
+            formattingRules: formattingRulesValue,
             rollingSummarySystemPrompt: rollingSummarySystemPromptValue,
+            relationshipSummarySystemPrompt: relationshipSummarySystemPromptValue,
           })
         } finally {
           setIsSaving(false)
@@ -638,6 +688,7 @@ export function SettingsModal({
         campaignBasePrompt: campaignBasePromptValue,
         formattingRules: formattingRulesValue,
         rollingSummarySystemPrompt: rollingSummarySystemPromptValue,
+        relationshipSummarySystemPrompt: relationshipSummarySystemPromptValue,
       })
     } finally {
       setIsSaving(false)
@@ -650,7 +701,11 @@ export function SettingsModal({
    * @param promptId - Template to restore.
    */
   async function handlePromptReset(
-    promptId: 'campaignBasePrompt' | 'formattingRules' | 'rollingSummarySystemPrompt',
+    promptId:
+      | 'campaignBasePrompt'
+      | 'formattingRules'
+      | 'rollingSummarySystemPrompt'
+      | 'relationshipSummarySystemPrompt',
   ): Promise<void> {
     const nextPrompts = {
       campaignBasePrompt:
@@ -661,11 +716,16 @@ export function SettingsModal({
         promptId === 'rollingSummarySystemPrompt'
           ? DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT
           : rollingSummarySystemPromptValue,
+      relationshipSummarySystemPrompt:
+        promptId === 'relationshipSummarySystemPrompt'
+          ? DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT
+          : relationshipSummarySystemPromptValue,
     }
 
     setCampaignBasePromptValue(nextPrompts.campaignBasePrompt)
     setFormattingRulesValue(nextPrompts.formattingRules)
     setRollingSummarySystemPromptValue(nextPrompts.rollingSummarySystemPrompt)
+    setRelationshipSummarySystemPromptValue(nextPrompts.relationshipSummarySystemPrompt)
     setIsSaving(true)
     try {
       await onSavePromptTemplates(nextPrompts)
@@ -686,8 +746,13 @@ export function SettingsModal({
       variant="workspace"
     >
       <ModalWorkspaceLayout
+        navRef={settingsNavRef}
+        onNavWheel={handleSettingsNavWheel}
         nav={(
-          <nav className="settings-modal__nav" aria-label="Settings sections">
+          <nav
+            className="settings-modal__nav"
+            aria-label="Settings sections"
+          >
             <SettingsSectionTab
               id="interface"
               label="Interface"
@@ -790,8 +855,21 @@ export function SettingsModal({
                 <div>
                   <h2 className="settings-modal__heading">Prompts</h2>
                   <p className="settings-modal__subheading">
-                    Edit the built-in campaign and rolling-summary prompt templates.
+                    Edit the built-in campaign, rolling-summary, and relationship-summary prompt templates.
                   </p>
+                </div>
+
+                <div className="settings-modal__warning" role="alert" aria-live="polite">
+                  <span className="settings-modal__warning-icon" aria-hidden="true">
+                    <TriangleAlertIcon />
+                  </span>
+                  <div className="settings-modal__warning-body">
+                    <div className="settings-modal__warning-title">Advanced setting</div>
+                    <p className="settings-modal__warning-text">
+                      Editing these prompt templates can significantly change model behavior and may impair summaries,
+                      relationships, or normal chat output if the instructions become incompatible.
+                    </p>
+                  </div>
                 </div>
 
                   <div className="settings-modal__field-grid">
@@ -817,6 +895,18 @@ export function SettingsModal({
                     onChange={setRollingSummarySystemPromptValue}
                     onReset={() => {
                       void handlePromptReset('rollingSummarySystemPrompt')
+                    }}
+                  />
+                  <PromptTemplateEditor
+                    id="settings-relationship-summary-prompt"
+                    label="Relationship Summary Prompt"
+                    hint="Used when generating the relationship-focused narrative summary from session transcripts."
+                    value={relationshipSummarySystemPromptValue}
+                    defaultValue={DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT}
+                    disabled={isSaving}
+                    onChange={setRelationshipSummarySystemPromptValue}
+                    onReset={() => {
+                      void handlePromptReset('relationshipSummarySystemPrompt')
                     }}
                   />
                 </div>
@@ -872,10 +962,25 @@ export function SettingsModal({
                       onChange={(event) => onRollingSummariesToggle(event.target.checked)}
                     />
                   </label>
+                  <label className="settings-modal__toggle" htmlFor="settings-rolling-relationship-summaries">
+                    <span className="settings-modal__toggle-body">
+                      <span className="settings-modal__label">Rolling Relationship Summaries</span>
+                      <span className="settings-modal__field-hint">
+                        Refresh the relationship-focused session summary alongside rolling scene summaries.
+                      </span>
+                    </span>
+                    <input
+                      id="settings-rolling-relationship-summaries"
+                      className="settings-modal__toggle-input"
+                      type="checkbox"
+                      checked={enableRollingRelationshipSummaries}
+                      onChange={(event) => onRollingRelationshipSummariesToggle(event.target.checked)}
+                    />
+                  </label>
                   <div className="settings-modal__field">
                     <div className="settings-modal__field-row">
                       <label className="settings-modal__label" htmlFor="settings-recent-messages-window">
-                        Recent Messages To Keep
+                        Recent Messages To Send
                       </label>
                       <span className="settings-modal__value-pill">
                         {recentMessagesWindow}
@@ -895,7 +1000,7 @@ export function SettingsModal({
                       />
                     </div>
                     <p className="settings-modal__field-hint">
-                      Number of recent prompt-visible messages to send verbatim when rolling summaries are enabled.
+                      Number of recent prompt-visible messages to send with each user message. Increasing this number increases tokens required for each message sent.
                     </p>
                   </div>
                 </div>

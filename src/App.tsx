@@ -46,6 +46,7 @@ import {
   buildRollingSummarySystemPrompt,
   DEFAULT_CAMPAIGN_BASE_PROMPT,
   DEFAULT_CHAT_FORMATTING_RULES,
+  DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT,
   DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
 } from './prompts/campaignPrompts'
 import { applyTheme, parseImportedTheme, upsertCustomTheme } from './services/themeService'
@@ -95,7 +96,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   campaignBasePrompt: DEFAULT_CAMPAIGN_BASE_PROMPT,
   formattingRules: DEFAULT_CHAT_FORMATTING_RULES,
   rollingSummarySystemPrompt: DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
+  relationshipSummarySystemPrompt: DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT,
   enableRollingSummaries: false,
+  enableRollingRelationshipSummaries: false,
   recentMessagesWindow: DEFAULT_RECENT_MESSAGES_WINDOW,
   showChatMarkup: false,
   chatTextSize: 'small',
@@ -2932,7 +2935,7 @@ function syncStreamedAssistantMessages(
       setSummaryModalStatusKind('success')
 
       // Generate relationship narrative
-      if (campaign && campaignPath) {
+      if (appSettingsRef.current.enableRollingRelationshipSummaries && campaign && campaignPath) {
         try {
           setSummaryModalStatusMessage('Generating relationship summary...')
           const sessionCharacters = getEnabledSessionCharacters(activeSession, characters)
@@ -3467,6 +3470,32 @@ function syncStreamedAssistantMessages(
   }
 
   /**
+   * Enable or disable rolling relationship summaries for session analysis.
+   *
+   * @param enabled - Whether relationship summaries should refresh automatically.
+   */
+  async function handleRollingRelationshipSummariesToggle(enabled: boolean): Promise<void> {
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      enableRollingRelationshipSummaries: enabled,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage(
+        enabled
+          ? 'Rolling relationship summaries enabled.'
+          : 'Rolling relationship summaries disabled.',
+      )
+    } catch (err) {
+      console.error('[Aethra] Could not update rolling relationship summary setting:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save the rolling relationship summary setting.')
+    }
+  }
+
+  /**
    * Persist the recent-message window kept verbatim when rolling summaries are enabled.
    *
    * @param count - Desired number of recent prompt-visible messages.
@@ -3501,12 +3530,14 @@ function syncStreamedAssistantMessages(
     campaignBasePrompt: string
     formattingRules: string
     rollingSummarySystemPrompt: string
+    relationshipSummarySystemPrompt: string
   }): Promise<void> {
     const nextSettings: AppSettings = {
       ...appSettings,
       campaignBasePrompt: prompts.campaignBasePrompt,
       formattingRules: prompts.formattingRules,
       rollingSummarySystemPrompt: prompts.rollingSummarySystemPrompt,
+      relationshipSummarySystemPrompt: prompts.relationshipSummarySystemPrompt,
     }
 
     try {
@@ -4724,6 +4755,7 @@ function syncStreamedAssistantMessages(
       // Generate relationship narrative alongside the summary (catchUpRollingSummaryBeforeSend already rebuilt the summary)
       if (
         appSettingsRef.current.enableRollingSummaries
+        && appSettingsRef.current.enableRollingRelationshipSummaries
         && latestSessionForPrompt
         && campaign
         && campaignPath
@@ -5250,7 +5282,9 @@ function syncStreamedAssistantMessages(
           campaignBasePrompt={appSettings.campaignBasePrompt}
           formattingRules={appSettings.formattingRules}
           rollingSummarySystemPrompt={appSettings.rollingSummarySystemPrompt}
+          relationshipSummarySystemPrompt={appSettings.relationshipSummarySystemPrompt}
           enableRollingSummaries={appSettings.enableRollingSummaries}
+          enableRollingRelationshipSummaries={appSettings.enableRollingRelationshipSummaries}
           recentMessagesWindow={appSettings.recentMessagesWindow}
           statusMessage={settingsStatusMessage}
           statusKind={settingsStatusKind}
@@ -5292,6 +5326,9 @@ function syncStreamedAssistantMessages(
           }}
           onRollingSummariesToggle={(enabled) => {
             void handleRollingSummariesToggle(enabled)
+          }}
+          onRollingRelationshipSummariesToggle={(enabled) => {
+            void handleRollingRelationshipSummariesToggle(enabled)
           }}
           onRecentMessagesWindowChange={(count) => {
             void handleRecentMessagesWindowChange(count)

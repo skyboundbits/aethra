@@ -506,7 +506,12 @@ function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSet
       typeof raw?.rollingSummarySystemPrompt === 'string' && raw.rollingSummarySystemPrompt.trim().length > 0
         ? raw.rollingSummarySystemPrompt
         : DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
+    relationshipSummarySystemPrompt:
+      typeof raw?.relationshipSummarySystemPrompt === 'string' && raw.relationshipSummarySystemPrompt.trim().length > 0
+        ? raw.relationshipSummarySystemPrompt
+        : DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT,
     enableRollingSummaries: raw?.enableRollingSummaries === true,
+    enableRollingRelationshipSummaries: raw?.enableRollingRelationshipSummaries === true,
     recentMessagesWindow:
       typeof raw?.recentMessagesWindow === 'number' && Number.isFinite(raw.recentMessagesWindow)
         ? Math.max(2, Math.min(100, Math.floor(raw.recentMessagesWindow)))
@@ -4854,7 +4859,7 @@ ipcMain.handle(
     const summaryMessages: ChatMessage[] = [
       {
         role: 'system',
-        content: DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT,
+        content: settings.relationshipSummarySystemPrompt,
       },
       {
         role: 'user',
@@ -4947,7 +4952,7 @@ ipcMain.handle(
     const summaryMessages: ChatMessage[] = [
       {
         role: 'system',
-        content: DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT,
+        content: settings.relationshipSummarySystemPrompt,
       },
       {
         role: 'user',

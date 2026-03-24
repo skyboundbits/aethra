@@ -677,8 +677,12 @@ export interface AppSettings {
   formattingRules: string
   /** System instruction used when generating or rebuilding rolling summaries. */
   rollingSummarySystemPrompt: string
+  /** System instruction used when generating relationship-focused narrative summaries. */
+  relationshipSummarySystemPrompt: string
   /** Whether campaign chats should send a rolling summary plus the most recent messages. */
   enableRollingSummaries: boolean
+  /** Whether sessions should also maintain relationship-focused rolling summaries. */
+  enableRollingRelationshipSummaries: boolean
   /** Number of recent prompt-visible messages to keep verbatim when summaries are enabled. */
   recentMessagesWindow: number
   /** Whether hidden inline markup markers should be shown in chat bubbles. */
