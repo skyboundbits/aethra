@@ -1,0 +1,38 @@
+{
+  "characters": [
+    {
+      "id": "app-char-001",
+      "name": "Sir Aldric",
+      "role": "Knight",
+      "gender": "male",
+      "pronouns": "he/him",
+      "description": "A seasoned knight with silver-streaked hair and a weathered face. Stands tall in ceremonial armor, bearing the crest of a forgotten order.",
+      "personality": "Honorable and stoic. Speaks with measured deliberation. Values duty above all else, though hints of weariness suggest years of moral compromise.",
+      "speakingStyle": "Formal and measured. Uses archaic phrasing. Addresses others with titles unless told otherwise. Rarely raises his voice.",
+      "goals": "Restore honor to his order. Protect those who cannot protect themselves. Uncover the truth behind the kingdom's decline.",
+      "avatarImageData": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "avatarCrop": {
+        "x": 0,
+        "y": 0,
+        "scale": 1
+      }
+    },
+    {
+      "id": "app-char-002",
+      "name": "Lyra the Archivist",
+      "role": "Sage",
+      "gender": "female",
+      "pronouns": "she/her",
+      "description": "A scholar with sharp, intelligent eyes and ink-stained fingers. Her robes are adorned with symbols of forgotten languages. Despite her academic appearance, she moves with unexpected grace.",
+      "personality": "Curious, enigmatic, and playfully evasive. Speaks in riddles and references obscure texts. Hides deep sadness beneath a veneer of intellectual detachment.",
+      "speakingStyle": "Poetic and metaphorical. Uses metaphors drawn from history and nature. Often quotes texts, sometimes incorrectly on purpose. Laughs often, rarely genuinely.",
+      "goals": "Recover lost knowledge before it's forgotten forever. Mentor a worthy student. Discover what truly lies beneath the world's oldest libraries.",
+      "avatarImageData": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "avatarCrop": {
+        "x": 0,
+        "y": 0,
+        "scale": 1
+      }
+    }
+  ]
+}
