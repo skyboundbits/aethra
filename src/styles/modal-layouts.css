@@ -71,6 +71,7 @@
 }
 
 .modal-footer__button {
+  min-width: 132px;
   padding: 10px 14px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);

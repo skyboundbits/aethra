@@ -139,6 +139,8 @@ export interface CharacterProfile {
   avatarImageData: string | null
   /** Reusable avatar ID this character was derived from, when applicable. */
   avatarSourceId?: string
+  /** Global character library ID this campaign character was imported from, when applicable. */
+  reusableCharacterId?: string
   /** Manual circle crop state used to frame the avatar in chat. */
   avatarCrop: CharacterAvatarCrop
   /** Which participant controls this character in play. */
@@ -246,6 +248,8 @@ export interface ReusableCharacter {
   avatarImageData: string | null
   /** Reusable avatar ID this character was derived from, when applicable. */
   avatarSourceId?: string
+  /** Global character library ID reused when this saved character originated from a campaign import. */
+  reusableCharacterId?: string
   /** Manual circle crop state used to frame the avatar in chat. */
   avatarCrop: CharacterAvatarCrop
   /** Which participant controls this character in play. */
@@ -285,6 +289,8 @@ export interface ReusableCharacterBundleCharacter {
   avatarImageData: string | null
   /** Reusable avatar ID this character was derived from, when applicable. */
   avatarSourceId?: string
+  /** Global character library ID this campaign character was imported from, when applicable. */
+  reusableCharacterId?: string
   /** Manual circle crop state used to frame the avatar in chat. */
   avatarCrop: CharacterAvatarCrop
   /** Which participant controls this character in play. */

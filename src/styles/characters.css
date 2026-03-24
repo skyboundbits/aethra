@@ -86,12 +86,18 @@
 }
 
 .characters-modal__status {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
   padding: 10px 12px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background-color: var(--surface-bg);
   color: var(--text-color-secondary);
   font-size: var(--font-size-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .characters-modal__status--success {
@@ -102,6 +108,10 @@
 .characters-modal__status--error {
   border-color: var(--status-border-error);
   color: var(--status-color-error);
+}
+
+.characters-modal__status--empty {
+  visibility: hidden;
 }
 
 .characters-modal__editor,
@@ -123,6 +133,10 @@
 .characters-modal__heading {
   font-size: var(--font-size-title);
   color: var(--text-color-primary);
+}
+
+.characters-modal__heading--section {
+  font-size: var(--font-size-heading);
 }
 
 .characters-modal__subheading {
@@ -173,15 +187,35 @@
   gap: var(--space-2);
 }
 
+.characters-modal__editor-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .characters-modal__avatar-locked {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
 }
 
+.characters-modal__avatar-locked-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.characters-modal__avatar-locked-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 .characters-modal__avatar-locked-preview {
   width: 220px;
   height: 220px;
+  flex: 0 0 220px;
   border: 1px solid var(--border-color);
   border-radius: 999px;
   background-color: var(--surface-bg);
@@ -290,6 +324,44 @@ select.characters-modal__input {
   gap: var(--space-3);
 }
 
+.characters-modal__avatar-browser {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.characters-modal__avatar-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-bg-selected) 60%, transparent), transparent),
+    var(--surface-bg);
+  position: sticky;
+  top: 0;
+  text-align: center;
+}
+
+.characters-modal__avatar-sidebar-preview {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background-color: var(--surface-bg-emphasis);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.characters-modal__avatar-sidebar-action {
+  justify-content: center;
+}
+
 .characters-modal__gallery-item {
   display: flex;
   flex-direction: column;
@@ -371,6 +443,42 @@ select.characters-modal__input {
   gap: var(--space-3);
 }
 
+.characters-modal__relationship-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.characters-modal__relationship-avatar {
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background-color: var(--surface-bg-emphasis);
+  background-repeat: no-repeat;
+  color: var(--text-color-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 48px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  transition: border-color var(--motion-base), background-color var(--motion-base), transform var(--motion-base);
+}
+
+.characters-modal__relationship-avatar:hover {
+  border-color: var(--border-color-accent);
+  background-color: var(--surface-bg-accent);
+  transform: translateY(-1px);
+}
+
+.characters-modal__relationship-avatar--image {
+  background-size: cover;
+}
+
 .characters-modal__relationship-name {
   font-size: var(--font-size-body);
   font-weight: 600;
@@ -427,6 +535,10 @@ select.characters-modal__input {
     align-items: flex-start;
   }
 
+  .characters-modal__avatar-locked-layout {
+    grid-template-columns: 1fr;
+  }
+
   .characters-modal__relationship-card-header {
     flex-direction: column;
     align-items: stretch;
@@ -434,5 +546,15 @@ select.characters-modal__input {
 
   .characters-modal__relationship-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 960px) {
+  .characters-modal__avatar-browser {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .characters-modal__avatar-sidebar {
+    position: static;
   }
 }

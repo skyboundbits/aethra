@@ -285,6 +285,7 @@ interface PartialCharacterRecord {
   pronouns?: unknown
   avatarImageData?: unknown
   avatarSourceId?: unknown
+  reusableCharacterId?: unknown
   avatarCrop?: unknown
   createdAt?: unknown
   updatedAt?: unknown
@@ -317,6 +318,7 @@ interface PartialReusableCharacterRecord {
   goals?: unknown
   avatarImageData?: unknown
   avatarSourceId?: unknown
+  reusableCharacterId?: unknown
   avatarCrop?: unknown
   controlledBy?: unknown
   createdAt?: unknown
@@ -2138,6 +2140,9 @@ function normalizeCharacter(raw: unknown, folderName: string): CharacterProfile 
     avatarSourceId: typeof safeRaw.avatarSourceId === 'string' && safeRaw.avatarSourceId.trim().length > 0
       ? safeRaw.avatarSourceId.trim()
       : undefined,
+    reusableCharacterId: typeof safeRaw.reusableCharacterId === 'string' && safeRaw.reusableCharacterId.trim().length > 0
+      ? safeRaw.reusableCharacterId.trim()
+      : undefined,
     avatarCrop,
     controlledBy: safeRaw.controlledBy === 'user' || safeRaw.controlledBy === 'ai'
       ? safeRaw.controlledBy
@@ -2186,6 +2191,9 @@ function saveCharacter(folderPath: string, character: CharacterProfile): Charact
       : null,
     avatarSourceId: typeof character.avatarSourceId === 'string' && character.avatarSourceId.trim().length > 0
       ? character.avatarSourceId.trim()
+      : undefined,
+    reusableCharacterId: typeof character.reusableCharacterId === 'string' && character.reusableCharacterId.trim().length > 0
+      ? character.reusableCharacterId.trim()
       : undefined,
     avatarCrop: {
       x: Number.isFinite(character.avatarCrop.x) ? character.avatarCrop.x : 0,
@@ -2868,6 +2876,7 @@ function normalizeReusableCharacterBundleCharacter(raw: unknown): ReusableCharac
     goals: normalized.goals,
     avatarImageData: normalized.avatarImageData,
     avatarSourceId: normalized.avatarSourceId,
+    reusableCharacterId: normalized.reusableCharacterId,
     avatarCrop: normalized.avatarCrop,
     controlledBy: normalized.controlledBy,
     createdAt: normalized.createdAt,
@@ -2964,6 +2973,9 @@ function normalizeReusableCharacter(raw: unknown): ReusableCharacter {
     avatarSourceId: typeof safeRaw.avatarSourceId === 'string' && safeRaw.avatarSourceId.trim().length > 0
       ? safeRaw.avatarSourceId.trim()
       : undefined,
+    reusableCharacterId: typeof safeRaw.reusableCharacterId === 'string' && safeRaw.reusableCharacterId.trim().length > 0
+      ? safeRaw.reusableCharacterId.trim()
+      : undefined,
     avatarCrop: {
       x: isFiniteNumber(safeAvatarCrop.x) ? safeAvatarCrop.x : 0,
       y: isFiniteNumber(safeAvatarCrop.y) ? safeAvatarCrop.y : 0,
@@ -3015,6 +3027,58 @@ function saveReusableCharacters(characters: ReusableCharacter[]): void {
 }
 
 /**
+ * Remove a deleted reusable-character id from all saved relationship bundles.
+ *
+ * @param deletedCharacterId - Global character id being removed.
+ * @param characters - Remaining reusable characters to sanitize.
+ * @returns Characters with orphaned bundle members and edges removed.
+ */
+function pruneReusableCharacterReferences(
+  deletedCharacterId: string,
+  characters: ReusableCharacter[],
+): ReusableCharacter[] {
+  return characters.map((character) => {
+    const bundle = character.relationshipBundle
+    if (!bundle) {
+      return character
+    }
+
+    const nextCharacters = bundle.characters.filter((candidate) => candidate.id !== deletedCharacterId)
+    const validIds = new Set(nextCharacters.map((candidate) => candidate.id))
+    const nextEntries = bundle.entries.filter((entry) =>
+      validIds.has(entry.fromCharacterId) && validIds.has(entry.toCharacterId),
+    )
+
+    if (nextCharacters.length < 2 || nextEntries.length === 0) {
+      return {
+        ...character,
+        relationshipBundle: undefined,
+      }
+    }
+
+    const nextRootCharacterId = bundle.rootCharacterId === deletedCharacterId
+      ? character.id
+      : bundle.rootCharacterId
+
+    if (!validIds.has(nextRootCharacterId)) {
+      return {
+        ...character,
+        relationshipBundle: undefined,
+      }
+    }
+
+    return {
+      ...character,
+      relationshipBundle: {
+        rootCharacterId: nextRootCharacterId,
+        characters: nextCharacters,
+        entries: nextEntries,
+      },
+    }
+  })
+}
+
+/**
  * Create or update one reusable character in the global library.
  *
  * @param character - Character to persist.
@@ -3044,7 +3108,8 @@ function saveReusableCharacter(character: ReusableCharacter): ReusableCharacter 
  * @param characterId - Stable character identifier to remove.
  */
 function deleteReusableCharacter(characterId: string): void {
-  saveReusableCharacters(loadReusableCharacters().filter((character) => character.id !== characterId))
+  const remainingCharacters = loadReusableCharacters().filter((character) => character.id !== characterId)
+  saveReusableCharacters(pruneReusableCharacterReferences(characterId, remainingCharacters))
 }
 
 /**

@@ -16,10 +16,11 @@ import type {
   CharacterProfile,
   ReusableAvatar,
   ReusableCharacter,
+  ReusableCharacterBundleCharacter,
   ReusableCharacterRelationshipBundle,
-  RelationshipGraph,
   RelationshipEntry,
   AffinityLabel,
+  RelationshipGraph,
 } from '../types'
 
 type CharactersTabId = 'new-character' | 'existing-campaign-characters' | 'existing-characters' | 'avatars' | 'app-characters'
@@ -41,6 +42,12 @@ const DEFAULT_PRONOUNS_BY_GENDER: Record<CharacterProfile['gender'], CharacterPr
 interface SaveReusableCharacterConfirmationState {
   character: CharacterProfile
   relationshipBundle: ReusableCharacterRelationshipBundle | null
+  canUpdateExisting: boolean
+}
+
+interface ImportReusableCharacterConfirmationState {
+  character: ReusableCharacter
+  relationshipBundle: ReusableCharacterRelationshipBundle | null
 }
 
 interface SaveReusableCharacterConfirmModalProps {
@@ -48,7 +55,20 @@ interface SaveReusableCharacterConfirmModalProps {
   relationshipCount: number
   relatedCharacterCount: number
   copyRelationships: boolean
+  updateExistingGlobalCharacters: boolean
+  canUpdateExisting: boolean
   onToggleCopyRelationships: (checked: boolean) => void
+  onToggleUpdateExistingGlobalCharacters: (checked: boolean) => void
+  onConfirm: () => void
+  onCancel: () => void
+}
+
+interface ImportReusableCharacterConfirmModalProps {
+  characterName: string
+  relationshipCount: number
+  relatedCharacterCount: number
+  includeRelationships: boolean
+  onToggleIncludeRelationships: (checked: boolean) => void
   onConfirm: () => void
   onCancel: () => void
 }
@@ -58,7 +78,10 @@ function SaveReusableCharacterConfirmModal({
   relationshipCount,
   relatedCharacterCount,
   copyRelationships,
+  updateExistingGlobalCharacters,
+  canUpdateExisting,
   onToggleCopyRelationships,
+  onToggleUpdateExistingGlobalCharacters,
   onConfirm,
   onCancel,
 }: SaveReusableCharacterConfirmModalProps) {
@@ -88,18 +111,95 @@ function SaveReusableCharacterConfirmModal({
       >
         <p className="confirm-modal__message">Save {characterName || 'this character'} to Global Characters?</p>
         {hasRelationships ? (
+          <>
+            <label className="characters-modal__checkbox-row">
+              <input
+                type="checkbox"
+                checked={copyRelationships}
+                onChange={(event) => { onToggleCopyRelationships(event.target.checked) }}
+              />
+              <span>
+                Also copy relationships and {relatedCharacterCount - 1} linked character{relatedCharacterCount === 2 ? '' : 's'}.
+              </span>
+            </label>
+            <label className="characters-modal__checkbox-row">
+              <input
+                type="checkbox"
+                checked={updateExistingGlobalCharacters}
+                disabled={!copyRelationships || !canUpdateExisting}
+                onChange={(event) => { onToggleUpdateExistingGlobalCharacters(event.target.checked) }}
+              />
+              <span>
+                Update Existing Global Characters
+              </span>
+            </label>
+          </>
+        ) : canUpdateExisting ? (
           <label className="characters-modal__checkbox-row">
             <input
               type="checkbox"
-              checked={copyRelationships}
-              onChange={(event) => { onToggleCopyRelationships(event.target.checked) }}
+              checked={updateExistingGlobalCharacters}
+              onChange={(event) => { onToggleUpdateExistingGlobalCharacters(event.target.checked) }}
             />
             <span>
-              Also copy relationships and {relatedCharacterCount - 1} linked character{relatedCharacterCount === 2 ? '' : 's'}.
+              Update Existing Global Characters
             </span>
           </label>
         ) : (
           <p className="confirm-modal__warning">No relationship data will be copied.</p>
+        )}
+      </ModalPopupLayout>
+    </Modal>
+  )
+}
+
+function ImportReusableCharacterConfirmModal({
+  characterName,
+  relationshipCount,
+  relatedCharacterCount,
+  includeRelationships,
+  onToggleIncludeRelationships,
+  onConfirm,
+  onCancel,
+}: ImportReusableCharacterConfirmModalProps) {
+  const hasRelationships = relationshipCount > 0 && relatedCharacterCount > 1
+
+  return (
+    <Modal title="Add To Campaign" onClose={onCancel} variant="popup">
+      <ModalPopupLayout
+        footer={(
+          <ModalFooter
+            actions={(
+              <>
+                <button type="button" className="characters-modal__footer-btn" onClick={onCancel}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="characters-modal__footer-btn characters-modal__footer-btn--primary"
+                  onClick={onConfirm}
+                >
+                  Add Character
+                </button>
+              </>
+            )}
+          />
+        )}
+      >
+        <p className="confirm-modal__message">Add {characterName || 'this character'} to the current campaign?</p>
+        {hasRelationships ? (
+          <label className="characters-modal__checkbox-row">
+            <input
+              type="checkbox"
+              checked={includeRelationships}
+              onChange={(event) => { onToggleIncludeRelationships(event.target.checked) }}
+            />
+            <span>
+              Also import relationships and {relatedCharacterCount - 1} linked character{relatedCharacterCount === 2 ? '' : 's'}.
+            </span>
+          </label>
+        ) : (
+          <p className="confirm-modal__warning">No relationship data will be imported.</p>
         )}
       </ModalPopupLayout>
     </Modal>
@@ -116,7 +216,7 @@ interface CharactersModalProps {
   onClose: () => void
   onSelectCharacter: (characterId: string) => void
   onCreateCharacter: () => void
-  onSaveCharacter: (character: CharacterProfile) => Promise<void>
+  onSaveCharacter: (character: CharacterProfile) => Promise<CharacterProfile>
   onDeleteCharacter: (characterId: string) => Promise<void>
   reusableAvatars: ReusableAvatar[]
   avatarLibraryStatusMessage: string | null
@@ -131,9 +231,12 @@ interface CharactersModalProps {
   onSaveReusableCharacter: (
     character: ReusableCharacter,
     relationshipBundle?: ReusableCharacterRelationshipBundle,
+    updateExistingGlobalCharacters?: boolean,
+    syncRelatedGlobalCharacters?: boolean,
+    successMessage?: string,
   ) => Promise<void>
   onDeleteReusableCharacter: (characterId: string) => Promise<void>
-  onImportReusableCharacter: (character: ReusableCharacter) => Promise<void>
+  onImportReusableCharacter: (character: ReusableCharacter, includeRelationships?: boolean) => Promise<void>
   /** Current persisted relationship graph for the campaign; null if none. */
   relationshipGraph: RelationshipGraph | null
   /** Persist an updated graph to disk immediately. */
@@ -177,6 +280,7 @@ function toReusableCharacter(character: CharacterProfile): ReusableCharacter {
     goals: character.goals,
     avatarImageData: character.avatarImageData,
     avatarSourceId: character.avatarSourceId,
+    reusableCharacterId: character.reusableCharacterId,
     avatarCrop: character.avatarCrop,
     controlledBy: character.controlledBy,
     createdAt: character.createdAt,
@@ -188,6 +292,29 @@ function toCampaignCharacter(character: ReusableCharacter): CharacterProfile {
   return {
     ...character,
     folderName: '',
+  }
+}
+
+function toReusableBundleCharacter(
+  character: CharacterProfile | ReusableCharacter | ReusableCharacterBundleCharacter,
+): ReusableCharacterBundleCharacter {
+  return {
+    id: character.id,
+    name: character.name,
+    role: character.role,
+    gender: character.gender,
+    pronouns: character.pronouns,
+    description: character.description,
+    personality: character.personality,
+    speakingStyle: character.speakingStyle,
+    goals: character.goals,
+    avatarImageData: character.avatarImageData,
+    avatarSourceId: character.avatarSourceId,
+    reusableCharacterId: character.reusableCharacterId,
+    avatarCrop: character.avatarCrop,
+    controlledBy: character.controlledBy,
+    createdAt: character.createdAt,
+    updatedAt: character.updatedAt,
   }
 }
 
@@ -280,35 +407,61 @@ function getCharacterDraftSnapshot(character: CharacterProfile): string {
   })
 }
 
+function getRelationshipEntriesSnapshot(entries: RelationshipEntry[]): string {
+  return JSON.stringify(
+    [...entries]
+      .sort((first, second) =>
+        `${first.fromCharacterId}:${first.toCharacterId}`.localeCompare(`${second.fromCharacterId}:${second.toCharacterId}`),
+      )
+      .map((entry) => ({
+        fromCharacterId: entry.fromCharacterId,
+        toCharacterId: entry.toCharacterId,
+        trustScore: entry.trustScore,
+        affinityLabel: entry.affinityLabel,
+        summary: entry.summary,
+        manualNotes: entry.manualNotes,
+        lastAiRefreshedAt: entry.lastAiRefreshedAt,
+      })),
+  )
+}
+
 /** Props for the in-editor relationships panel. */
 interface CharacterRelationshipsPanelProps {
-  graph: RelationshipGraph | null
+  entries: RelationshipEntry[]
   draft: CharacterProfile
-  characters: CharacterProfile[]
-  onSave: (graph: RelationshipGraph) => Promise<void>
+  characters: Array<Pick<CharacterProfile, 'id' | 'name' | 'avatarImageData' | 'avatarCrop'>>
+  isEditable: boolean
+  onChangeEntries: (entries: RelationshipEntry[]) => void
   onDeletePair: (fromId: string, toId: string) => Promise<void>
+  onOpenCharacter: (characterId: string) => void
 }
 
 /**
  * Relationships editor rendered inside one campaign character editor.
  * Each directed relationship is edited inline and saved immediately.
  */
-function CharacterRelationshipsPanel({ graph, draft, characters, onSave, onDeletePair }: CharacterRelationshipsPanelProps) {
-  async function handleFieldChange(
+function CharacterRelationshipsPanel({
+  entries,
+  draft,
+  characters,
+  isEditable,
+  onChangeEntries,
+  onDeletePair,
+  onOpenCharacter,
+}: CharacterRelationshipsPanelProps) {
+  function handleFieldChange(
     fromId: string,
     toId: string,
     patch: Partial<Pick<RelationshipEntry, 'trustScore' | 'affinityLabel' | 'manualNotes'>>,
-  ): Promise<void> {
-    if (!graph) return
-    const next: RelationshipGraph = {
-      ...graph,
-      entries: graph.entries.map((entry) =>
+  ): void {
+    if (!isEditable) return
+    onChangeEntries(
+      entries.map((entry) =>
         entry.fromCharacterId === fromId && entry.toCharacterId === toId
           ? { ...entry, ...patch }
           : entry,
       ),
-    }
-    await onSave(next)
+    )
   }
 
   if (!draft.id) {
@@ -319,15 +472,19 @@ function CharacterRelationshipsPanel({ graph, draft, characters, onSave, onDelet
     )
   }
 
-  if (!graph || graph.entries.length === 0) {
+  if (entries.length === 0) {
     return (
       <div className="characters-modal__relationships-empty">
-        <p>No relationship data yet. Use the <strong>Refresh Relationships</strong> button in the session panel to generate relationship data from your campaign transcripts.</p>
+        <p>
+          {isEditable
+            ? <>No relationship data yet. Use the <strong>Refresh Relationships</strong> button in the session panel to generate relationship data from your campaign transcripts.</>
+            : 'No saved relationship data is attached to this global character.'}
+        </p>
       </div>
     )
   }
 
-  const directedEntries = graph.entries
+  const directedEntries = entries
     .filter((entry) => entry.fromCharacterId === draft.id && entry.toCharacterId !== draft.id)
     .sort((first, second) => {
       const firstName = characters.find((character) => character.id === first.toCharacterId)?.name ?? first.toCharacterId
@@ -346,24 +503,45 @@ function CharacterRelationshipsPanel({ graph, draft, characters, onSave, onDelet
   return (
     <div className="characters-modal__relationships-stack">
       {directedEntries.map((entry) => {
-        const targetName = characters.find((character) => character.id === entry.toCharacterId)?.name ?? entry.toCharacterId
+        const targetCharacter = characters.find((character) => character.id === entry.toCharacterId) ?? null
+        const targetName = targetCharacter?.name ?? entry.toCharacterId
         const trustInputId = `character-relationship-trust-${entry.fromCharacterId}-${entry.toCharacterId}`
         const affinityInputId = `character-relationship-affinity-${entry.fromCharacterId}-${entry.toCharacterId}`
         const notesInputId = `character-relationship-notes-${entry.fromCharacterId}-${entry.toCharacterId}`
+        const avatarOffsetScale = 48 / CHARACTER_EDITOR_AVATAR_SIZE
+        const targetAvatarStyle = targetCharacter?.avatarImageData
+          ? {
+            backgroundImage: `url("${targetCharacter.avatarImageData}")`,
+            backgroundPosition: `${targetCharacter.avatarCrop.x * avatarOffsetScale}px ${targetCharacter.avatarCrop.y * avatarOffsetScale}px`,
+            backgroundSize: `${targetCharacter.avatarCrop.scale * 100}%`,
+          }
+          : undefined
 
         return (
           <section key={`${entry.fromCharacterId}:${entry.toCharacterId}`} className="characters-modal__relationship-card">
             <div className="characters-modal__relationship-card-header">
-              <div>
-                <h3 className="characters-modal__relationship-name">{targetName}</h3>
-                <p className="characters-modal__relationship-subheading">
-                  {draft.name || 'This character'}'s perspective toward {targetName}.
-                </p>
+              <div className="characters-modal__relationship-summary">
+                <button
+                  type="button"
+                  className={`characters-modal__relationship-avatar${targetAvatarStyle ? ' characters-modal__relationship-avatar--image' : ''}`}
+                  style={targetAvatarStyle}
+                  title={`Edit ${targetName}`}
+                  onClick={() => { onOpenCharacter(entry.toCharacterId) }}
+                >
+                  {targetAvatarStyle ? null : targetName.slice(0, 2).toUpperCase()}
+                </button>
+                <div>
+                  <h3 className="characters-modal__relationship-name">{targetName}</h3>
+                  <p className="characters-modal__relationship-subheading">
+                    {draft.name || 'This character'}'s perspective toward {targetName}.
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
                 className="characters-modal__relationships-delete-btn"
                 title="Delete this relationship pair"
+                disabled={!isEditable}
                 onClick={() => { void onDeletePair(entry.fromCharacterId, entry.toCharacterId) }}
               >
                 Delete Pair
@@ -379,10 +557,11 @@ function CharacterRelationshipsPanel({ graph, draft, characters, onSave, onDelet
                   min={0}
                   max={100}
                   className="characters-modal__input"
-                  defaultValue={entry.trustScore}
-                  onBlur={(event) => {
+                  value={entry.trustScore}
+                  disabled={!isEditable}
+                  onChange={(event) => {
                     const value = Math.max(0, Math.min(100, Number(event.target.value) || 0))
-                    void handleFieldChange(entry.fromCharacterId, entry.toCharacterId, { trustScore: value })
+                    handleFieldChange(entry.fromCharacterId, entry.toCharacterId, { trustScore: value })
                   }}
                 />
               </div>
@@ -392,9 +571,10 @@ function CharacterRelationshipsPanel({ graph, draft, characters, onSave, onDelet
                 <select
                   id={affinityInputId}
                   className="characters-modal__input app-select"
-                  defaultValue={entry.affinityLabel}
-                  onBlur={(event) => {
-                    void handleFieldChange(entry.fromCharacterId, entry.toCharacterId, {
+                  value={entry.affinityLabel}
+                  disabled={!isEditable}
+                  onChange={(event) => {
+                    handleFieldChange(entry.fromCharacterId, entry.toCharacterId, {
                       affinityLabel: event.target.value as AffinityLabel,
                     })
                   }}
@@ -416,10 +596,11 @@ function CharacterRelationshipsPanel({ graph, draft, characters, onSave, onDelet
               <textarea
                 id={notesInputId}
                 className="characters-modal__textarea characters-modal__textarea--compact"
-                defaultValue={entry.manualNotes}
+                value={entry.manualNotes}
                 placeholder="Add personal notes or context overrides..."
-                onBlur={(event) => {
-                  void handleFieldChange(entry.fromCharacterId, entry.toCharacterId, {
+                readOnly={!isEditable}
+                onChange={(event) => {
+                  handleFieldChange(entry.fromCharacterId, entry.toCharacterId, {
                     manualNotes: event.target.value,
                   })
                 }}
@@ -478,7 +659,13 @@ export function CharactersModal({
   const [selectedCampaignCharacterId, setSelectedCampaignCharacterId] = useState<string | null>(activeCharacterId)
   const [selectedReusableCharacterId, setSelectedReusableCharacterId] = useState<string | null>(null)
   const [saveReusableConfirmation, setSaveReusableConfirmation] = useState<SaveReusableCharacterConfirmationState | null>(null)
+  const [importReusableConfirmation, setImportReusableConfirmation] = useState<ImportReusableCharacterConfirmationState | null>(null)
   const [copyRelationshipsOnSave, setCopyRelationshipsOnSave] = useState(false)
+  const [updateExistingGlobalCharactersOnSave, setUpdateExistingGlobalCharactersOnSave] = useState(false)
+  const [includeRelationshipsOnImport, setIncludeRelationshipsOnImport] = useState(false)
+  const [editableReusableRelationshipBundle, setEditableReusableRelationshipBundle] = useState<ReusableCharacterRelationshipBundle | null>(null)
+  const [editableRelationshipEntries, setEditableRelationshipEntries] = useState<RelationshipEntry[]>([])
+  const [savedRelationshipEntriesSnapshot, setSavedRelationshipEntriesSnapshot] = useState<string>(() => getRelationshipEntriesSnapshot([]))
 
   function buildReusableRelationshipBundle(character: CharacterProfile): ReusableCharacterRelationshipBundle | null {
     if (!relationshipGraph) {
@@ -530,8 +717,12 @@ export function CharactersModal({
 
   function promptSaveReusableCharacter(character: CharacterProfile): void {
     const relationshipBundle = buildReusableRelationshipBundle(character)
+    const canUpdateExisting = character.reusableCharacterId !== undefined || (
+      relationshipBundle?.characters.some((candidate) => candidate.reusableCharacterId !== undefined) ?? false
+    )
     setCopyRelationshipsOnSave(relationshipBundle !== null)
-    setSaveReusableConfirmation({ character, relationshipBundle })
+    setUpdateExistingGlobalCharactersOnSave(canUpdateExisting)
+    setSaveReusableConfirmation({ character, relationshipBundle, canUpdateExisting })
   }
 
   async function handleConfirmSaveReusableCharacter(): Promise<void> {
@@ -544,7 +735,137 @@ export function CharactersModal({
     await onSaveReusableCharacter(
       toReusableCharacter(character),
       copyRelationshipsOnSave ? (relationshipBundle ?? undefined) : undefined,
+      saveReusableConfirmation.canUpdateExisting ? updateExistingGlobalCharactersOnSave : false,
+      true,
     )
+  }
+
+  function promptImportReusableCharacter(character: ReusableCharacter): void {
+    const relationshipBundle = character.relationshipBundle ?? null
+    setIncludeRelationshipsOnImport(relationshipBundle !== null)
+    setImportReusableConfirmation({ character, relationshipBundle })
+  }
+
+  async function handleConfirmImportReusableCharacter(): Promise<void> {
+    if (!importReusableConfirmation) {
+      return
+    }
+
+    const { character } = importReusableConfirmation
+    setImportReusableConfirmation(null)
+    await onImportReusableCharacter(character, includeRelationshipsOnImport)
+  }
+
+  function syncBundleRootCharacter(
+    bundle: ReusableCharacterRelationshipBundle | null,
+    character: CharacterProfile,
+  ): ReusableCharacterRelationshipBundle | null {
+    if (!bundle) {
+      return null
+    }
+
+    return {
+      ...bundle,
+      rootCharacterId: character.id,
+      characters: bundle.characters.map((candidate) =>
+        candidate.id === character.id
+          ? toReusableBundleCharacter({
+            ...character,
+            reusableCharacterId: candidate.reusableCharacterId,
+          })
+          : candidate,
+      ),
+    }
+  }
+
+  async function persistEditableReusableRelationshipBundle(
+    bundle: ReusableCharacterRelationshipBundle | null,
+    syncRelatedGlobalCharacters: boolean = false,
+  ): Promise<void> {
+    if (!selectedReusableCharacter) {
+      return
+    }
+
+    const syncedBundle = syncBundleRootCharacter(bundle, draft)
+    setEditableReusableRelationshipBundle(syncedBundle)
+
+    await onSaveReusableCharacter(
+      {
+        ...selectedReusableCharacter,
+        ...toReusableCharacter(draft),
+        id: selectedReusableCharacter.id,
+        relationshipBundle: syncedBundle ?? undefined,
+      },
+      syncedBundle ?? undefined,
+      true,
+      syncRelatedGlobalCharacters,
+      `Saved ${draft.name || selectedReusableCharacter.name || 'character'}.`,
+    )
+  }
+
+  function updateEditableRelationshipEntries(entries: RelationshipEntry[]): void {
+    setEditableRelationshipEntries(entries)
+    if (isEditingReusableCharacter && editableReusableRelationshipBundle) {
+      setEditableReusableRelationshipBundle({
+        ...editableReusableRelationshipBundle,
+        entries,
+      })
+    }
+  }
+
+  async function handleDeleteEditableReusableRelationshipPair(fromId: string, toId: string): Promise<void> {
+    const currentBundle = editableReusableRelationshipBundle
+    if (!currentBundle) {
+      return
+    }
+
+    const nextEntries = currentBundle.entries.filter(
+      (entry) =>
+        !(
+          (entry.fromCharacterId === fromId && entry.toCharacterId === toId)
+          || (entry.fromCharacterId === toId && entry.toCharacterId === fromId)
+        ),
+    )
+
+    const referencedIds = new Set<string>()
+    for (const entry of nextEntries) {
+      referencedIds.add(entry.fromCharacterId)
+      referencedIds.add(entry.toCharacterId)
+    }
+
+    const nextCharacters = nextEntries.length === 0
+      ? currentBundle.characters.filter((candidate) => candidate.id === draft.id)
+      : currentBundle.characters.filter((candidate) => referencedIds.has(candidate.id))
+
+    await persistEditableReusableRelationshipBundle({
+      rootCharacterId: nextCharacters.some((candidate) => candidate.id === currentBundle.rootCharacterId)
+        ? currentBundle.rootCharacterId
+        : draft.id,
+      characters: nextCharacters,
+      entries: nextEntries,
+    }, true)
+  }
+
+  async function handleConfirmDeleteRelationshipPair(fromId: string, toId: string): Promise<void> {
+    if (!isEditingReusableCharacter) {
+      await onDeleteRelationshipPair(fromId, toId)
+      return
+    }
+
+    const fromName = relationshipPanelCharacters.find((character) => character.id === fromId)?.name ?? 'this character'
+    const toName = relationshipPanelCharacters.find((character) => character.id === toId)?.name ?? 'the selected character'
+
+    const confirmed = await confirm({
+      title: 'Delete Relationship Pair',
+      message: `This will delete the relationship between ${fromName} and ${toName} in both directions.`,
+      confirmLabel: 'Delete Pair',
+      cancelLabel: 'Cancel',
+    })
+    if (!confirmed) {
+      return
+    }
+
+    await handleDeleteEditableReusableRelationshipPair(fromId, toId)
   }
 
   const sortedCampaignCharacters = useMemo(
@@ -563,6 +884,41 @@ export function CharactersModal({
   useEffect(() => {
     setSelectedCampaignCharacterId(activeCharacterId)
   }, [activeCharacterId])
+
+  useEffect(() => {
+    if (activeTab !== 'existing-campaign-characters' || editorMode !== 'edit-campaign' || !draft.id) {
+      return
+    }
+
+    const latestCharacter = characters.find((character) => character.id === draft.id) ?? null
+    if (!latestCharacter) {
+      return
+    }
+
+    const latestDraftSnapshot = getCharacterDraftSnapshot(latestCharacter)
+    const latestRelationshipEntries = relationshipGraph?.entries ?? []
+    const latestRelationshipSnapshot = getRelationshipEntriesSnapshot(latestRelationshipEntries)
+
+    if (
+      latestDraftSnapshot === savedDraftSnapshot
+      && latestRelationshipSnapshot === savedRelationshipEntriesSnapshot
+    ) {
+      return
+    }
+
+    setDraft(latestCharacter)
+    setSavedDraftSnapshot(latestDraftSnapshot)
+    setEditableRelationshipEntries(latestRelationshipEntries)
+    setSavedRelationshipEntriesSnapshot(latestRelationshipSnapshot)
+  }, [
+    activeTab,
+    characters,
+    draft.id,
+    editorMode,
+    relationshipGraph,
+    savedDraftSnapshot,
+    savedRelationshipEntriesSnapshot,
+  ])
 
   useEffect(() => {
     if (activeTab === 'new-character' && editorMode === 'new-campaign' && draft.id !== '') {
@@ -633,9 +989,30 @@ export function CharactersModal({
 
   async function handleSave(): Promise<void> {
     if (editorMode === 'edit-custom') {
-      await onSaveReusableCharacter(toReusableCharacter(draft), selectedReusableCharacter?.relationshipBundle)
-      setSavedDraftSnapshot(getCharacterDraftSnapshot(draft))
-      setActiveTab('existing-characters')
+      const syncedBundle = syncBundleRootCharacter(
+        editableReusableRelationshipBundle
+          ? {
+            ...editableReusableRelationshipBundle,
+            entries: editableRelationshipEntries,
+          }
+          : null,
+        draft,
+      )
+      const nextDraft = {
+        ...draft,
+        name: draft.name.trim(),
+        role: draft.role.trim(),
+      }
+      await onSaveReusableCharacter(
+        toReusableCharacter(nextDraft),
+        syncedBundle ?? undefined,
+        true,
+        false,
+        `Saved ${nextDraft.name || 'character'}.`,
+      )
+      setDraft(nextDraft)
+      setSavedDraftSnapshot(getCharacterDraftSnapshot(nextDraft))
+      setSavedRelationshipEntriesSnapshot(getRelationshipEntriesSnapshot(editableRelationshipEntries))
       return
     }
 
@@ -644,11 +1021,20 @@ export function CharactersModal({
       name: draft.name.trim(),
       role: draft.role.trim(),
     }
-    await onSaveCharacter(nextDraft)
-    setDraft(nextDraft)
-    setSavedDraftSnapshot(getCharacterDraftSnapshot(nextDraft))
-    setEditorMode('edit-campaign')
-    setActiveTab('existing-campaign-characters')
+    if (isEditingCampaignCharacter && relationshipGraph) {
+      await onSaveRelationships({
+        ...relationshipGraph,
+        entries: editableRelationshipEntries,
+      })
+      setSavedRelationshipEntriesSnapshot(getRelationshipEntriesSnapshot(editableRelationshipEntries))
+    }
+    const savedCharacter = await onSaveCharacter(nextDraft)
+    setDraft(savedCharacter)
+    setSavedDraftSnapshot(getCharacterDraftSnapshot(savedCharacter))
+    if (!isEditingCampaignCharacter) {
+      setEditorMode('edit-campaign')
+      setActiveTab('existing-campaign-characters')
+    }
   }
 
   async function handleDeleteEditedCharacter(): Promise<void> {
@@ -709,28 +1095,71 @@ export function CharactersModal({
   }
 
   function openCampaignCharacterEditor(character: CharacterProfile): void {
+    setSelectedCampaignCharacterId(character.id)
+    onSelectCharacter(character.id)
     setDraft(character)
     setSavedDraftSnapshot(getCharacterDraftSnapshot(character))
+    const nextEntries = relationshipGraph?.entries ?? []
+    setEditableRelationshipEntries(nextEntries)
+    setSavedRelationshipEntriesSnapshot(getRelationshipEntriesSnapshot(nextEntries))
     setEditorSection('details')
     setEditorMode('edit-campaign')
+    setEditableReusableRelationshipBundle(null)
   }
 
   function openReusableCharacterEditor(character: ReusableCharacter): void {
+    setSelectedReusableCharacterId(character.id)
     const nextDraft = toCampaignCharacter(character)
     setDraft(nextDraft)
     setSavedDraftSnapshot(getCharacterDraftSnapshot(nextDraft))
+    const nextEntries = character.relationshipBundle?.entries ?? []
+    setEditableRelationshipEntries(nextEntries)
+    setSavedRelationshipEntriesSnapshot(getRelationshipEntriesSnapshot(nextEntries))
     setEditorSection('details')
     setEditorMode('edit-custom')
+    setEditableReusableRelationshipBundle(character.relationshipBundle ?? null)
+  }
+
+  function handleOpenRelationshipCharacter(characterId: string): void {
+    if (isEditingReusableCharacter) {
+      const targetCharacter = sortedReusableCharacters.find((character) => character.id === characterId) ?? null
+      if (!targetCharacter) {
+        return
+      }
+
+      setSelectedReusableCharacterId(targetCharacter.id)
+      openReusableCharacterEditor(targetCharacter)
+      return
+    }
+
+    const targetCharacter = sortedCampaignCharacters.find((character) => character.id === characterId) ?? null
+    if (!targetCharacter) {
+      return
+    }
+
+    setSelectedCampaignCharacterId(targetCharacter.id)
+    onSelectCharacter(targetCharacter.id)
+    openCampaignCharacterEditor(targetCharacter)
   }
 
   const selectedCampaignCharacter =
     sortedCampaignCharacters.find((character) => character.id === selectedCampaignCharacterId) ?? null
   const selectedReusableCharacter =
     sortedReusableCharacters.find((character) => character.id === selectedReusableCharacterId) ?? null
+  const selectedReusableAvatar =
+    sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
   const isEditingCampaignCharacter = activeTab === 'existing-campaign-characters' && editorMode === 'edit-campaign'
   const isEditingReusableCharacter = activeTab === 'existing-characters' && editorMode === 'edit-custom'
+  const relationshipPanelEntries = editableRelationshipEntries
+  const relationshipPanelCharacters = isEditingReusableCharacter
+    ? (editableReusableRelationshipBundle?.characters ?? [])
+    : characters
   const isShowingEditor = activeTab === 'new-character' || isEditingCampaignCharacter || isEditingReusableCharacter
-  const hasUnsavedChanges = isShowingEditor && getCharacterDraftSnapshot(draft) !== savedDraftSnapshot
+  const hasUnsavedChanges = isShowingEditor && (
+    getCharacterDraftSnapshot(draft) !== savedDraftSnapshot
+    || getRelationshipEntriesSnapshot(editableRelationshipEntries) !== savedRelationshipEntriesSnapshot
+  )
+  const isSavingCharacterEditor = isShowingEditor && (isBusy || isCharacterLibraryBusy)
   const isShowingAvatarEditor = activeTab === 'avatars' && avatarEditorMode !== 'browse'
   const hasUnsavedAvatarChanges = isShowingAvatarEditor && getAvatarDraftSnapshot(avatarDraft) !== savedAvatarDraftSnapshot
   const editorAvatarOffsetScale = CHARACTER_HEADER_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
@@ -748,6 +1177,9 @@ export function CharactersModal({
     setEditorSection('details')
     setDraft(nextDraft)
     setSavedDraftSnapshot(getCharacterDraftSnapshot(nextDraft))
+    setEditableReusableRelationshipBundle(null)
+    setEditableRelationshipEntries([])
+    setSavedRelationshipEntriesSnapshot(getRelationshipEntriesSnapshot([]))
   }
 
   async function confirmDiscardChanges(message: string): Promise<boolean> {
@@ -963,17 +1395,30 @@ export function CharactersModal({
                     <div className="characters-modal__field">
                       {avatarEditorMode === 'edit' ? (
                         <div className="characters-modal__avatar-locked">
-                          <div
-                            className="characters-modal__avatar-locked-preview"
-                            style={avatarDraft.imageData
-                              ? { backgroundImage: `url("${avatarDraft.imageData}")` }
+                          <div className="characters-modal__avatar-locked-layout">
+                            <div
+                              className="characters-modal__avatar-locked-preview"
+                              style={avatarDraft.imageData
+                                ? { backgroundImage: `url("${avatarDraft.imageData}")` }
                               : undefined}
-                          >
-                            {avatarDraft.imageData ? null : 'AV'}
+                            >
+                              {avatarDraft.imageData ? null : 'AV'}
+                            </div>
+                            <div className="characters-modal__avatar-locked-controls">
+                              <label className="characters-modal__label" htmlFor="avatar-name">Avatar Name</label>
+                              <input
+                                id="avatar-name"
+                                className="characters-modal__input"
+                                type="text"
+                                value={avatarDraft.name}
+                                onChange={(event) => updateAvatarDraftField('name', event.target.value)}
+                                placeholder="Captain portrait"
+                              />
+                              <p className="characters-modal__subheading">
+                                Saved avatars are flattened to a smaller image. You can rename this avatar, but changing the image requires creating a new avatar.
+                              </p>
+                            </div>
                           </div>
-                          <p className="characters-modal__subheading">
-                            Saved avatars are flattened to a smaller image. You can rename this avatar, but changing the image requires creating a new avatar.
-                          </p>
                         </div>
                       ) : (
                         <AvatarCropEditor
@@ -1043,37 +1488,77 @@ export function CharactersModal({
                       </button>
                     </div>
                     {avatarSection === 'application-avatars' ? (
-                      <div className="characters-modal__blank">Application avatars are not available yet.</div>
+                      <div className="characters-modal__avatar-browser">
+                        <div className="characters-modal__blank">Application avatars are not available yet.</div>
+                        <aside className="characters-modal__avatar-sidebar" aria-label="Selected application avatar">
+                          <div className="characters-modal__blank">
+                            Built-in avatar preview will appear here when application avatars are added.
+                          </div>
+                        </aside>
+                      </div>
                     ) : reusableAvatars.length === 0 ? (
                       <div className="characters-modal__blank">No saved avatars yet.</div>
                     ) : (
-                      <div className="characters-modal__gallery" role="list" aria-label="Reusable avatars">
-                        {sortedReusableAvatars.map((avatar) => {
-                          const avatarOffsetScale = CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
-                          const avatarStyle = {
-                            backgroundImage: `url("${avatar.imageData}")`,
-                            backgroundPosition: `${avatar.crop.x * avatarOffsetScale}px ${avatar.crop.y * avatarOffsetScale}px`,
-                            backgroundSize: `${avatar.crop.scale * 100}%`,
-                          }
+                      <div className="characters-modal__avatar-browser">
+                        <div className="characters-modal__gallery" role="list" aria-label="Reusable avatars">
+                          {sortedReusableAvatars.map((avatar) => {
+                            const avatarOffsetScale = CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
+                            const avatarStyle = {
+                              backgroundImage: `url("${avatar.imageData}")`,
+                              backgroundPosition: `${avatar.crop.x * avatarOffsetScale}px ${avatar.crop.y * avatarOffsetScale}px`,
+                              backgroundSize: `${avatar.crop.scale * 100}%`,
+                            }
 
-                          return (
-                            <button
-                              key={avatar.id}
-                              type="button"
-                              role="listitem"
-                              className={`characters-modal__gallery-item${selectedReusableAvatarId === avatar.id ? ' characters-modal__gallery-item--active' : ''}`}
-                              onClick={() => {
-                                setSelectedReusableAvatarId(avatar.id)
-                              }}
-                              onDoubleClick={() => {
-                                openExistingAvatarEditor(avatar)
-                              }}
-                            >
-                              <div className="characters-modal__gallery-avatar characters-modal__gallery-avatar--image" style={avatarStyle} />
-                              <span className="characters-modal__gallery-name">{avatar.name}</span>
-                            </button>
-                          )
-                        })}
+                            return (
+                              <button
+                                key={avatar.id}
+                                type="button"
+                                role="listitem"
+                                className={`characters-modal__gallery-item${selectedReusableAvatarId === avatar.id ? ' characters-modal__gallery-item--active' : ''}`}
+                                onClick={() => {
+                                  setSelectedReusableAvatarId(avatar.id)
+                                }}
+                                onDoubleClick={() => {
+                                  openExistingAvatarEditor(avatar)
+                                }}
+                              >
+                                <div className="characters-modal__gallery-avatar characters-modal__gallery-avatar--image" style={avatarStyle} />
+                                <span className="characters-modal__gallery-name">{avatar.name}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <aside className="characters-modal__avatar-sidebar" aria-label="Selected avatar">
+                          {selectedReusableAvatar ? (
+                            <>
+                              <div
+                                className="characters-modal__avatar-sidebar-preview"
+                                style={{ backgroundImage: `url("${selectedReusableAvatar.imageData}")` }}
+                                aria-hidden="true"
+                              />
+                              <div className="characters-modal__field">
+                                <h3 className="characters-modal__heading characters-modal__heading--section">
+                                  {selectedReusableAvatar.name}
+                                </h3>
+                              </div>
+                              {isSelectingAvatarForCharacter ? (
+                                <button
+                                  type="button"
+                                  className="characters-modal__footer-btn characters-modal__footer-btn--primary characters-modal__avatar-sidebar-action"
+                                  onClick={() => {
+                                    applyAvatarToCurrentCharacter(selectedReusableAvatar)
+                                  }}
+                                >
+                                  Use for Character
+                                </button>
+                              ) : null}
+                            </>
+                          ) : (
+                            <div className="characters-modal__blank">
+                              Select an avatar to preview it here.
+                            </div>
+                          )}
+                        </aside>
                       </div>
                     )}
                   </div>
@@ -1295,11 +1780,13 @@ export function CharactersModal({
                     </>
                   ) : (
                     <CharacterRelationshipsPanel
-                      graph={relationshipGraph}
+                      entries={relationshipPanelEntries}
                       draft={draft}
-                      characters={characters}
-                      onSave={onSaveRelationships}
-                      onDeletePair={onDeleteRelationshipPair}
+                      characters={relationshipPanelCharacters}
+                      isEditable={isEditingCampaignCharacter || isEditingReusableCharacter}
+                      onChangeEntries={updateEditableRelationshipEntries}
+                      onDeletePair={handleConfirmDeleteRelationshipPair}
+                      onOpenCharacter={handleOpenRelationshipCharacter}
                     />
                   )}
                 </div>
@@ -1308,15 +1795,20 @@ export function CharactersModal({
           )}
         footer={(
             <ModalFooter
-              status={(characterLibraryStatusMessage || statusMessage) ? (
-                <div className={`characters-modal__status characters-modal__status--${
-                  characterLibraryStatusMessage
-                    ? (characterLibraryStatusKind ?? 'success')
-                    : (statusKind ?? 'success')
-                }`}>
-                  {characterLibraryStatusMessage ?? statusMessage}
+              status={(
+                <div
+                  className={`characters-modal__status${
+                    (characterLibraryStatusMessage || statusMessage)
+                      ? ` characters-modal__status--${characterLibraryStatusMessage
+                        ? (characterLibraryStatusKind ?? 'success')
+                        : (statusKind ?? 'success')}`
+                      : ' characters-modal__status--empty'
+                  }`}
+                  aria-live="polite"
+                >
+                  {characterLibraryStatusMessage ?? statusMessage ?? '\u00A0'}
                 </div>
-              ) : undefined}
+              )}
               actions={(
                 <>
                   <button
@@ -1396,7 +1888,7 @@ export function CharactersModal({
                         disabled={!selectedReusableCharacter || isBusy}
                         onClick={() => {
                           if (selectedReusableCharacter) {
-                            void onImportReusableCharacter(selectedReusableCharacter)
+                            promptImportReusableCharacter(selectedReusableCharacter)
                           }
                         }}
                       >
@@ -1416,21 +1908,6 @@ export function CharactersModal({
                       {isAvatarLibraryBusy ? 'Saving...' : (avatarEditorMode === 'edit' ? 'Save Avatar' : 'Create Avatar')}
                     </button>
                   ) : null}
-                  {activeTab === 'avatars' && avatarEditorMode === 'browse' && avatarSection === 'user-avatars' && isSelectingAvatarForCharacter ? (
-                    <button
-                      type="button"
-                      className="modal-footer__button modal-footer__button--primary"
-                      disabled={!selectedReusableAvatarId}
-                      onClick={() => {
-                        const selectedAvatar = sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
-                        if (selectedAvatar) {
-                          applyAvatarToCurrentCharacter(selectedAvatar)
-                        }
-                      }}
-                    >
-                      Use for Character
-                    </button>
-                  ) : null}
                   {activeTab === 'avatars' && avatarEditorMode === 'browse' && avatarSection === 'user-avatars' ? (
                     <>
                       <button
@@ -1445,7 +1922,7 @@ export function CharactersModal({
                       </button>
                       <button
                         type="button"
-                        className="modal-footer__button"
+                        className="modal-footer__button modal-footer__button--primary"
                         disabled={!selectedReusableAvatarId || isAvatarLibraryBusy}
                         onClick={() => {
                           const selectedAvatar = sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
@@ -1459,12 +1936,12 @@ export function CharactersModal({
                     </>
                   ) : null}
                   {isShowingEditor ? (
-                    <>
+                    <div key={`editor-actions-${editorMode}-${activeTab}`} className="characters-modal__editor-actions">
                       {(isEditingCampaignCharacter || isEditingReusableCharacter) ? (
                       <button
                         type="button"
                         className="modal-footer__button"
-                        disabled={isBusy || isCharacterLibraryBusy}
+                        disabled={isSavingCharacterEditor}
                         onClick={() => {
                           void handleDeleteEditedCharacter()
                         }}
@@ -1489,11 +1966,12 @@ export function CharactersModal({
                         onClick={() => {
                           void handleSave()
                         }}
-                        disabled={!draft.name.trim() || isBusy || isCharacterLibraryBusy}
+                        disabled={!draft.name.trim() || isSavingCharacterEditor}
+                        aria-busy={isSavingCharacterEditor}
                       >
-                        {isBusy || isCharacterLibraryBusy ? 'Saving...' : (isEditingCampaignCharacter || editorMode === 'edit-custom' ? 'Save Character' : 'Save To Campaign')}
+                        {isEditingCampaignCharacter || editorMode === 'edit-custom' ? 'Save Character' : 'Save To Campaign'}
                       </button>
-                    </>
+                    </div>
                   ) : null}
                 </>
               )}
@@ -1508,9 +1986,23 @@ export function CharactersModal({
           relationshipCount={saveReusableConfirmation.relationshipBundle?.entries.length ?? 0}
           relatedCharacterCount={saveReusableConfirmation.relationshipBundle?.characters.length ?? 1}
           copyRelationships={copyRelationshipsOnSave}
+          updateExistingGlobalCharacters={updateExistingGlobalCharactersOnSave}
+          canUpdateExisting={saveReusableConfirmation.canUpdateExisting}
           onToggleCopyRelationships={setCopyRelationshipsOnSave}
+          onToggleUpdateExistingGlobalCharacters={setUpdateExistingGlobalCharactersOnSave}
           onConfirm={() => { void handleConfirmSaveReusableCharacter() }}
           onCancel={() => { setSaveReusableConfirmation(null) }}
+        />
+      ) : null}
+      {importReusableConfirmation ? (
+        <ImportReusableCharacterConfirmModal
+          characterName={importReusableConfirmation.character.name}
+          relationshipCount={importReusableConfirmation.relationshipBundle?.entries.length ?? 0}
+          relatedCharacterCount={importReusableConfirmation.relationshipBundle?.characters.length ?? 1}
+          includeRelationships={includeRelationshipsOnImport}
+          onToggleIncludeRelationships={setIncludeRelationshipsOnImport}
+          onConfirm={() => { void handleConfirmImportReusableCharacter() }}
+          onCancel={() => { setImportReusableConfirmation(null) }}
         />
       ) : null}
     </>
