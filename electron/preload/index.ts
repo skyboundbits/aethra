@@ -634,4 +634,33 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.off('window:state-changed', onState)
     }
   },
+
+  /**
+   * Fetch pre-authored app characters and avatars.
+   *
+   * @returns Promise resolving to objects with avatars and characters arrays.
+   */
+  getAppContent() {
+    return ipcRenderer.invoke('appContent:get') as Promise<{
+      avatars: Array<{
+        id: string
+        name: string
+        imageData: string
+        crop: { x: number; y: number; scale: number }
+      }>
+      characters: Array<{
+        id: string
+        name: string
+        role: string
+        gender: 'male' | 'female' | 'non-specific'
+        pronouns: 'he/him' | 'she/her' | 'they/them'
+        description: string
+        personality: string
+        speakingStyle: string
+        goals: string
+        avatarImageData: string
+        avatarCrop: { x: number; y: number; scale: number }
+      }>
+    }>
+  },
 })
