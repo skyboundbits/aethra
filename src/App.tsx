@@ -1566,6 +1566,29 @@ export default function App() {
   const [isAiDebugOpen, setIsAiDebugOpen] = useState(false)
   const [aiDebugEntries, setAiDebugEntries] = useState<AiDebugEntry[]>([])
 
+  /** Pre-authored app characters. */
+  const [appCharacters, setAppCharacters] = useState<Array<{
+    id: string
+    name: string
+    role: string
+    gender: 'male' | 'female' | 'non-specific'
+    pronouns: 'he/him' | 'she/her' | 'they/them'
+    description: string
+    personality: string
+    speakingStyle: string
+    goals: string
+    avatarImageData: string
+    avatarCrop: { x: number; y: number; scale: number }
+  }>>([])
+
+  /** Pre-authored app avatars. */
+  const [appAvatars, setAppAvatars] = useState<Array<{
+    id: string
+    name: string
+    imageData: string
+    crop: { x: number; y: number; scale: number }
+  }>>([])
+
   /** Last campaign object that was successfully saved to disk. */
   const lastSavedCampaignRef = useRef<Campaign | null>(null)
 
@@ -1598,6 +1621,18 @@ export default function App() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  /**
+   * Fetch app content (pre-authored characters and avatars) on mount.
+   */
+  useEffect(() => {
+    window.api.getAppContent().then(content => {
+      setAppCharacters(content.characters)
+      setAppAvatars(content.avatars)
+    }).catch(error => {
+      console.error('Failed to load app content:', error)
+    })
   }, [])
 
   /**
@@ -5804,6 +5839,8 @@ function syncStreamedAssistantMessages(
           relationshipGraph={relationshipGraph}
           onSaveRelationships={handleSaveRelationships}
           onDeleteRelationshipPair={handleDeleteRelationshipPair}
+          appCharacters={appCharacters}
+          appAvatars={appAvatars}
         />
       ) : null}
       {!isCampaignSwitchLoading && isNewSessionModalOpen ? (

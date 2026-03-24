@@ -243,6 +243,27 @@ interface CharactersModalProps {
   onSaveRelationships: (graph: RelationshipGraph) => Promise<void>
   /** Delete both directions of a pair (A→B and B→A) after confirmation. */
   onDeleteRelationshipPair: (fromId: string, toId: string) => Promise<void>
+  /** Pre-authored app characters. */
+  appCharacters: Array<{
+    id: string
+    name: string
+    role: string
+    gender: 'male' | 'female' | 'non-specific'
+    pronouns: 'he/him' | 'she/her' | 'they/them'
+    description: string
+    personality: string
+    speakingStyle: string
+    goals: string
+    avatarImageData: string
+    avatarCrop: { x: number; y: number; scale: number }
+  }>
+  /** Pre-authored app avatars. */
+  appAvatars: Array<{
+    id: string
+    name: string
+    imageData: string
+    crop: { x: number; y: number; scale: number }
+  }>
 }
 
 function createCampaignCharacterDraft(): CharacterProfile {
@@ -298,24 +319,8 @@ function toCampaignCharacter(character: ReusableCharacter): CharacterProfile {
 function toReusableBundleCharacter(
   character: CharacterProfile | ReusableCharacter | ReusableCharacterBundleCharacter,
 ): ReusableCharacterBundleCharacter {
-  return {
-    id: character.id,
-    name: character.name,
-    role: character.role,
-    gender: character.gender,
-    pronouns: character.pronouns,
-    description: character.description,
-    personality: character.personality,
-    speakingStyle: character.speakingStyle,
-    goals: character.goals,
-    avatarImageData: character.avatarImageData,
-    avatarSourceId: character.avatarSourceId,
-    reusableCharacterId: character.reusableCharacterId,
-    avatarCrop: character.avatarCrop,
-    controlledBy: character.controlledBy,
-    createdAt: character.createdAt,
-    updatedAt: character.updatedAt,
-  }
+  const { relationshipBundle: _relationshipBundle, ...base } = toReusableCharacter(character as unknown as CharacterProfile)
+  return base
 }
 
 interface AvatarDraft {
@@ -587,8 +592,8 @@ function CharacterRelationshipsPanel({
             </div>
 
             <div className="characters-modal__field">
-              <label className="characters-modal__label">AI Summary</label>
-              <textarea className="characters-modal__textarea characters-modal__textarea--compact" value={entry.summary} readOnly />
+              <label className="characters-modal__label" htmlFor={`character-relationship-summary-${entry.fromCharacterId}-${entry.toCharacterId}`}>AI Summary</label>
+              <textarea id={`character-relationship-summary-${entry.fromCharacterId}-${entry.toCharacterId}`} className="characters-modal__textarea characters-modal__textarea--compact" value={entry.summary} readOnly />
             </div>
 
             <div className="characters-modal__field">
@@ -640,6 +645,8 @@ export function CharactersModal({
   relationshipGraph,
   onSaveRelationships,
   onDeleteRelationshipPair,
+  appCharacters,
+  appAvatars,
 }: CharactersModalProps) {
   const { confirm, confirmState } = useConfirm()
   const initialDraft = createCampaignCharacterDraft()
@@ -1043,6 +1050,13 @@ export function CharactersModal({
     }
 
     if (isEditingReusableCharacter) {
+      const confirmed = await confirm({
+        title: 'Delete Global Character',
+        message: `Delete ${draft.name || 'this character'} from global characters?`,
+        confirmLabel: 'Delete',
+        cancelLabel: 'Cancel',
+      })
+      if (!confirmed) return
       await onDeleteReusableCharacter(draft.id)
       setSelectedReusableCharacterId(null)
       resetEditorToNewCampaignDraft()
@@ -1050,6 +1064,13 @@ export function CharactersModal({
       return
     }
 
+    const confirmed = await confirm({
+      title: 'Delete Campaign Character',
+      message: `Delete ${draft.name || 'this character'} from this campaign?`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    })
+    if (!confirmed) return
     await onDeleteCharacter(draft.id)
     setSelectedCampaignCharacterId(null)
     resetEditorToNewCampaignDraft()
@@ -1662,11 +1683,9 @@ export function CharactersModal({
                   <div className="characters-modal__header">
                     <div>
                       <h2 className="characters-modal__heading">
-                        {editorMode === 'edit-custom'
+                        {isEditingCampaignCharacter || editorMode === 'edit-custom'
                           ? `Edit ${draft.name || 'Character'}`
-                          : isEditingCampaignCharacter
-                            ? `Edit ${draft.name || 'Character'}`
-                            : 'New Character'}
+                          : 'New Character'}
                       </h2>
                       <p className="characters-modal__subheading">
                         {editorMode === 'edit-custom'
