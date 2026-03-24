@@ -254,6 +254,55 @@ export interface ReusableCharacter {
   createdAt: number
   /** Unix timestamp (ms) when the character was last updated. */
   updatedAt: number
+  /** Optional relationship bundle copied alongside this saved character. */
+  relationshipBundle?: ReusableCharacterRelationshipBundle
+}
+
+/**
+ * Reusable-character-safe copy of a character record stored inside a bundle.
+ * Excludes nested bundles to keep serialization flat.
+ */
+export interface ReusableCharacterBundleCharacter {
+  /** Unique identifier for the saved character. */
+  id: string
+  /** Display name shown in the character library. */
+  name: string
+  /** Character role or archetype shown in lists. */
+  role: string
+  /** Character gender identity used in prompts and editor defaults. */
+  gender: 'male' | 'female' | 'non-specific'
+  /** Character pronouns used in prompts and editor defaults. */
+  pronouns: 'he/him' | 'she/her' | 'they/them'
+  /** Physical description and presentation details. */
+  description: string
+  /** Personality traits and temperament notes. */
+  personality: string
+  /** Guidance for the way this character speaks. */
+  speakingStyle: string
+  /** Current objectives, motivations, or priorities. */
+  goals: string
+  /** Uploaded avatar image stored as a data URL, if one has been chosen. */
+  avatarImageData: string | null
+  /** Reusable avatar ID this character was derived from, when applicable. */
+  avatarSourceId?: string
+  /** Manual circle crop state used to frame the avatar in chat. */
+  avatarCrop: CharacterAvatarCrop
+  /** Which participant controls this character in play. */
+  controlledBy: 'ai' | 'user'
+  /** Unix timestamp (ms) when the character was created. */
+  createdAt: number
+  /** Unix timestamp (ms) when the character was last updated. */
+  updatedAt: number
+}
+
+/** Relationship payload stored with a reusable character bundle. */
+export interface ReusableCharacterRelationshipBundle {
+  /** The reusable-library character ID that the bundle was saved from. */
+  rootCharacterId: string
+  /** All characters copied alongside the root character, including the root. */
+  characters: ReusableCharacterBundleCharacter[]
+  /** Relationship entries whose endpoints are contained in the bundle. */
+  entries: RelationshipEntry[]
 }
 
 /**

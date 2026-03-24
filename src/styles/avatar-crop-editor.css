@@ -91,16 +91,6 @@
   cursor: default;
 }
 
-.avatar-crop-editor__label {
-  font-size: var(--font-size-label);
-  color: var(--text-color-secondary);
-}
-
-.avatar-crop-editor__slider {
-  width: 100%;
-  accent-color: var(--surface-bg-accent);
-}
-
 .avatar-crop-editor__help {
   font-size: var(--font-size-label);
   color: var(--text-color-muted);

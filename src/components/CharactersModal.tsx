@@ -5,18 +5,29 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Modal } from './Modal'
-import { ModalFooter, ModalWorkspaceLayout } from './ModalLayouts'
+import { ModalFooter, ModalPopupLayout, ModalWorkspaceLayout } from './ModalLayouts'
 import { ConfirmModal } from './ConfirmModal'
 import { useConfirm } from '../hooks/useConfirm'
-import { AvatarLibraryModal } from './AvatarLibraryModal'
-import { UserIcon, UserPlusIcon, UsersIcon, UsersRoundIcon, WorldStarIcon } from './icons'
+import { AvatarCropEditor } from './AvatarCropEditor'
+import { UserCircleIcon, UserIcon, UserPlusIcon, UsersIcon, UsersRoundIcon, WorldStarIcon } from './icons'
 import '../styles/characters.css'
 
-import type { CharacterProfile, ReusableAvatar, ReusableCharacter, RelationshipGraph, RelationshipEntry, AffinityLabel } from '../types'
+import type {
+  CharacterProfile,
+  ReusableAvatar,
+  ReusableCharacter,
+  ReusableCharacterRelationshipBundle,
+  RelationshipGraph,
+  RelationshipEntry,
+  AffinityLabel,
+} from '../types'
 
-type CharactersTabId = 'new-character' | 'existing-campaign-characters' | 'existing-characters' | 'app-characters'
+type CharactersTabId = 'new-character' | 'existing-campaign-characters' | 'existing-characters' | 'avatars' | 'app-characters'
 type CharacterEditorMode = 'new-campaign' | 'edit-campaign' | 'edit-custom'
 type CharacterEditorSection = 'details' | 'relationships'
+type AvatarLibrarySection = 'user-avatars' | 'application-avatars'
+type AvatarEditorMode = 'browse' | 'create' | 'edit'
+type AvatarReturnTab = 'new-character' | 'existing-campaign-characters' | 'existing-characters'
 const CHARACTER_EDITOR_AVATAR_SIZE = 220
 const CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE = 96
 const CHARACTER_HEADER_AVATAR_SIZE = 120
@@ -25,6 +36,74 @@ const DEFAULT_PRONOUNS_BY_GENDER: Record<CharacterProfile['gender'], CharacterPr
   male: 'he/him',
   female: 'she/her',
   'non-specific': 'they/them',
+}
+
+interface SaveReusableCharacterConfirmationState {
+  character: CharacterProfile
+  relationshipBundle: ReusableCharacterRelationshipBundle | null
+}
+
+interface SaveReusableCharacterConfirmModalProps {
+  characterName: string
+  relationshipCount: number
+  relatedCharacterCount: number
+  copyRelationships: boolean
+  onToggleCopyRelationships: (checked: boolean) => void
+  onConfirm: () => void
+  onCancel: () => void
+}
+
+function SaveReusableCharacterConfirmModal({
+  characterName,
+  relationshipCount,
+  relatedCharacterCount,
+  copyRelationships,
+  onToggleCopyRelationships,
+  onConfirm,
+  onCancel,
+}: SaveReusableCharacterConfirmModalProps) {
+  const hasRelationships = relationshipCount > 0 && relatedCharacterCount > 1
+
+  return (
+    <Modal title="Save To Global Characters" onClose={onCancel} variant="popup">
+      <ModalPopupLayout
+        footer={(
+          <ModalFooter
+            actions={(
+              <>
+                <button type="button" className="characters-modal__footer-btn" onClick={onCancel}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="characters-modal__footer-btn characters-modal__footer-btn--primary"
+                  onClick={onConfirm}
+                >
+                  Save Character
+                </button>
+              </>
+            )}
+          />
+        )}
+      >
+        <p className="confirm-modal__message">Save {characterName || 'this character'} to Global Characters?</p>
+        {hasRelationships ? (
+          <label className="characters-modal__checkbox-row">
+            <input
+              type="checkbox"
+              checked={copyRelationships}
+              onChange={(event) => { onToggleCopyRelationships(event.target.checked) }}
+            />
+            <span>
+              Also copy relationships and {relatedCharacterCount - 1} linked character{relatedCharacterCount === 2 ? '' : 's'}.
+            </span>
+          </label>
+        ) : (
+          <p className="confirm-modal__warning">No relationship data will be copied.</p>
+        )}
+      </ModalPopupLayout>
+    </Modal>
+  )
 }
 
 /** Props accepted by the CharactersModal component. */
@@ -49,7 +128,10 @@ interface CharactersModalProps {
   characterLibraryStatusMessage: string | null
   characterLibraryStatusKind: 'error' | 'success' | null
   isCharacterLibraryBusy: boolean
-  onSaveReusableCharacter: (character: ReusableCharacter) => Promise<void>
+  onSaveReusableCharacter: (
+    character: ReusableCharacter,
+    relationshipBundle?: ReusableCharacterRelationshipBundle,
+  ) => Promise<void>
   onDeleteReusableCharacter: (characterId: string) => Promise<void>
   onImportReusableCharacter: (character: ReusableCharacter) => Promise<void>
   /** Current persisted relationship graph for the campaign; null if none. */
@@ -107,6 +189,72 @@ function toCampaignCharacter(character: ReusableCharacter): CharacterProfile {
     ...character,
     folderName: '',
   }
+}
+
+interface AvatarDraft {
+  id: string
+  name: string
+  imageData: string | null
+  crop: ReusableAvatar['crop']
+  createdAt: number
+  updatedAt: number
+}
+
+const SAVED_AVATAR_IMAGE_SIZE = 512
+
+function createEmptyAvatarDraft(): AvatarDraft {
+  const now = Date.now()
+  return {
+    id: '',
+    name: '',
+    imageData: null,
+    crop: { x: 0, y: 0, scale: 1 },
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+function getAvatarDraftSnapshot(avatar: AvatarDraft): string {
+  return JSON.stringify({
+    id: avatar.id,
+    name: avatar.name,
+    imageData: avatar.imageData,
+    crop: avatar.crop,
+  })
+}
+
+async function renderAvatarThumbnail(
+  imageData: string,
+  crop: ReusableAvatar['crop'],
+  size: number = SAVED_AVATAR_IMAGE_SIZE,
+): Promise<string> {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const nextImage = new Image()
+    nextImage.onload = () => resolve(nextImage)
+    nextImage.onerror = () => reject(new Error('Could not render avatar image.'))
+    nextImage.src = imageData
+  })
+
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const context = canvas.getContext('2d')
+  if (!context) {
+    throw new Error('Could not create avatar canvas.')
+  }
+
+  const viewportScale = size / CHARACTER_EDITOR_AVATAR_SIZE
+  const renderedWidth = size * crop.scale
+  const renderedHeight = renderedWidth * (image.naturalHeight / image.naturalWidth)
+  context.clearRect(0, 0, size, size)
+  context.drawImage(
+    image,
+    crop.x * viewportScale,
+    crop.y * viewportScale,
+    renderedWidth,
+    renderedHeight,
+  )
+  return canvas.toDataURL('image/png')
 }
 
 /**
@@ -318,10 +466,86 @@ export function CharactersModal({
   const [editorMode, setEditorMode] = useState<CharacterEditorMode>('new-campaign')
   const [draft, setDraft] = useState<CharacterProfile>(initialDraft)
   const [savedDraftSnapshot, setSavedDraftSnapshot] = useState<string>(() => getCharacterDraftSnapshot(initialDraft))
-  const [isAvatarLibraryOpen, setIsAvatarLibraryOpen] = useState(false)
   const [editorSection, setEditorSection] = useState<CharacterEditorSection>('details')
+  const [avatarSection, setAvatarSection] = useState<AvatarLibrarySection>('user-avatars')
+  const [avatarEditorMode, setAvatarEditorMode] = useState<AvatarEditorMode>('browse')
+  const [isSelectingAvatarForCharacter, setIsSelectingAvatarForCharacter] = useState(false)
+  const [avatarReturnTab, setAvatarReturnTab] = useState<AvatarReturnTab>('new-character')
+  const [selectedReusableAvatarId, setSelectedReusableAvatarId] = useState<string | null>(null)
+  const initialAvatarDraft = createEmptyAvatarDraft()
+  const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>(initialAvatarDraft)
+  const [savedAvatarDraftSnapshot, setSavedAvatarDraftSnapshot] = useState<string>(() => getAvatarDraftSnapshot(initialAvatarDraft))
   const [selectedCampaignCharacterId, setSelectedCampaignCharacterId] = useState<string | null>(activeCharacterId)
   const [selectedReusableCharacterId, setSelectedReusableCharacterId] = useState<string | null>(null)
+  const [saveReusableConfirmation, setSaveReusableConfirmation] = useState<SaveReusableCharacterConfirmationState | null>(null)
+  const [copyRelationshipsOnSave, setCopyRelationshipsOnSave] = useState(false)
+
+  function buildReusableRelationshipBundle(character: CharacterProfile): ReusableCharacterRelationshipBundle | null {
+    if (!relationshipGraph) {
+      return null
+    }
+
+    const includedIds = new Set<string>([character.id])
+    let didExpand = true
+    while (didExpand) {
+      didExpand = false
+      for (const entry of relationshipGraph.entries) {
+        if (includedIds.has(entry.fromCharacterId) || includedIds.has(entry.toCharacterId)) {
+          if (!includedIds.has(entry.fromCharacterId)) {
+            includedIds.add(entry.fromCharacterId)
+            didExpand = true
+          }
+          if (!includedIds.has(entry.toCharacterId)) {
+            includedIds.add(entry.toCharacterId)
+            didExpand = true
+          }
+        }
+      }
+    }
+
+    if (includedIds.size < 2) {
+      return null
+    }
+
+    const bundledCharacters = characters
+      .filter((candidate) => includedIds.has(candidate.id))
+      .map((candidate) => toReusableCharacter(candidate))
+      .sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' }))
+      .map(({ relationshipBundle: _relationshipBundle, ...candidate }) => candidate)
+    const bundledCharacterIds = new Set(bundledCharacters.map((candidate) => candidate.id))
+    const bundledEntries = relationshipGraph.entries.filter((entry) =>
+      bundledCharacterIds.has(entry.fromCharacterId) && bundledCharacterIds.has(entry.toCharacterId),
+    )
+
+    if (bundledCharacters.length < 2 || bundledEntries.length === 0) {
+      return null
+    }
+
+    return {
+      rootCharacterId: character.id,
+      characters: bundledCharacters,
+      entries: bundledEntries,
+    }
+  }
+
+  function promptSaveReusableCharacter(character: CharacterProfile): void {
+    const relationshipBundle = buildReusableRelationshipBundle(character)
+    setCopyRelationshipsOnSave(relationshipBundle !== null)
+    setSaveReusableConfirmation({ character, relationshipBundle })
+  }
+
+  async function handleConfirmSaveReusableCharacter(): Promise<void> {
+    if (!saveReusableConfirmation) {
+      return
+    }
+
+    const { character, relationshipBundle } = saveReusableConfirmation
+    setSaveReusableConfirmation(null)
+    await onSaveReusableCharacter(
+      toReusableCharacter(character),
+      copyRelationshipsOnSave ? (relationshipBundle ?? undefined) : undefined,
+    )
+  }
 
   const sortedCampaignCharacters = useMemo(
     () => [...characters].sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' })),
@@ -330,6 +554,10 @@ export function CharactersModal({
   const sortedReusableCharacters = useMemo(
     () => [...reusableCharacters].sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' })),
     [reusableCharacters],
+  )
+  const sortedReusableAvatars = useMemo(
+    () => [...reusableAvatars].sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' })),
+    [reusableAvatars],
   )
 
   useEffect(() => {
@@ -344,8 +572,36 @@ export function CharactersModal({
     }
   }, [activeTab, draft.id, editorMode])
 
+  useEffect(() => {
+    if (avatarSection !== 'user-avatars') {
+      return
+    }
+
+    if (avatarEditorMode === 'create') {
+      return
+    }
+
+    const selectedAvatar = sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
+    if (selectedAvatar) {
+      setAvatarDraft(selectedAvatar)
+      setSavedAvatarDraftSnapshot(getAvatarDraftSnapshot(selectedAvatar))
+      return
+    }
+
+    const firstAvatar = sortedReusableAvatars[0] ?? null
+    setSelectedReusableAvatarId(firstAvatar?.id ?? null)
+    if (firstAvatar) {
+      setAvatarDraft(firstAvatar)
+      setSavedAvatarDraftSnapshot(getAvatarDraftSnapshot(firstAvatar))
+    }
+  }, [avatarEditorMode, avatarSection, selectedReusableAvatarId, sortedReusableAvatars])
+
   function updateDraftField<K extends keyof CharacterProfile>(field: K, value: CharacterProfile[K]): void {
     setDraft((currentDraft) => ({ ...currentDraft, [field]: value }))
+  }
+
+  function updateAvatarDraftField<K extends keyof AvatarDraft>(field: K, value: AvatarDraft[K]): void {
+    setAvatarDraft((currentDraft) => ({ ...currentDraft, [field]: value }))
   }
 
   function handleGenderChange(gender: CharacterProfile['gender']): void {
@@ -368,12 +624,16 @@ export function CharactersModal({
       resetEditorToNewCampaignDraft()
     }
 
+    if (tabId === 'avatars') {
+      setIsSelectingAvatarForCharacter(false)
+    }
+
     setActiveTab(tabId)
   }
 
   async function handleSave(): Promise<void> {
     if (editorMode === 'edit-custom') {
-      await onSaveReusableCharacter(toReusableCharacter(draft))
+      await onSaveReusableCharacter(toReusableCharacter(draft), selectedReusableCharacter?.relationshipBundle)
       setSavedDraftSnapshot(getCharacterDraftSnapshot(draft))
       setActiveTab('existing-characters')
       return
@@ -471,6 +731,8 @@ export function CharactersModal({
   const isEditingReusableCharacter = activeTab === 'existing-characters' && editorMode === 'edit-custom'
   const isShowingEditor = activeTab === 'new-character' || isEditingCampaignCharacter || isEditingReusableCharacter
   const hasUnsavedChanges = isShowingEditor && getCharacterDraftSnapshot(draft) !== savedDraftSnapshot
+  const isShowingAvatarEditor = activeTab === 'avatars' && avatarEditorMode !== 'browse'
+  const hasUnsavedAvatarChanges = isShowingAvatarEditor && getAvatarDraftSnapshot(avatarDraft) !== savedAvatarDraftSnapshot
   const editorAvatarOffsetScale = CHARACTER_HEADER_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
   const editorAvatarStyle = draft.avatarImageData
     ? {
@@ -489,7 +751,7 @@ export function CharactersModal({
   }
 
   async function confirmDiscardChanges(message: string): Promise<boolean> {
-    if (!hasUnsavedChanges) {
+    if (!hasUnsavedChanges && !hasUnsavedAvatarChanges) {
       return true
     }
 
@@ -508,6 +770,99 @@ export function CharactersModal({
     }
 
     onClose()
+  }
+
+  async function handleReturnToAvatarLibrary(): Promise<void> {
+    const confirmed = await confirmDiscardChanges('You have unsaved changes. Discard them and return to the avatar library?')
+    if (!confirmed) {
+      return
+    }
+
+    setAvatarEditorMode('browse')
+  }
+
+  function openNewAvatarEditor(): void {
+    setAvatarSection('user-avatars')
+    setActiveTab('avatars')
+    setAvatarEditorMode('create')
+    setSelectedReusableAvatarId(null)
+    const nextDraft = createEmptyAvatarDraft()
+    setAvatarDraft(nextDraft)
+    setSavedAvatarDraftSnapshot(getAvatarDraftSnapshot(nextDraft))
+  }
+
+  function openExistingAvatarEditor(avatar: ReusableAvatar): void {
+    setAvatarSection('user-avatars')
+    setActiveTab('avatars')
+    setAvatarEditorMode('edit')
+    setSelectedReusableAvatarId(avatar.id)
+    setAvatarDraft(avatar)
+    setSavedAvatarDraftSnapshot(getAvatarDraftSnapshot(avatar))
+  }
+
+  async function handleSaveAvatar(): Promise<void> {
+    if (!avatarDraft.imageData) {
+      return
+    }
+
+    if (avatarEditorMode === 'create') {
+      const confirmed = await confirm({
+        title: 'Create Avatar',
+        message: 'Create this avatar? Its image will be flattened and cannot be edited after saving.',
+        confirmLabel: 'Create Avatar',
+        cancelLabel: 'Keep Editing',
+      })
+      if (!confirmed) {
+        return
+      }
+    }
+
+    const renderedAvatarImageData = avatarEditorMode === 'create'
+      ? await renderAvatarThumbnail(avatarDraft.imageData, avatarDraft.crop)
+      : avatarDraft.imageData
+    const nextAvatar: ReusableAvatar = {
+      ...avatarDraft,
+      name: avatarDraft.name.trim(),
+      imageData: renderedAvatarImageData,
+      crop: { x: 0, y: 0, scale: 1 },
+    }
+
+    await onSaveReusableAvatar(nextAvatar)
+    setAvatarDraft(nextAvatar)
+    setSavedAvatarDraftSnapshot(getAvatarDraftSnapshot(nextAvatar))
+    setAvatarEditorMode('browse')
+  }
+
+  async function handleDeleteSelectedAvatar(): Promise<void> {
+    const selectedAvatar = sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
+    if (!selectedAvatar) {
+      return
+    }
+
+    const confirmed = await confirm({
+      title: 'Delete Avatar',
+      message: `Delete ${selectedAvatar.name || 'this avatar'} from user avatars?`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    })
+    if (!confirmed) {
+      return
+    }
+
+    await onDeleteReusableAvatar(selectedAvatar.id)
+    setSelectedReusableAvatarId(null)
+    setAvatarEditorMode('browse')
+    const nextDraft = createEmptyAvatarDraft()
+    setAvatarDraft(nextDraft)
+    setSavedAvatarDraftSnapshot(getAvatarDraftSnapshot(nextDraft))
+  }
+
+  function applyAvatarToCurrentCharacter(avatar: ReusableAvatar): void {
+    updateDraftField('avatarImageData', avatar.imageData)
+    updateDraftField('avatarSourceId', avatar.id)
+    updateDraftField('avatarCrop', avatar.crop)
+    setIsSelectingAvatarForCharacter(false)
+    setActiveTab(avatarReturnTab)
   }
 
   return (
@@ -567,11 +922,163 @@ export function CharactersModal({
                 <UserIcon className="characters-modal__tab-icon" aria-hidden="true" />
                 <span>App Characters</span>
               </button>
+              <button
+                type="button"
+                className={`characters-modal__tab${activeTab === 'avatars' ? ' characters-modal__tab--active' : ''}`}
+                onClick={() => {
+                  handleTabClick('avatars')
+                }}
+              >
+                <UserCircleIcon className="characters-modal__tab-icon" aria-hidden="true" />
+                <span>Avatars</span>
+              </button>
             </aside>
           )}
         panel={(
           <section className="characters-modal__panel">
-              {activeTab === 'app-characters' ? (
+              {activeTab === 'avatars' ? (
+                avatarEditorMode !== 'browse' ? (
+                  <div className="characters-modal__editor">
+                    <div className="characters-modal__header">
+                      <div>
+                        <h2 className="characters-modal__heading">
+                          {avatarEditorMode === 'edit' ? (avatarDraft.name || 'Edit Avatar') : 'New Avatar'}
+                        </h2>
+                        <p className="characters-modal__subheading">
+                          {avatarEditorMode === 'edit'
+                            ? 'Update this saved avatar and keep it available for future characters.'
+                            : 'Create a reusable avatar for your character library.'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="characters-modal__footer-btn"
+                        onClick={() => {
+                          void handleReturnToAvatarLibrary()
+                        }}
+                      >
+                        Avatar Library
+                      </button>
+                    </div>
+                    <div className="characters-modal__field">
+                      {avatarEditorMode === 'edit' ? (
+                        <div className="characters-modal__avatar-locked">
+                          <div
+                            className="characters-modal__avatar-locked-preview"
+                            style={avatarDraft.imageData
+                              ? { backgroundImage: `url("${avatarDraft.imageData}")` }
+                              : undefined}
+                          >
+                            {avatarDraft.imageData ? null : 'AV'}
+                          </div>
+                          <p className="characters-modal__subheading">
+                            Saved avatars are flattened to a smaller image. You can rename this avatar, but changing the image requires creating a new avatar.
+                          </p>
+                        </div>
+                      ) : (
+                        <AvatarCropEditor
+                          imageData={avatarDraft.imageData}
+                          crop={avatarDraft.crop}
+                          onImageDataChange={(imageData) => updateAvatarDraftField('imageData', imageData)}
+                          onCropChange={(crop) => updateAvatarDraftField('crop', crop)}
+                          helpText="Drag the image inside the circle to frame the avatar. This saved version will be flattened and won't be editable later."
+                          uploadLabel="Select Image"
+                          emptyMessage="Upload an image to start building a reusable avatar."
+                          controlsHeader={(
+                            <div className="characters-modal__field">
+                              <label className="characters-modal__label" htmlFor="avatar-name">Avatar Name</label>
+                              <input
+                                id="avatar-name"
+                                className="characters-modal__input"
+                                type="text"
+                                value={avatarDraft.name}
+                                onChange={(event) => updateAvatarDraftField('name', event.target.value)}
+                                placeholder="Captain portrait"
+                              />
+                            </div>
+                          )}
+                        />
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="characters-modal__library">
+                    <div className="characters-modal__header">
+                      <div className="characters-modal__field">
+                        <h2 className="characters-modal__heading">Avatars</h2>
+                        <p className="characters-modal__subheading">Manage reusable avatars and apply them to characters from one place.</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="characters-modal__footer-btn"
+                        onClick={() => {
+                          openNewAvatarEditor()
+                        }}
+                      >
+                        New Avatar
+                      </button>
+                    </div>
+                    <div className="characters-modal__segment" role="tablist" aria-label="Avatar sections">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={avatarSection === 'user-avatars'}
+                        className={`characters-modal__segment-btn${avatarSection === 'user-avatars' ? ' characters-modal__segment-btn--active' : ''}`}
+                        onClick={() => {
+                          setAvatarSection('user-avatars')
+                        }}
+                      >
+                        User Avatars
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={avatarSection === 'application-avatars'}
+                        className={`characters-modal__segment-btn${avatarSection === 'application-avatars' ? ' characters-modal__segment-btn--active' : ''}`}
+                        onClick={() => {
+                          setAvatarSection('application-avatars')
+                        }}
+                      >
+                        Application Avatars
+                      </button>
+                    </div>
+                    {avatarSection === 'application-avatars' ? (
+                      <div className="characters-modal__blank">Application avatars are not available yet.</div>
+                    ) : reusableAvatars.length === 0 ? (
+                      <div className="characters-modal__blank">No saved avatars yet.</div>
+                    ) : (
+                      <div className="characters-modal__gallery" role="list" aria-label="Reusable avatars">
+                        {sortedReusableAvatars.map((avatar) => {
+                          const avatarOffsetScale = CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
+                          const avatarStyle = {
+                            backgroundImage: `url("${avatar.imageData}")`,
+                            backgroundPosition: `${avatar.crop.x * avatarOffsetScale}px ${avatar.crop.y * avatarOffsetScale}px`,
+                            backgroundSize: `${avatar.crop.scale * 100}%`,
+                          }
+
+                          return (
+                            <button
+                              key={avatar.id}
+                              type="button"
+                              role="listitem"
+                              className={`characters-modal__gallery-item${selectedReusableAvatarId === avatar.id ? ' characters-modal__gallery-item--active' : ''}`}
+                              onClick={() => {
+                                setSelectedReusableAvatarId(avatar.id)
+                              }}
+                              onDoubleClick={() => {
+                                openExistingAvatarEditor(avatar)
+                              }}
+                            >
+                              <div className="characters-modal__gallery-avatar characters-modal__gallery-avatar--image" style={avatarStyle} />
+                              <span className="characters-modal__gallery-name">{avatar.name}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              ) : activeTab === 'app-characters' ? (
                 <div className="characters-modal__blank">App characters are not available yet.</div>
               ) : activeTab === 'existing-campaign-characters' && !isEditingCampaignCharacter ? (
                 <div className="characters-modal__library">
@@ -700,7 +1207,10 @@ export function CharactersModal({
                       className={`characters-modal__identity-avatar${editorAvatarStyle ? ' characters-modal__identity-avatar--image' : ''}`}
                       style={editorAvatarStyle}
                       onClick={() => {
-                        setIsAvatarLibraryOpen(true)
+                        setIsSelectingAvatarForCharacter(true)
+                        setAvatarReturnTab(activeTab === 'avatars' ? 'new-character' : activeTab as AvatarReturnTab)
+                        setActiveTab('avatars')
+                        setAvatarSection('user-avatars')
                       }}
                     >
                       {editorAvatarStyle ? null : <span>{draft.name.trim().slice(0, 2).toUpperCase() || 'AV'}</span>}
@@ -836,7 +1346,7 @@ export function CharactersModal({
                         disabled={!selectedCampaignCharacter || isCharacterLibraryBusy}
                         onClick={() => {
                           if (selectedCampaignCharacter) {
-                            void onSaveReusableCharacter(toReusableCharacter(selectedCampaignCharacter))
+                            promptSaveReusableCharacter(selectedCampaignCharacter)
                           }
                         }}
                       >
@@ -894,6 +1404,60 @@ export function CharactersModal({
                       </button>
                     </>
                   ) : null}
+                  {activeTab === 'avatars' && avatarEditorMode !== 'browse' ? (
+                    <button
+                      type="button"
+                      className="modal-footer__button modal-footer__button--primary"
+                      onClick={() => {
+                        void handleSaveAvatar()
+                      }}
+                      disabled={!avatarDraft.name.trim() || !avatarDraft.imageData || isAvatarLibraryBusy}
+                    >
+                      {isAvatarLibraryBusy ? 'Saving...' : (avatarEditorMode === 'edit' ? 'Save Avatar' : 'Create Avatar')}
+                    </button>
+                  ) : null}
+                  {activeTab === 'avatars' && avatarEditorMode === 'browse' && avatarSection === 'user-avatars' && isSelectingAvatarForCharacter ? (
+                    <button
+                      type="button"
+                      className="modal-footer__button modal-footer__button--primary"
+                      disabled={!selectedReusableAvatarId}
+                      onClick={() => {
+                        const selectedAvatar = sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
+                        if (selectedAvatar) {
+                          applyAvatarToCurrentCharacter(selectedAvatar)
+                        }
+                      }}
+                    >
+                      Use for Character
+                    </button>
+                  ) : null}
+                  {activeTab === 'avatars' && avatarEditorMode === 'browse' && avatarSection === 'user-avatars' ? (
+                    <>
+                      <button
+                        type="button"
+                        className="modal-footer__button"
+                        disabled={!selectedReusableAvatarId || isAvatarLibraryBusy}
+                        onClick={() => {
+                          void handleDeleteSelectedAvatar()
+                        }}
+                      >
+                        Delete Avatar
+                      </button>
+                      <button
+                        type="button"
+                        className="modal-footer__button"
+                        disabled={!selectedReusableAvatarId || isAvatarLibraryBusy}
+                        onClick={() => {
+                          const selectedAvatar = sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
+                          if (selectedAvatar) {
+                            openExistingAvatarEditor(selectedAvatar)
+                          }
+                        }}
+                      >
+                        Edit Avatar
+                      </button>
+                    </>
+                  ) : null}
                   {isShowingEditor ? (
                     <>
                       {(isEditingCampaignCharacter || isEditingReusableCharacter) ? (
@@ -913,7 +1477,7 @@ export function CharactersModal({
                           className="modal-footer__button"
                           disabled={!draft.name.trim() || isCharacterLibraryBusy}
                           onClick={() => {
-                            void onSaveReusableCharacter(toReusableCharacter(draft))
+                            promptSaveReusableCharacter(draft)
                           }}
                         >
                           Save To Existing Characters
@@ -937,26 +1501,18 @@ export function CharactersModal({
           )}
         />
       </Modal>
-      {isAvatarLibraryOpen ? (
-        <AvatarLibraryModal
-          avatars={reusableAvatars}
-          statusMessage={avatarLibraryStatusMessage}
-          statusKind={avatarLibraryStatusKind}
-          isBusy={isAvatarLibraryBusy}
-          onClose={() => {
-            setIsAvatarLibraryOpen(false)
-          }}
-          onApplyAvatar={(avatar) => {
-            updateDraftField('avatarImageData', avatar.imageData)
-            updateDraftField('avatarSourceId', avatar.id)
-            updateDraftField('avatarCrop', avatar.crop)
-            setIsAvatarLibraryOpen(false)
-          }}
-          onSaveAvatar={onSaveReusableAvatar}
-          onDeleteAvatar={onDeleteReusableAvatar}
+      {confirmState ? <ConfirmModal {...confirmState} /> : null}
+      {saveReusableConfirmation ? (
+        <SaveReusableCharacterConfirmModal
+          characterName={saveReusableConfirmation.character.name}
+          relationshipCount={saveReusableConfirmation.relationshipBundle?.entries.length ?? 0}
+          relatedCharacterCount={saveReusableConfirmation.relationshipBundle?.characters.length ?? 1}
+          copyRelationships={copyRelationshipsOnSave}
+          onToggleCopyRelationships={setCopyRelationshipsOnSave}
+          onConfirm={() => { void handleConfirmSaveReusableCharacter() }}
+          onCancel={() => { setSaveReusableConfirmation(null) }}
         />
       ) : null}
-      {confirmState ? <ConfirmModal {...confirmState} /> : null}
     </>
   )
 }

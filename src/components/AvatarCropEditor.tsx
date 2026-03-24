@@ -25,6 +25,8 @@ interface AvatarCropEditorProps {
   uploadLabel?: string
   /** Empty-state prompt shown inside the crop circle. */
   emptyMessage?: string
+  /** Optional content rendered above the control buttons. */
+  controlsHeader?: React.ReactNode
 }
 
 /**
@@ -39,20 +41,20 @@ function clampAvatarScale(scale: number): number {
 
 /**
  * AvatarCropEditor
- * Shared circular avatar framing control with upload, drag, zoom, and remove actions.
+ * Shared circular avatar framing control with upload, drag, and wheel zoom.
  */
 export function AvatarCropEditor({
   imageData,
   crop,
   onImageDataChange,
   onCropChange,
-  helpText = 'Drag inside the circle to position the image. Use the mouse wheel or zoom slider to scale it.',
+  helpText = 'Drag inside the circle to position the image. Use the mouse wheel to zoom if needed.',
   uploadLabel = 'Upload Image',
   emptyMessage = 'Upload an image, then drag it to frame the avatar.',
+  controlsHeader,
 }: AvatarCropEditorProps) {
   const [isDragging, setIsDragging] = useState(false)
   const inputId = useId()
-  const zoomId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const dragStateRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null)
 
@@ -135,18 +137,6 @@ export function AvatarCropEditor({
   }
 
   /**
-   * Remove the current avatar image and reset its crop state.
-   */
-  function handleAvatarRemove(): void {
-    onImageDataChange(null)
-    onCropChange({ x: 0, y: 0, scale: 1 })
-
-    if (inputRef.current) {
-      inputRef.current.value = ''
-    }
-  }
-
-  /**
    * Adjust avatar zoom with the mouse wheel while hovering the crop area.
    *
    * @param event - Wheel event emitted by the crop surface.
@@ -194,6 +184,7 @@ export function AvatarCropEditor({
       </div>
 
       <div className="avatar-crop-editor__controls">
+        {controlsHeader}
         <input
           ref={inputRef}
           id={inputId}
@@ -207,33 +198,14 @@ export function AvatarCropEditor({
             }
           }}
         />
-        <label className="avatar-crop-editor__button" htmlFor={inputId}>
-          {uploadLabel}
-        </label>
-        <label className="avatar-crop-editor__label" htmlFor={zoomId}>
-          Zoom
-        </label>
-        <input
-          id={zoomId}
-          className="avatar-crop-editor__slider"
-          type="range"
-          min="1"
-          max="3"
-          step="0.01"
-          value={crop.scale}
-          onChange={(event) => onCropChange({
-            ...crop,
-            scale: clampAvatarScale(Number(event.target.value)),
-          })}
-          disabled={!imageData}
-        />
         <button
           type="button"
           className="avatar-crop-editor__button"
-          onClick={handleAvatarRemove}
-          disabled={!imageData}
+          onClick={() => {
+            inputRef.current?.click()
+          }}
         >
-          Remove Image
+          {uploadLabel}
         </button>
         <p className="avatar-crop-editor__help">{helpText}</p>
       </div>

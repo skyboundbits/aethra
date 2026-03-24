@@ -36,6 +36,8 @@ import type {
   AssistantResponseDisplayMode,
   CharacterProfile,
   ReusableAvatar,
+  ReusableCharacterBundleCharacter,
+  ReusableCharacterRelationshipBundle,
   ReusableCharacter,
   HardwareGpuInfo,
   HardwareInfo,
@@ -319,6 +321,7 @@ interface PartialReusableCharacterRecord {
   controlledBy?: unknown
   createdAt?: unknown
   updatedAt?: unknown
+  relationshipBundle?: unknown
 }
 
 /**
@@ -2846,6 +2849,81 @@ function deleteReusableAvatar(avatarId: string): void {
 }
 
 /**
+ * Normalize one reusable-character bundle member.
+ *
+ * @param raw - Parsed character candidate.
+ * @returns Sanitized bundled character.
+ */
+function normalizeReusableCharacterBundleCharacter(raw: unknown): ReusableCharacterBundleCharacter {
+  const normalized = normalizeReusableCharacter(raw)
+  return {
+    id: normalized.id,
+    name: normalized.name,
+    role: normalized.role,
+    gender: normalized.gender,
+    pronouns: normalized.pronouns,
+    description: normalized.description,
+    personality: normalized.personality,
+    speakingStyle: normalized.speakingStyle,
+    goals: normalized.goals,
+    avatarImageData: normalized.avatarImageData,
+    avatarSourceId: normalized.avatarSourceId,
+    avatarCrop: normalized.avatarCrop,
+    controlledBy: normalized.controlledBy,
+    createdAt: normalized.createdAt,
+    updatedAt: normalized.updatedAt,
+  }
+}
+
+/**
+ * Normalize an optional reusable-character relationship bundle.
+ *
+ * @param raw - Parsed bundle candidate.
+ * @returns Sanitized bundle or undefined when invalid.
+ */
+function normalizeReusableCharacterRelationshipBundle(raw: unknown): ReusableCharacterRelationshipBundle | undefined {
+  if (!isRecord(raw)) {
+    return undefined
+  }
+
+  const characters = Array.isArray(raw.characters)
+    ? raw.characters.map((entry) => normalizeReusableCharacterBundleCharacter(entry))
+    : []
+  const validCharacterIds = new Set(characters.map((character) => character.id))
+  const entries = Array.isArray(raw.entries)
+    ? raw.entries.filter((entry): entry is RelationshipEntry => {
+      if (!isRecord(entry)) {
+        return false
+      }
+
+      return typeof entry.fromCharacterId === 'string'
+        && typeof entry.toCharacterId === 'string'
+        && validCharacterIds.has(entry.fromCharacterId)
+        && validCharacterIds.has(entry.toCharacterId)
+        && isFiniteNumber(entry.trustScore)
+        && typeof entry.affinityLabel === 'string'
+        && typeof entry.summary === 'string'
+        && typeof entry.manualNotes === 'string'
+        && isFiniteNumber(entry.lastAiRefreshedAt)
+    })
+    : []
+
+  const rootCharacterId = typeof raw.rootCharacterId === 'string' && raw.rootCharacterId.length > 0
+    ? raw.rootCharacterId
+    : characters[0]?.id
+
+  if (!rootCharacterId || !validCharacterIds.has(rootCharacterId) || characters.length === 0) {
+    return undefined
+  }
+
+  return {
+    rootCharacterId,
+    characters,
+    entries,
+  }
+}
+
+/**
  * Normalize a raw reusable character record loaded from disk.
  *
  * @param raw - Parsed character candidate.
@@ -2868,6 +2946,7 @@ function normalizeReusableCharacter(raw: unknown): ReusableCharacter {
           ? 'she/her'
           : 'they/them'
   const safeAvatarCrop = isRecord(safeRaw.avatarCrop) ? safeRaw.avatarCrop : {}
+  const relationshipBundle = normalizeReusableCharacterRelationshipBundle(safeRaw.relationshipBundle)
 
   return {
     id: typeof safeRaw.id === 'string' && safeRaw.id.length > 0 ? safeRaw.id : uid(),
@@ -2895,6 +2974,7 @@ function normalizeReusableCharacter(raw: unknown): ReusableCharacter {
       : 'ai',
     createdAt,
     updatedAt,
+    relationshipBundle,
   }
 }
 

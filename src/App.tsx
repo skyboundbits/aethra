@@ -70,8 +70,11 @@ import type {
   ChatMessage,
   ModelDownloadProgress,
   ModelPreset,
+  RelationshipEntry,
   RelationshipGraph,
   ReusableAvatar,
+  ReusableCharacterBundleCharacter,
+  ReusableCharacterRelationshipBundle,
   ReusableCharacter,
   Session,
   TokenUsage,
@@ -117,6 +120,28 @@ const DEFAULT_SETTINGS: AppSettings = {
  */
 function uid(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+}
+
+function toReusableBundleCharacter(
+  character: CharacterProfile | ReusableCharacter | ReusableCharacterBundleCharacter,
+): ReusableCharacterBundleCharacter {
+  return {
+    id: character.id,
+    name: character.name,
+    role: character.role,
+    gender: character.gender,
+    pronouns: character.pronouns,
+    description: character.description,
+    personality: character.personality,
+    speakingStyle: character.speakingStyle,
+    goals: character.goals,
+    avatarImageData: character.avatarImageData,
+    avatarSourceId: character.avatarSourceId,
+    avatarCrop: character.avatarCrop,
+    controlledBy: character.controlledBy,
+    createdAt: character.createdAt,
+    updatedAt: character.updatedAt,
+  }
 }
 
 const AWAITING_PLAYER_ACTION_MARKER = '[System] Awaiting player action...'
@@ -4632,17 +4657,36 @@ function syncStreamedAssistantMessages(
    *
    * @param character - Character to save.
    */
-  async function handleSaveReusableCharacter(character: ReusableCharacter): Promise<void> {
+  async function handleSaveReusableCharacter(
+    character: ReusableCharacter,
+    relationshipBundle?: ReusableCharacterRelationshipBundle,
+  ): Promise<void> {
     setIsCharacterLibraryBusy(true)
 
     try {
-      const savedCharacter = await window.api.saveReusableCharacter(character)
+      const charactersToSave = relationshipBundle
+        ? relationshipBundle.characters.map((bundledCharacter) => ({
+          ...bundledCharacter,
+          relationshipBundle: {
+            ...relationshipBundle,
+            rootCharacterId: bundledCharacter.id,
+          },
+        }))
+        : [{ ...character, relationshipBundle: undefined }]
+
+      const savedCharacters = await Promise.all(
+        charactersToSave.map((candidate) => window.api.saveReusableCharacter(candidate)),
+      )
       setReusableCharacters((prev) =>
-        [savedCharacter, ...prev.filter((candidate) => candidate.id !== savedCharacter.id)]
+        [...savedCharacters, ...prev.filter((candidate) => !savedCharacters.some((saved) => saved.id === candidate.id))]
           .sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' })),
       )
       setCharacterLibraryStatusKind('success')
-      setCharacterLibraryStatusMessage(`Saved ${savedCharacter.name}.`)
+      setCharacterLibraryStatusMessage(
+        savedCharacters.length === 1
+          ? `Saved ${savedCharacters[0]?.name ?? character.name}.`
+          : `Saved ${savedCharacters.length} global characters.`,
+      )
     } catch (err) {
       console.error('[Aethra] Could not save reusable character:', err)
       setCharacterLibraryStatusKind('error')
@@ -4680,27 +4724,97 @@ function syncStreamedAssistantMessages(
    * @param reusableCharacter - Saved reusable character to import.
    * @returns Imported campaign-scoped character.
    */
-  async function importReusableCharacterToCampaign(reusableCharacter: ReusableCharacter): Promise<CharacterProfile> {
-    if (!campaignPath) {
+  async function importReusableCharacterToCampaign(reusableCharacter: ReusableCharacter): Promise<CharacterProfile[]> {
+    if (!campaignPath || !campaign) {
       throw new Error('Open a campaign before importing characters.')
     }
 
-    const now = Date.now()
-    const savedCharacter = await window.api.saveCharacter(campaignPath, {
-      ...reusableCharacter,
-      id: uid(),
-      folderName: '',
-      createdAt: now,
-      updatedAt: now,
-    })
+    const charactersToImport = new Map<string, ReusableCharacterBundleCharacter>()
+    const relationshipEntries: RelationshipEntry[] = []
+    const queued = new Set<string>()
 
-    setCharacters((prev) =>
-      [savedCharacter, ...prev.filter((candidate) => candidate.id !== savedCharacter.id)]
-        .sort((first, second) => second.updatedAt - first.updatedAt),
-    )
-    updateCampaign((prev) => disableCharacterInExistingSessions(prev, savedCharacter.id))
+    function addReusableCharacterWithBundle(character: ReusableCharacter): void {
+      if (queued.has(character.id)) {
+        return
+      }
 
-    return savedCharacter
+      queued.add(character.id)
+      charactersToImport.set(character.id, toReusableBundleCharacter(character))
+
+      const bundle = character.relationshipBundle
+      if (!bundle) {
+        return
+      }
+
+      for (const bundledCharacter of bundle.characters) {
+        charactersToImport.set(bundledCharacter.id, toReusableBundleCharacter(bundledCharacter))
+      }
+
+      relationshipEntries.push(...bundle.entries)
+    }
+
+    addReusableCharacterWithBundle(reusableCharacter)
+
+    const idMap = new Map<string, string>()
+    const importedCharacters: CharacterProfile[] = []
+
+    for (const bundledCharacter of charactersToImport.values()) {
+      const now = Date.now()
+      const savedCharacter = await window.api.saveCharacter(campaignPath, {
+        ...bundledCharacter,
+        id: uid(),
+        folderName: '',
+        createdAt: now,
+        updatedAt: now,
+      })
+      idMap.set(bundledCharacter.id, savedCharacter.id)
+      importedCharacters.push(savedCharacter)
+    }
+
+    if (importedCharacters.length > 0) {
+      setCharacters((prev) =>
+        [...importedCharacters, ...prev.filter((candidate) => !importedCharacters.some((imported) => imported.id === candidate.id))]
+          .sort((first, second) => second.updatedAt - first.updatedAt),
+      )
+      updateCampaign((prev) => importedCharacters.reduce(
+        (nextCampaign, importedCharacter) => disableCharacterInExistingSessions(nextCampaign, importedCharacter.id),
+        prev,
+      ))
+    }
+
+    const nextRelationshipEntries = relationshipEntries
+      .map((entry) => {
+        const fromCharacterId = idMap.get(entry.fromCharacterId)
+        const toCharacterId = idMap.get(entry.toCharacterId)
+        if (!fromCharacterId || !toCharacterId) {
+          return null
+        }
+
+        return {
+          ...entry,
+          fromCharacterId,
+          toCharacterId,
+        }
+      })
+      .filter((entry): entry is RelationshipEntry => entry !== null)
+
+    if (nextRelationshipEntries.length > 0) {
+      const existingEntries = relationshipGraph?.entries ?? []
+      const dedupedExistingEntries = existingEntries.filter((entry) =>
+        !nextRelationshipEntries.some((candidate) =>
+          candidate.fromCharacterId === entry.fromCharacterId && candidate.toCharacterId === entry.toCharacterId,
+        ),
+      )
+      const nextGraph: RelationshipGraph = {
+        campaignId: campaign.id,
+        entries: [...dedupedExistingEntries, ...nextRelationshipEntries],
+        lastRefreshedAt: relationshipGraph?.lastRefreshedAt ?? null,
+        narrativeSummary: relationshipGraph?.narrativeSummary ?? null,
+      }
+      await handleSaveRelationships(nextGraph)
+    }
+
+    return importedCharacters
   }
 
   /**
@@ -4718,10 +4832,13 @@ function syncStreamedAssistantMessages(
     setIsCharactersBusy(true)
 
     try {
-      const savedCharacter = await importReusableCharacterToCampaign(reusableCharacter)
-      setActiveCharacterId(savedCharacter.id)
+      const savedCharacters = await importReusableCharacterToCampaign(reusableCharacter)
+      const rootSavedCharacter = savedCharacters[0]
+      if (rootSavedCharacter) {
+        setActiveCharacterId(rootSavedCharacter.id)
+      }
       setCharacterLibraryStatusKind('success')
-      setCharacterLibraryStatusMessage(`Imported ${savedCharacter.name} into this campaign.`)
+      setCharacterLibraryStatusMessage(`Imported ${reusableCharacter.name} into this campaign.`)
     } catch (err) {
       console.error('[Aethra] Could not import reusable character:', err)
       setCharacterLibraryStatusKind('error')
@@ -4782,7 +4899,7 @@ function syncStreamedAssistantMessages(
       const importedCharacters: CharacterProfile[] = []
 
       for (const reusableCharacter of selectedReusableCharacters) {
-        importedCharacters.push(await importReusableCharacterToCampaign(reusableCharacter))
+        importedCharacters.push(...await importReusableCharacterToCampaign(reusableCharacter))
       }
 
       const selectedCharacterIds = new Set([
