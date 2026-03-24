@@ -234,6 +234,7 @@ interface PartialCharacterRecord {
   gender?: unknown
   pronouns?: unknown
   avatarImageData?: unknown
+  avatarSourceId?: unknown
   avatarCrop?: unknown
   createdAt?: unknown
   updatedAt?: unknown
@@ -265,6 +266,7 @@ interface PartialReusableCharacterRecord {
   speakingStyle?: unknown
   goals?: unknown
   avatarImageData?: unknown
+  avatarSourceId?: unknown
   avatarCrop?: unknown
   controlledBy?: unknown
   createdAt?: unknown
@@ -1108,6 +1110,10 @@ function normalizeSession(raw: PartialSessionRecord, fallbackTimestamp: number):
     summarizedMessageCount: isFiniteNumber(raw.summarizedMessageCount)
       ? Math.max(0, Math.floor(raw.summarizedMessageCount))
       : 0,
+    relationshipNarrativeSummary:
+      typeof raw.relationshipNarrativeSummary === 'string' && raw.relationshipNarrativeSummary.trim().length > 0
+        ? raw.relationshipNarrativeSummary.trim()
+        : undefined,
     createdAt,
     updatedAt,
   }
@@ -1463,6 +1469,9 @@ function normalizeCharacter(raw: unknown, folderName: string): CharacterProfile 
     avatarImageData: typeof safeRaw.avatarImageData === 'string' && safeRaw.avatarImageData.length > 0
       ? safeRaw.avatarImageData
       : null,
+    avatarSourceId: typeof safeRaw.avatarSourceId === 'string' && safeRaw.avatarSourceId.trim().length > 0
+      ? safeRaw.avatarSourceId.trim()
+      : undefined,
     avatarCrop,
     controlledBy: safeRaw.controlledBy === 'user' || safeRaw.controlledBy === 'ai'
       ? safeRaw.controlledBy
@@ -1495,26 +1504,30 @@ function saveCharacter(folderPath: string, character: CharacterProfile): Charact
   }
 
   const now = Date.now()
-    const normalizedCharacter: CharacterProfile = {
-      ...character,
-      name: character.name.trim().length > 0 ? character.name.trim() : 'New Character',
-      folderName,
-      role: character.role.trim(),
-      gender: character.gender,
-      pronouns: character.pronouns,
-      description: character.description,
-      personality: character.personality,
-      speakingStyle: character.speakingStyle,
-      avatarImageData: typeof character.avatarImageData === 'string' && character.avatarImageData.length > 0
-        ? character.avatarImageData
-        : null,
-      avatarCrop: {
-        x: Number.isFinite(character.avatarCrop.x) ? character.avatarCrop.x : 0,
-        y: Number.isFinite(character.avatarCrop.y) ? character.avatarCrop.y : 0,
-        scale: Number.isFinite(character.avatarCrop.scale) && character.avatarCrop.scale > 0
-          ? character.avatarCrop.scale
-          : 1,
-      },
+  const normalizedCharacter: CharacterProfile = {
+    ...character,
+    id: character.id.trim().length > 0 ? character.id : uid(),
+    name: character.name.trim().length > 0 ? character.name.trim() : 'New Character',
+    folderName,
+    role: character.role.trim(),
+    gender: character.gender,
+    pronouns: character.pronouns,
+    description: character.description,
+    personality: character.personality,
+    speakingStyle: character.speakingStyle,
+    avatarImageData: typeof character.avatarImageData === 'string' && character.avatarImageData.length > 0
+      ? character.avatarImageData
+      : null,
+    avatarSourceId: typeof character.avatarSourceId === 'string' && character.avatarSourceId.trim().length > 0
+      ? character.avatarSourceId.trim()
+      : undefined,
+    avatarCrop: {
+      x: Number.isFinite(character.avatarCrop.x) ? character.avatarCrop.x : 0,
+      y: Number.isFinite(character.avatarCrop.y) ? character.avatarCrop.y : 0,
+      scale: Number.isFinite(character.avatarCrop.scale) && character.avatarCrop.scale > 0
+        ? character.avatarCrop.scale
+        : 1,
+    },
     goals: character.goals,
     controlledBy: character.controlledBy,
     updatedAt: now,
@@ -2206,6 +2219,9 @@ function normalizeReusableCharacter(raw: unknown): ReusableCharacter {
     avatarImageData: typeof safeRaw.avatarImageData === 'string' && safeRaw.avatarImageData.length > 0
       ? safeRaw.avatarImageData
       : null,
+    avatarSourceId: typeof safeRaw.avatarSourceId === 'string' && safeRaw.avatarSourceId.trim().length > 0
+      ? safeRaw.avatarSourceId.trim()
+      : undefined,
     avatarCrop: {
       x: isFiniteNumber(safeAvatarCrop.x) ? safeAvatarCrop.x : 0,
       y: isFiniteNumber(safeAvatarCrop.y) ? safeAvatarCrop.y : 0,

@@ -102,7 +102,7 @@ export function DetailsPanel({
             <div className="details__card-label">Active Cast</div>
             <button
               type="button"
-              className="details__manage-button"
+              className="details__action-button"
               onClick={onOpenSessionCharacters}
               disabled={!activeSession}
             >
@@ -149,26 +149,26 @@ export function DetailsPanel({
               ) : (
                 <div className="details__meta">No named speakers have appeared in this session yet.</div>
               )}
+              {activeCharacters.length >= 2 && (
+                <div className="details__relationships">
+                  <button
+                    className="details__action-button details__action-button--full-width"
+                    onClick={onRefreshRelationships}
+                    disabled={isRefreshingRelationships}
+                    type="button"
+                  >
+                    {isRefreshingRelationships ? 'Refreshing…' : 'Refresh Relationships'}
+                  </button>
+                  {refreshRelationshipsError && (
+                    <p className="details__refresh-error">{refreshRelationshipsError}</p>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <div className="details__card-placeholder">No characters are active for this session.</div>
           )}
         </div>
-        {activeCharacters.length >= 2 && (
-          <div className="details-panel__relationships">
-            <button
-              className="details-panel__refresh-relationships-btn"
-              onClick={onRefreshRelationships}
-              disabled={isRefreshingRelationships}
-              type="button"
-            >
-              {isRefreshingRelationships ? 'Refreshing…' : 'Refresh Relationships'}
-            </button>
-            {refreshRelationshipsError && (
-              <p className="details-panel__refresh-error">{refreshRelationshipsError}</p>
-            )}
-          </div>
-        )}
       </div>
     </aside>
   )

@@ -86,9 +86,11 @@
   color: var(--text-color-secondary);
 }
 
-.details__manage-button {
+.details__action-button {
   min-height: 32px;
   padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   background-color: var(--panel-bg);
@@ -98,14 +100,19 @@
   transition: background-color var(--motion-fast), border-color var(--motion-fast);
 }
 
-.details__manage-button:hover:not(:disabled) {
+.details__action-button:hover:not(:disabled) {
   background-color: var(--surface-bg-emphasis);
   border-color: var(--border-color-accent);
 }
 
-.details__manage-button:disabled {
+.details__action-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.details__action-button--full-width {
+  width: 100%;
+  justify-content: center;
 }
 
 .details__active-cast-list {
@@ -151,42 +158,20 @@
   font-weight: 500;
 }
 
+.details__relationships {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+}
+
+.details__refresh-error {
+  font-size: var(--font-size-caption);
+  color: var(--text-color-secondary);
+}
+
 @media (max-width: 1200px) {
   .panel--details {
     width: min(320px, 34vw);
   }
-}
-
-/* ── Relationship refresh ─────────────────────────────────────────────── */
-
-.details-panel__relationships {
-  padding: 8px 12px 12px;
-  border-top: 1px solid var(--border-color);
-}
-
-.details-panel__refresh-relationships-btn {
-  width: 100%;
-  padding: 6px 10px;
-  background: var(--surface-bg-accent);
-  color: var(--text-color-on-accent);
-  border: none;
-  border-radius: var(--border-radius);
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.details-panel__refresh-relationships-btn:hover:not(:disabled) {
-  opacity: 0.85;
-}
-
-.details-panel__refresh-relationships-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.details-panel__refresh-error {
-  margin: 6px 0 0;
-  font-size: 0.75rem;
-  color: var(--text-color-secondary);
 }

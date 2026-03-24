@@ -116,6 +116,8 @@ const SUMMARY_REBUILD_CONTEXT_FRACTION = 0.75
 const CHAT_LOADING_MIN_DURATION_MS = 220
 const CAMPAIGN_LAUNCHER_COMPLETION_HOLD_MS = 480
 const MODEL_LOADER_SERVER_KINDS = new Set(['lmstudio', 'text-generation-webui', 'llama.cpp'])
+const DIRECTOR_COMPOSER_ID = '__director__'
+const DIRECTOR_SPEAKER_NAME = 'Director'
 
 /**
  * Determine whether a message content string is the non-display placeholder
@@ -138,6 +140,16 @@ function isAwaitingPlayerActionMarker(content: string): boolean {
 function isTransientErrorMessage(content: string): boolean {
   const normalized = content.trim()
   return normalized === LEGACY_STREAM_ERROR_MESSAGE || normalized.startsWith(TRANSIENT_ERROR_MARKER)
+}
+
+/**
+ * Determine whether a transcript message is authored by the Director helper.
+ *
+ * @param message - Message candidate.
+ * @returns True when the message should stay out of the live recent-chat prompt window.
+ */
+function isDirectorMessage(message: Message): boolean {
+  return message.role === 'user' && (message.characterName?.trim() ?? '') === DIRECTOR_SPEAKER_NAME
 }
 
 /**
@@ -170,17 +182,27 @@ function getPromptWindowMessages(
   pendingMessages: Message[] = [],
 ): Message[] {
   const visibleMessages = getVisiblePromptMessages([...session.messages, ...pendingMessages])
+  const lastVisibleMessage = visibleMessages[visibleMessages.length - 1] ?? null
+  const allowTrailingDirectorMessage = lastVisibleMessage !== null && isDirectorMessage(lastVisibleMessage)
+  const livePromptMessages = visibleMessages.filter((message, index) => {
+    if (!isDirectorMessage(message)) {
+      return true
+    }
+
+    return allowTrailingDirectorMessage && index === visibleMessages.length - 1
+  })
+
   if (!useRollingSummary) {
-    return visibleMessages
+    return livePromptMessages
   }
 
-  const recentStartIndex = Math.max(visibleMessages.length - SUMMARY_RECENT_MESSAGE_COUNT, 0)
+  const recentStartIndex = Math.max(livePromptMessages.length - SUMMARY_RECENT_MESSAGE_COUNT, 0)
   const summarizedCount = session.rollingSummary.trim().length > 0
     ? Math.max(0, Math.floor(session.summarizedMessageCount))
     : 0
   const windowStartIndex = Math.min(summarizedCount, recentStartIndex)
 
-  return visibleMessages.slice(windowStartIndex)
+  return livePromptMessages.slice(windowStartIndex)
 }
 
 /**
@@ -212,9 +234,28 @@ function toApiMessages(messages: Message[]): ChatMessage[] {
       role: message.role,
       content:
         message.role === 'user'
-          ? `[${message.characterName?.trim() || 'Character'}] ${message.content}`
+          ? (
+            message.characterName?.trim().length
+              ? `[${message.characterName.trim()}] ${message.content}`
+              : message.content
+          )
           : message.content,
     }))
+}
+
+/**
+ * Normalize a Director note into the required action-style transcript format.
+ *
+ * @param content - User-authored composer text.
+ * @returns Content wrapped in a single pair of asterisks.
+ */
+function formatDirectorContent(content: string): string {
+  const trimmedContent = content.trim()
+  if (trimmedContent.startsWith('*') && trimmedContent.endsWith('*') && trimmedContent.length >= 2) {
+    return trimmedContent
+  }
+
+  return `*${trimmedContent}*`
 }
 
 /**
@@ -854,6 +895,49 @@ interface StreamedAssistantBubble {
 }
 
 /**
+ * Restore missing character avatars from the reusable avatar library when a
+ * character still knows which reusable avatar it came from.
+ *
+ * @param characters - Campaign or reusable character list to repair.
+ * @param reusableAvatars - Global reusable avatar library.
+ * @returns Character list with missing avatar payloads reattached when possible.
+ */
+function restoreCharacterAvatarsFromLibrary<T extends CharacterProfile | ReusableCharacter>(
+  characters: T[],
+  reusableAvatars: ReusableAvatar[],
+): T[] {
+  if (characters.length === 0 || reusableAvatars.length === 0) {
+    return characters
+  }
+
+  const avatarsById = new Map(reusableAvatars.map((avatar) => [avatar.id, avatar]))
+  let didChange = false
+  const nextCharacters = characters.map((character) => {
+    if (character.avatarImageData || !character.avatarSourceId) {
+      return character
+    }
+
+    const avatar = avatarsById.get(character.avatarSourceId) ?? null
+    if (!avatar) {
+      return character
+    }
+
+    didChange = true
+    return {
+      ...character,
+      avatarImageData: avatar.imageData,
+      avatarCrop: {
+        x: avatar.crop.x,
+        y: avatar.crop.y,
+        scale: avatar.crop.scale,
+      },
+    }
+  })
+
+  return didChange ? nextCharacters : characters
+}
+
+/**
  * Remove italic markdown wrapped around bracketed speaker markers so they can
  * be parsed and rendered consistently during streaming.
  *
@@ -1049,19 +1133,17 @@ function hydrateCampaignMessageCharacterIds(campaign: Campaign, characters: Char
   const charactersByName = new Map(
     characters.map((character) => [character.name.trim().toLocaleLowerCase(), character]),
   )
-  const validCharacterIds = new Set(characters.map((character) => character.id))
 
   let didChange = false
   const nextSessions = campaign.sessions.map((session) => {
     let sessionChanged = false
     const storedActiveCharacterIds = getSessionActiveCharacterIds(session)
     const nextActiveCharacterIds = storedActiveCharacterIds
-      ? storedActiveCharacterIds.filter((characterId) => validCharacterIds.has(characterId))
+      ? storedActiveCharacterIds
       : characters
         .filter((character) => !getSessionDisabledCharacterIds(session).includes(character.id))
         .map((character) => character.id)
     const nextDisabledCharacterIds = getSessionDisabledCharacterIds(session)
-      .filter((characterId) => validCharacterIds.has(characterId))
     const activeIdsChanged =
       !session.activeCharacterIds ||
       nextActiveCharacterIds.length !== session.activeCharacterIds.length ||
@@ -1540,6 +1622,11 @@ export default function App() {
     void refreshReusableCharacters()
   }, [])
 
+  useEffect(() => {
+    setCharacters((prev) => restoreCharacterAvatarsFromLibrary(prev, reusableAvatars))
+    setReusableCharacters((prev) => restoreCharacterAvatarsFromLibrary(prev, reusableAvatars))
+  }, [reusableAvatars])
+
   /**
    * Load campaign-scoped characters whenever the active campaign path changes.
    */
@@ -1674,6 +1761,7 @@ export default function App() {
   /** The character currently selected for the next outgoing user message. */
   const composerCharacter =
     enabledSessionCharacters.find((character) => character.id === composerCharacterId) ?? null
+  const isDirectorComposerSelected = composerCharacterId === DIRECTOR_COMPOSER_ID
 
   /** The currently selected AI server from persisted settings. */
   const activeServer =
@@ -1920,6 +2008,10 @@ export default function App() {
    * Prefer a player-controlled character, then fall back to none.
    */
   useEffect(() => {
+    if (composerCharacterId === DIRECTOR_COMPOSER_ID) {
+      return
+    }
+
     if (enabledSessionCharacters.length === 0) {
       if (composerCharacterId !== null) {
         setComposerCharacterId(null)
@@ -2080,7 +2172,7 @@ export default function App() {
    */
   async function refreshCharacters(path: string): Promise<void> {
     try {
-      const nextCharacters = await window.api.listCharacters(path)
+      const nextCharacters = restoreCharacterAvatarsFromLibrary(await window.api.listCharacters(path), reusableAvatars)
       setCharacters(nextCharacters)
       setActiveCharacterId((prev) =>
         nextCharacters.some((character) => character.id === prev)
@@ -2098,7 +2190,8 @@ export default function App() {
   /**
    * Append or update a message inside a specific session.
    * If a message with `msg.id` already exists it is replaced; otherwise appended.
-   * Marks the session as needing a summary rebuild when a new message is added.
+   * New messages are summarized incrementally by the background rolling-summary
+   * worker, so only destructive transcript edits should mark a session dirty.
    * @param sessionId - Target session.
    * @param msg       - Message to upsert.
    */
@@ -2111,10 +2204,6 @@ export default function App() {
         const messages = exists
           ? s.messages.map((m) => (m.id === msg.id ? msg : m))
           : [...s.messages, msg]
-        // Mark session as dirty (needing summary rebuild) when a new message is added
-        if (!exists) {
-          summaryDirtySessionsRef.current.add(sessionId)
-        }
         return { ...s, messages, updatedAt: Date.now() }
       }),
     }))
@@ -2128,7 +2217,7 @@ export default function App() {
    * @param contents - Bubble text content in visual order.
    * @param timestamp - Timestamp applied to all streamed assistant bubbles.
    */
-  function syncStreamedAssistantMessages(
+function syncStreamedAssistantMessages(
     sessionId: string,
     messageIds: string[],
     bubbles: StreamedAssistantBubble[],
@@ -2144,14 +2233,13 @@ export default function App() {
         const keepMessages = session.messages.filter((message) => !messageIds.includes(message.id))
         const streamedMessages = bubbles.map((bubble, index) => {
           const matchedCharacter = bubble.characterName
-            ? characters.find((character) => character.name === bubble.characterName) ?? null
+            ? characters.find((character) => character.name.trim().toLocaleLowerCase() === bubble.characterName?.trim().toLocaleLowerCase()) ?? null
             : null
-
           return {
             id: messageIds[index],
             role: 'assistant' as const,
             characterId: matchedCharacter?.id,
-            characterName: bubble.characterName,
+            characterName: bubble.characterName ?? matchedCharacter?.name,
             content: bubble.content,
             timestamp,
           }
@@ -2452,7 +2540,7 @@ export default function App() {
 
     try {
       const created = await window.api.createCampaign(name, description)
-      const nextCharacters = await window.api.listCharacters(created.path)
+      const nextCharacters = restoreCharacterAvatarsFromLibrary(await window.api.listCharacters(created.path), reusableAvatars)
       const hydratedCampaign = hydrateCampaignMessageCharacterIds(created.campaign, nextCharacters)
       skipNextCharacterRefreshRef.current = true
       setCharacters(nextCharacters)
@@ -2503,7 +2591,7 @@ export default function App() {
       }
       await wait(CAMPAIGN_LAUNCHER_COMPLETION_HOLD_MS)
 
-      const nextCharacters = opened.characters ?? []
+      const nextCharacters = restoreCharacterAvatarsFromLibrary(opened.characters ?? [], reusableAvatars)
       const hydratedCampaign = hydrateCampaignMessageCharacterIds(opened.campaign, nextCharacters)
 
       skipNextCharacterRefreshRef.current = true
@@ -2979,10 +3067,6 @@ export default function App() {
       return
     }
 
-    if (summaryDirtySessionsRef.current.has(sessionId)) {
-      return
-    }
-
     if (summaryInFlightRef.current.has(sessionId)) {
       summaryRerunRef.current.add(sessionId)
       return
@@ -2999,18 +3083,36 @@ export default function App() {
       return
     }
 
+    const isDirty = summaryDirtySessionsRef.current.has(sessionId)
+    const visibleMessages = getVisiblePromptMessages(session.messages)
+    if (isDirty && visibleMessages.length <= SUMMARY_RECENT_MESSAGE_COUNT) {
+      summaryDirtySessionsRef.current.delete(sessionId)
+      return
+    }
+
     const snapshot = createSessionSummarySnapshot(session)
-    if (!snapshot) {
+    if (!isDirty && !snapshot) {
       return
     }
 
     summaryInFlightRef.current.add(sessionId)
     try {
-      const normalizedSummary = await requestRollingSummary(
-        appSettingsRef.current.rollingSummarySystemPrompt,
-        snapshot.previousSummary,
-        snapshot.transcript,
-      )
+      const summaryResult = isDirty
+        ? await rebuildSessionSummaryFromTranscript(
+          session,
+          appSettingsRef.current.rollingSummarySystemPrompt,
+          activeModel?.contextWindowTokens ?? null,
+        )
+        : {
+          summary: await requestRollingSummary(
+            appSettingsRef.current.rollingSummarySystemPrompt,
+            snapshot!.previousSummary,
+            snapshot!.transcript,
+          ),
+          summarizedMessageCount: snapshot!.nextSummarizedCount,
+        }
+
+      const normalizedSummary = summaryResult.summary.trim()
       if (!normalizedSummary) {
         return
       }
@@ -3022,18 +3124,19 @@ export default function App() {
             return candidate
           }
 
-          if (candidate.summarizedMessageCount !== snapshot.baseSummarizedCount) {
+          if (!isDirty && candidate.summarizedMessageCount !== snapshot!.baseSummarizedCount) {
             return candidate
           }
 
           return {
             ...candidate,
             rollingSummary: normalizedSummary,
-            summarizedMessageCount: snapshot.nextSummarizedCount,
+            summarizedMessageCount: summaryResult.summarizedMessageCount,
             updatedAt: Date.now(),
           }
         }),
       }))
+      summaryDirtySessionsRef.current.delete(sessionId)
     } catch (err) {
       console.error('[Aethra] Could not refresh rolling summary:', err)
     } finally {
@@ -3106,16 +3209,20 @@ export default function App() {
         return null
       }
 
-      if (summaryDirtySessionsRef.current.has(sessionId)) {
+      if (summaryDirtySessionsRef.current.has(sessionId) && getVisiblePromptMessages(session.messages).length <= SUMMARY_RECENT_MESSAGE_COUNT) {
+        summaryDirtySessionsRef.current.delete(sessionId)
         return session
+      }
+
+      if (summaryDirtySessionsRef.current.has(sessionId) || createSessionSummarySnapshot(session)) {
+        clearSummaryTimer(sessionId)
+        await runRollingSummary(sessionId, { allowDuringStreaming: true })
+        continue
       }
 
       if (!createSessionSummarySnapshot(session)) {
         return session
       }
-
-      clearSummaryTimer(sessionId)
-      await runRollingSummary(sessionId, { allowDuringStreaming: true })
     }
   }
 
@@ -3228,7 +3335,7 @@ export default function App() {
    */
   async function refreshReusableCharacters(): Promise<void> {
     try {
-      setReusableCharacters(await window.api.listReusableCharacters())
+      setReusableCharacters(restoreCharacterAvatarsFromLibrary(await window.api.listReusableCharacters(), reusableAvatars))
     } catch (err) {
       console.error('[Aethra] Could not load reusable characters:', err)
       setCharacterLibraryStatusKind('error')
@@ -4451,7 +4558,8 @@ export default function App() {
       return
     }
 
-    const normalizedInput = trimmedInput === '***' ? '*continue*' : trimmedInput
+    const isContinueShortcut = trimmedInput === '***'
+    const normalizedInput = isContinueShortcut ? '*continue*' : trimmedInput
     const sessionId = options.sessionId ?? ensureActiveSession()
     if (!sessionId) {
       return
@@ -4460,12 +4568,19 @@ export default function App() {
       ?? currentCampaign.sessions.find((session) => session.id === sessionId)
       ?? null
 
+    const shouldSendAsDirector = isContinueShortcut || isDirectorComposerSelected
+    const resolvedCharacterId = options.characterId ?? (shouldSendAsDirector ? undefined : composerCharacter?.id)
+    const resolvedCharacterName = options.characterName ?? (shouldSendAsDirector ? DIRECTOR_SPEAKER_NAME : composerCharacter?.name)
+    const messageContent = resolvedCharacterName === DIRECTOR_SPEAKER_NAME && !resolvedCharacterId
+      ? formatDirectorContent(normalizedInput)
+      : normalizedInput
+
     const userMessage: Message = {
       id: uid(),
       role: 'user',
-      characterId: options.characterId ?? composerCharacter?.id,
-      characterName: options.characterName ?? composerCharacter?.name,
-      content: normalizedInput,
+      characterId: resolvedCharacterId,
+      characterName: resolvedCharacterName,
+      content: messageContent,
       timestamp: Date.now(),
     }
 

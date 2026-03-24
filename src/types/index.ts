@@ -137,6 +137,8 @@ export interface CharacterProfile {
   goals: string
   /** Uploaded avatar image stored as a data URL, if one has been chosen. */
   avatarImageData: string | null
+  /** Reusable avatar ID this character was derived from, when applicable. */
+  avatarSourceId?: string
   /** Manual circle crop state used to frame the avatar in chat. */
   avatarCrop: CharacterAvatarCrop
   /** Which participant controls this character in play. */
@@ -242,6 +244,8 @@ export interface ReusableCharacter {
   goals: string
   /** Uploaded avatar image stored as a data URL, if one has been chosen. */
   avatarImageData: string | null
+  /** Reusable avatar ID this character was derived from, when applicable. */
+  avatarSourceId?: string
   /** Manual circle crop state used to frame the avatar in chat. */
   avatarCrop: CharacterAvatarCrop
   /** Which participant controls this character in play. */

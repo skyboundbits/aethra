@@ -9,6 +9,8 @@ import { useEffect, useRef } from 'react'
 import '../styles/chat.css'
 import type { CharacterProfile } from '../types'
 
+const DIRECTOR_OPTION_ID = '__director__'
+
 /** Props accepted by the InputBar component. */
 interface InputBarProps {
   /** Current value of the text input. */
@@ -137,6 +139,7 @@ export function InputBar({
               {character.name}
             </option>
           ))}
+          <option value={DIRECTOR_OPTION_ID}>Director</option>
         </select>
       </div>
       <textarea

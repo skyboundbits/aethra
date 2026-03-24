@@ -73,6 +73,7 @@ function createCampaignCharacterDraft(): CharacterProfile {
     speakingStyle: '',
     goals: '',
     avatarImageData: null,
+    avatarSourceId: undefined,
     avatarCrop: { x: 0, y: 0, scale: 1 },
     controlledBy: 'ai',
     createdAt: now,
@@ -92,6 +93,7 @@ function toReusableCharacter(character: CharacterProfile): ReusableCharacter {
     speakingStyle: character.speakingStyle,
     goals: character.goals,
     avatarImageData: character.avatarImageData,
+    avatarSourceId: character.avatarSourceId,
     avatarCrop: character.avatarCrop,
     controlledBy: character.controlledBy,
     createdAt: character.createdAt,
@@ -815,6 +817,7 @@ export function CharactersModal({
           }}
           onApplyAvatar={(avatar) => {
             updateDraftField('avatarImageData', avatar.imageData)
+            updateDraftField('avatarSourceId', avatar.id)
             updateDraftField('avatarCrop', avatar.crop)
             setIsAvatarLibraryOpen(false)
           }}
