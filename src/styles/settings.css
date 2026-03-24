@@ -208,6 +208,16 @@
   cursor: default;
 }
 
+.settings-modal__refresh-btn--danger {
+  border-color: color-mix(in srgb, var(--status-border-error) 45%, var(--border-color));
+  color: var(--status-color-error);
+}
+
+.settings-modal__refresh-btn--danger:hover:not(:disabled) {
+  border-color: var(--status-border-error);
+  background-color: color-mix(in srgb, var(--status-color-error) 10%, var(--surface-bg-emphasis));
+}
+
 .settings-modal__model-list {
   display: flex;
   flex-direction: column;
@@ -523,6 +533,13 @@
   background-color: var(--surface-bg);
 }
 
+.settings-modal__row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
 .settings-modal__hardware-card {
   display: flex;
   flex-direction: column;
@@ -586,6 +603,11 @@
   .settings-modal__download-option {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .settings-modal__row-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 
   .settings-modal__hardware-grid {

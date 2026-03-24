@@ -9,13 +9,14 @@ import { ModalFooter, ModalWorkspaceLayout } from './ModalLayouts'
 import { ConfirmModal } from './ConfirmModal'
 import { useConfirm } from '../hooks/useConfirm'
 import { AvatarLibraryModal } from './AvatarLibraryModal'
-import { UsersRoundIcon } from './icons'
+import { UserIcon, UserPlusIcon, UsersIcon, UsersRoundIcon, WorldStarIcon } from './icons'
 import '../styles/characters.css'
 
 import type { CharacterProfile, ReusableAvatar, ReusableCharacter, RelationshipGraph, RelationshipEntry, AffinityLabel } from '../types'
 
-type CharactersTabId = 'new-character' | 'existing-campaign-characters' | 'existing-characters' | 'app-characters' | 'relationships'
+type CharactersTabId = 'new-character' | 'existing-campaign-characters' | 'existing-characters' | 'app-characters'
 type CharacterEditorMode = 'new-campaign' | 'edit-campaign' | 'edit-custom'
+type CharacterEditorSection = 'details' | 'relationships'
 const CHARACTER_EDITOR_AVATAR_SIZE = 220
 const CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE = 96
 const CHARACTER_HEADER_AVATAR_SIZE = 120
@@ -108,31 +109,43 @@ function toCampaignCharacter(character: ReusableCharacter): CharacterProfile {
   }
 }
 
-/** Props for the Relationships tab content panel. */
-interface RelationshipsTabContentProps {
+/**
+ * Build a stable snapshot for unsaved-change detection.
+ * Runtime timestamps are intentionally excluded.
+ */
+function getCharacterDraftSnapshot(character: CharacterProfile): string {
+  return JSON.stringify({
+    id: character.id,
+    name: character.name,
+    folderName: character.folderName,
+    role: character.role,
+    gender: character.gender,
+    pronouns: character.pronouns,
+    description: character.description,
+    personality: character.personality,
+    speakingStyle: character.speakingStyle,
+    goals: character.goals,
+    avatarImageData: character.avatarImageData,
+    avatarSourceId: character.avatarSourceId ?? null,
+    avatarCrop: character.avatarCrop,
+    controlledBy: character.controlledBy,
+  })
+}
+
+/** Props for the in-editor relationships panel. */
+interface CharacterRelationshipsPanelProps {
   graph: RelationshipGraph | null
+  draft: CharacterProfile
   characters: CharacterProfile[]
   onSave: (graph: RelationshipGraph) => Promise<void>
   onDeletePair: (fromId: string, toId: string) => Promise<void>
 }
 
 /**
- * Relationships tab rendered inside the CharactersModal workspace layout.
- * Shows a pair list on the left and an editable detail view on the right.
- * Edits are saved to disk immediately on change/blur.
+ * Relationships editor rendered inside one campaign character editor.
+ * Each directed relationship is edited inline and saved immediately.
  */
-function RelationshipsTabContent({ graph, characters, onSave, onDeletePair }: RelationshipsTabContentProps) {
-  const [selectedKey, setSelectedKey] = useState<string | null>(() => {
-    const first = graph?.entries[0]
-    return first ? `${first.fromCharacterId}:${first.toCharacterId}` : null
-  })
-
-  /** Resolve a character name by ID. */
-  function name(id: string): string {
-    return characters.find((c) => c.id === id)?.name ?? id
-  }
-
-  /** Immediately persist a field edit. */
+function CharacterRelationshipsPanel({ graph, draft, characters, onSave, onDeletePair }: CharacterRelationshipsPanelProps) {
   async function handleFieldChange(
     fromId: string,
     toId: string,
@@ -150,6 +163,14 @@ function RelationshipsTabContent({ graph, characters, onSave, onDeletePair }: Re
     await onSave(next)
   }
 
+  if (!draft.id) {
+    return (
+      <div className="characters-modal__relationships-empty">
+        <p>Save this character to the campaign before editing relationships.</p>
+      </div>
+    )
+  }
+
   if (!graph || graph.entries.length === 0) {
     return (
       <div className="characters-modal__relationships-empty">
@@ -158,126 +179,107 @@ function RelationshipsTabContent({ graph, characters, onSave, onDeletePair }: Re
     )
   }
 
-  const selectedEntry = selectedKey
-    ? graph.entries.find((e) => `${e.fromCharacterId}:${e.toCharacterId}` === selectedKey) ?? null
-    : null
+  const directedEntries = graph.entries
+    .filter((entry) => entry.fromCharacterId === draft.id && entry.toCharacterId !== draft.id)
+    .sort((first, second) => {
+      const firstName = characters.find((character) => character.id === first.toCharacterId)?.name ?? first.toCharacterId
+      const secondName = characters.find((character) => character.id === second.toCharacterId)?.name ?? second.toCharacterId
+      return firstName.localeCompare(secondName, undefined, { sensitivity: 'base' })
+    })
 
-  // Group by source
-  const grouped = new Map<string, RelationshipEntry[]>()
-  for (const entry of graph.entries) {
-    const group = grouped.get(entry.fromCharacterId) ?? []
-    group.push(entry)
-    grouped.set(entry.fromCharacterId, group)
+  if (directedEntries.length === 0) {
+    return (
+      <div className="characters-modal__relationships-empty">
+        <p>No relationship entries exist for this character yet.</p>
+      </div>
+    )
   }
 
   return (
-    <div className="characters-modal__relationships-layout">
-      {/* Left: pair list */}
-      <div className="characters-modal__relationships-list">
-        {[...grouped.entries()].map(([fromId, entries]) => (
-          <div key={fromId}>
-            <p className="characters-modal__relationships-group-header">{name(fromId)}</p>
-            {entries.map((entry) => {
-              const key = `${entry.fromCharacterId}:${entry.toCharacterId}`
-              return (
-                <div key={key} className="characters-modal__relationships-pair-row">
-                  <button
-                    type="button"
-                    className={[
-                      'characters-modal__relationships-pair-btn',
-                      selectedKey === key ? 'characters-modal__relationships-pair-btn--selected' : '',
-                    ].join(' ')}
-                    onClick={() => setSelectedKey(key)}
-                  >
-                    <span className={`rel-review__affinity-badge rel-review__affinity-badge--${entry.affinityLabel}`}>
-                      {entry.affinityLabel}
-                    </span>
-                    → {name(entry.toCharacterId)}
-                  </button>
-                  <button
-                    type="button"
-                    className="characters-modal__relationships-delete-btn"
-                    title="Delete this relationship pair"
-                    onClick={() => { void onDeletePair(entry.fromCharacterId, entry.toCharacterId) }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        ))}
-      </div>
+    <div className="characters-modal__relationships-stack">
+      {directedEntries.map((entry) => {
+        const targetName = characters.find((character) => character.id === entry.toCharacterId)?.name ?? entry.toCharacterId
+        const trustInputId = `character-relationship-trust-${entry.fromCharacterId}-${entry.toCharacterId}`
+        const affinityInputId = `character-relationship-affinity-${entry.fromCharacterId}-${entry.toCharacterId}`
+        const notesInputId = `character-relationship-notes-${entry.fromCharacterId}-${entry.toCharacterId}`
 
-      {/* Right: detail view */}
-      <div className="characters-modal__relationships-detail">
-        {selectedEntry ? (
-          <div className="rel-review__detail">
-            <h3 className="rel-review__detail-header">
-              {name(selectedEntry.fromCharacterId)} → {name(selectedEntry.toCharacterId)}
-            </h3>
+        return (
+          <section key={`${entry.fromCharacterId}:${entry.toCharacterId}`} className="characters-modal__relationship-card">
+            <div className="characters-modal__relationship-card-header">
+              <div>
+                <h3 className="characters-modal__relationship-name">{targetName}</h3>
+                <p className="characters-modal__relationship-subheading">
+                  {draft.name || 'This character'}'s perspective toward {targetName}.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="characters-modal__relationships-delete-btn"
+                title="Delete this relationship pair"
+                onClick={() => { void onDeletePair(entry.fromCharacterId, entry.toCharacterId) }}
+              >
+                Delete Pair
+              </button>
+            </div>
 
-            <div>
-              <label className="rel-review__field-label" htmlFor="cm-rel-trust">Trust Score (0–100)</label>
-              <input
-                id="cm-rel-trust"
-                type="number"
-                min={0}
-                max={100}
-                className="rel-review__trust-input"
-                defaultValue={selectedEntry.trustScore}
-                key={`trust-${selectedEntry.fromCharacterId}-${selectedEntry.toCharacterId}`}
-                onBlur={(e) => {
-                  const val = Math.max(0, Math.min(100, Number(e.target.value) || 0))
-                  void handleFieldChange(selectedEntry.fromCharacterId, selectedEntry.toCharacterId, { trustScore: val })
+            <div className="characters-modal__relationship-grid">
+              <div className="characters-modal__field">
+                <label className="characters-modal__label" htmlFor={trustInputId}>Trust Score (0-100)</label>
+                <input
+                  id={trustInputId}
+                  type="number"
+                  min={0}
+                  max={100}
+                  className="characters-modal__input"
+                  defaultValue={entry.trustScore}
+                  onBlur={(event) => {
+                    const value = Math.max(0, Math.min(100, Number(event.target.value) || 0))
+                    void handleFieldChange(entry.fromCharacterId, entry.toCharacterId, { trustScore: value })
+                  }}
+                />
+              </div>
+
+              <div className="characters-modal__field">
+                <label className="characters-modal__label" htmlFor={affinityInputId}>Affinity</label>
+                <select
+                  id={affinityInputId}
+                  className="characters-modal__input app-select"
+                  defaultValue={entry.affinityLabel}
+                  onBlur={(event) => {
+                    void handleFieldChange(entry.fromCharacterId, entry.toCharacterId, {
+                      affinityLabel: event.target.value as AffinityLabel,
+                    })
+                  }}
+                >
+                  {(['hostile', 'wary', 'neutral', 'friendly', 'allied', 'devoted'] as AffinityLabel[]).map((label) => (
+                    <option key={label} value={label}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="characters-modal__field">
+              <label className="characters-modal__label">AI Summary</label>
+              <textarea className="characters-modal__textarea characters-modal__textarea--compact" value={entry.summary} readOnly />
+            </div>
+
+            <div className="characters-modal__field">
+              <label className="characters-modal__label" htmlFor={notesInputId}>Manual Notes</label>
+              <textarea
+                id={notesInputId}
+                className="characters-modal__textarea characters-modal__textarea--compact"
+                defaultValue={entry.manualNotes}
+                placeholder="Add personal notes or context overrides..."
+                onBlur={(event) => {
+                  void handleFieldChange(entry.fromCharacterId, entry.toCharacterId, {
+                    manualNotes: event.target.value,
+                  })
                 }}
               />
             </div>
-
-            <div>
-              <label className="rel-review__field-label" htmlFor="cm-rel-affinity">Affinity</label>
-              <select
-                id="cm-rel-affinity"
-                className="rel-review__affinity-select"
-                defaultValue={selectedEntry.affinityLabel}
-                key={`affinity-${selectedEntry.fromCharacterId}-${selectedEntry.toCharacterId}`}
-                onBlur={(e) =>
-                  void handleFieldChange(selectedEntry.fromCharacterId, selectedEntry.toCharacterId, {
-                    affinityLabel: e.target.value as AffinityLabel,
-                  })
-                }
-              >
-                {(['hostile', 'wary', 'neutral', 'friendly', 'allied', 'devoted'] as AffinityLabel[]).map((label) => (
-                  <option key={label} value={label}>{label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="rel-review__field-label">AI Summary (read-only)</label>
-              <textarea className="rel-review__summary-text" value={selectedEntry.summary} readOnly />
-            </div>
-
-            <div>
-              <label className="rel-review__field-label" htmlFor="cm-rel-notes">Manual Notes</label>
-              <textarea
-                id="cm-rel-notes"
-                className="rel-review__notes-input"
-                defaultValue={selectedEntry.manualNotes}
-                key={`notes-${selectedEntry.fromCharacterId}-${selectedEntry.toCharacterId}`}
-                placeholder="Add personal notes or context overrides…"
-                onBlur={(e) =>
-                  void handleFieldChange(selectedEntry.fromCharacterId, selectedEntry.toCharacterId, {
-                    manualNotes: e.target.value,
-                  })
-                }
-              />
-            </div>
-          </div>
-        ) : (
-          <p className="rel-review__no-selection">Select a pair to view details.</p>
-        )}
-      </div>
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -311,10 +313,13 @@ export function CharactersModal({
   onDeleteRelationshipPair,
 }: CharactersModalProps) {
   const { confirm, confirmState } = useConfirm()
+  const initialDraft = createCampaignCharacterDraft()
   const [activeTab, setActiveTab] = useState<CharactersTabId>('new-character')
   const [editorMode, setEditorMode] = useState<CharacterEditorMode>('new-campaign')
-  const [draft, setDraft] = useState<CharacterProfile>(createCampaignCharacterDraft())
+  const [draft, setDraft] = useState<CharacterProfile>(initialDraft)
+  const [savedDraftSnapshot, setSavedDraftSnapshot] = useState<string>(() => getCharacterDraftSnapshot(initialDraft))
   const [isAvatarLibraryOpen, setIsAvatarLibraryOpen] = useState(false)
+  const [editorSection, setEditorSection] = useState<CharacterEditorSection>('details')
   const [selectedCampaignCharacterId, setSelectedCampaignCharacterId] = useState<string | null>(activeCharacterId)
   const [selectedReusableCharacterId, setSelectedReusableCharacterId] = useState<string | null>(null)
 
@@ -333,7 +338,9 @@ export function CharactersModal({
 
   useEffect(() => {
     if (activeTab === 'new-character' && editorMode === 'new-campaign' && draft.id !== '') {
-      setDraft(createCampaignCharacterDraft())
+      const nextDraft = createCampaignCharacterDraft()
+      setDraft(nextDraft)
+      setSavedDraftSnapshot(getCharacterDraftSnapshot(nextDraft))
     }
   }, [activeTab, draft.id, editorMode])
 
@@ -351,20 +358,14 @@ export function CharactersModal({
 
   async function handleTabClick(tabId: CharactersTabId): Promise<void> {
     if (tabId === activeTab && (isEditingCampaignCharacter || isEditingReusableCharacter)) {
-      const confirmed = await confirm({
-        title: 'Discard Changes',
-        message: 'You have unsaved changes. Discard them and return to the library?',
-        confirmLabel: 'Discard',
-        cancelLabel: 'Keep Editing',
-      })
+      const confirmed = await confirmDiscardChanges('You have unsaved changes. Discard them and return to the library?')
       if (!confirmed) return
-      setEditorMode('new-campaign')
+      resetEditorToNewCampaignDraft()
       return
     }
 
     if (tabId === 'new-character') {
-      setEditorMode('new-campaign')
-      setDraft(createCampaignCharacterDraft())
+      resetEditorToNewCampaignDraft()
     }
 
     setActiveTab(tabId)
@@ -373,15 +374,19 @@ export function CharactersModal({
   async function handleSave(): Promise<void> {
     if (editorMode === 'edit-custom') {
       await onSaveReusableCharacter(toReusableCharacter(draft))
+      setSavedDraftSnapshot(getCharacterDraftSnapshot(draft))
       setActiveTab('existing-characters')
       return
     }
 
-    await onSaveCharacter({
+    const nextDraft = {
       ...draft,
       name: draft.name.trim(),
       role: draft.role.trim(),
-    })
+    }
+    await onSaveCharacter(nextDraft)
+    setDraft(nextDraft)
+    setSavedDraftSnapshot(getCharacterDraftSnapshot(nextDraft))
     setEditorMode('edit-campaign')
     setActiveTab('existing-campaign-characters')
   }
@@ -394,17 +399,68 @@ export function CharactersModal({
     if (isEditingReusableCharacter) {
       await onDeleteReusableCharacter(draft.id)
       setSelectedReusableCharacterId(null)
-      setEditorMode('new-campaign')
-      setDraft(createCampaignCharacterDraft())
+      resetEditorToNewCampaignDraft()
       setActiveTab('existing-characters')
       return
     }
 
     await onDeleteCharacter(draft.id)
     setSelectedCampaignCharacterId(null)
-    setEditorMode('new-campaign')
-    setDraft(createCampaignCharacterDraft())
+    resetEditorToNewCampaignDraft()
     setActiveTab('existing-campaign-characters')
+  }
+
+  async function handleDeleteSelectedCampaignCharacter(): Promise<void> {
+    if (!selectedCampaignCharacter) {
+      return
+    }
+
+    const confirmed = await confirm({
+      title: 'Delete Campaign Character',
+      message: `Delete ${selectedCampaignCharacter.name || 'this character'} from this campaign?`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    })
+    if (!confirmed) {
+      return
+    }
+
+    await onDeleteCharacter(selectedCampaignCharacter.id)
+    setSelectedCampaignCharacterId(null)
+  }
+
+  async function handleDeleteSelectedReusableCharacter(): Promise<void> {
+    if (!selectedReusableCharacter) {
+      return
+    }
+
+    const confirmed = await confirm({
+      title: 'Delete Global Character',
+      message: `Delete ${selectedReusableCharacter.name || 'this character'} from global characters?`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    })
+    if (!confirmed) {
+      return
+    }
+
+    await onDeleteReusableCharacter(selectedReusableCharacter.id)
+    setSelectedReusableCharacterId(null)
+  }
+
+  function openCampaignCharacterEditor(character: CharacterProfile): void {
+    setDraft(character)
+    setSavedDraftSnapshot(getCharacterDraftSnapshot(character))
+    setEditorSection('details')
+    setEditorMode('edit-campaign')
+  }
+
+  function openReusableCharacterEditor(character: ReusableCharacter): void {
+    const nextDraft = toCampaignCharacter(character)
+    setDraft(nextDraft)
+    setSavedDraftSnapshot(getCharacterDraftSnapshot(nextDraft))
+    setEditorSection('details')
+    setEditorMode('edit-custom')
   }
 
   const selectedCampaignCharacter =
@@ -414,6 +470,7 @@ export function CharactersModal({
   const isEditingCampaignCharacter = activeTab === 'existing-campaign-characters' && editorMode === 'edit-campaign'
   const isEditingReusableCharacter = activeTab === 'existing-characters' && editorMode === 'edit-custom'
   const isShowingEditor = activeTab === 'new-character' || isEditingCampaignCharacter || isEditingReusableCharacter
+  const hasUnsavedChanges = isShowingEditor && getCharacterDraftSnapshot(draft) !== savedDraftSnapshot
   const editorAvatarOffsetScale = CHARACTER_HEADER_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
   const editorAvatarStyle = draft.avatarImageData
     ? {
@@ -422,6 +479,36 @@ export function CharactersModal({
       backgroundSize: `${draft.avatarCrop.scale * 100}%`,
     }
     : undefined
+
+  function resetEditorToNewCampaignDraft(): void {
+    const nextDraft = createCampaignCharacterDraft()
+    setEditorMode('new-campaign')
+    setEditorSection('details')
+    setDraft(nextDraft)
+    setSavedDraftSnapshot(getCharacterDraftSnapshot(nextDraft))
+  }
+
+  async function confirmDiscardChanges(message: string): Promise<boolean> {
+    if (!hasUnsavedChanges) {
+      return true
+    }
+
+    return confirm({
+      title: 'Discard Changes',
+      message,
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep Editing',
+    })
+  }
+
+  async function handleRequestClose(): Promise<void> {
+    const confirmed = await confirmDiscardChanges('You have unsaved changes. Discard them and close this window?')
+    if (!confirmed) {
+      return
+    }
+
+    onClose()
+  }
 
   return (
     <>
@@ -432,7 +519,9 @@ export function CharactersModal({
             <span>Characters</span>
           </>
         )}
-        onClose={onClose}
+        onClose={() => {
+          void handleRequestClose()
+        }}
         variant="workspace"
       >
         <ModalWorkspaceLayout
@@ -445,7 +534,8 @@ export function CharactersModal({
                   handleTabClick('new-character')
                 }}
               >
-                New Character
+                <UserPlusIcon className="characters-modal__tab-icon" aria-hidden="true" />
+                <span>New Character</span>
               </button>
               <button
                 type="button"
@@ -454,7 +544,8 @@ export function CharactersModal({
                   handleTabClick('existing-campaign-characters')
                 }}
               >
-                Existing Campaign Characters
+                <UsersIcon className="characters-modal__tab-icon" aria-hidden="true" />
+                <span>Campaign Characters</span>
               </button>
               <button
                 type="button"
@@ -463,7 +554,8 @@ export function CharactersModal({
                   handleTabClick('existing-characters')
                 }}
               >
-                Existing Characters
+                <WorldStarIcon className="characters-modal__tab-icon" aria-hidden="true" />
+                <span>Global Characters</span>
               </button>
               <button
                 type="button"
@@ -472,35 +564,19 @@ export function CharactersModal({
                   handleTabClick('app-characters')
                 }}
               >
-                App Characters
-              </button>
-              <div className="characters-modal__nav-divider">Relationships</div>
-              <button
-                type="button"
-                className={`characters-modal__tab${activeTab === 'relationships' ? ' characters-modal__tab--active' : ''}`}
-                onClick={() => {
-                  handleTabClick('relationships')
-                }}
-              >
-                Relationships
+                <UserIcon className="characters-modal__tab-icon" aria-hidden="true" />
+                <span>App Characters</span>
               </button>
             </aside>
           )}
         panel={(
           <section className="characters-modal__panel">
-              {activeTab === 'relationships' ? (
-                <RelationshipsTabContent
-                  graph={relationshipGraph}
-                  characters={characters}
-                  onSave={onSaveRelationships}
-                  onDeletePair={onDeleteRelationshipPair}
-                />
-              ) : activeTab === 'app-characters' ? (
+              {activeTab === 'app-characters' ? (
                 <div className="characters-modal__blank">App characters are not available yet.</div>
               ) : activeTab === 'existing-campaign-characters' && !isEditingCampaignCharacter ? (
                 <div className="characters-modal__library">
                   <div>
-                    <h2 className="characters-modal__heading">Existing Campaign Characters</h2>
+                    <h2 className="characters-modal__heading">Campaign Characters</h2>
                     <p className="characters-modal__subheading">Characters already stored inside this campaign.</p>
                   </div>
                   {sortedCampaignCharacters.length === 0 ? (
@@ -527,6 +603,11 @@ export function CharactersModal({
                               setSelectedCampaignCharacterId(character.id)
                               onSelectCharacter(character.id)
                             }}
+                            onDoubleClick={() => {
+                              setSelectedCampaignCharacterId(character.id)
+                              onSelectCharacter(character.id)
+                              openCampaignCharacterEditor(character)
+                            }}
                           >
                             <div className={`characters-modal__gallery-avatar${avatarStyle ? ' characters-modal__gallery-avatar--image' : ''}`} style={avatarStyle}>
                               {avatarStyle ? null : character.name.slice(0, 2).toUpperCase()}
@@ -542,7 +623,7 @@ export function CharactersModal({
               ) : activeTab === 'existing-characters' && !isEditingReusableCharacter ? (
                 <div className="characters-modal__library">
                   <div>
-                    <h2 className="characters-modal__heading">Existing Characters</h2>
+                    <h2 className="characters-modal__heading">Global Characters</h2>
                     <p className="characters-modal__subheading">Global custom characters that can be reused across campaigns.</p>
                   </div>
                   {sortedReusableCharacters.length === 0 ? (
@@ -567,6 +648,10 @@ export function CharactersModal({
                             className={`characters-modal__gallery-item${selectedReusableCharacterId === character.id ? ' characters-modal__gallery-item--active' : ''}`}
                             onClick={() => {
                               setSelectedReusableCharacterId(character.id)
+                            }}
+                            onDoubleClick={() => {
+                              setSelectedReusableCharacterId(character.id)
+                              openReusableCharacterEditor(character)
                             }}
                           >
                             <div className={`characters-modal__gallery-avatar${avatarStyle ? ' characters-modal__gallery-avatar--image' : ''}`} style={avatarStyle}>
@@ -624,57 +709,89 @@ export function CharactersModal({
                       <label className="characters-modal__label" htmlFor="character-name">Character Name</label>
                       <input id="character-name" className="characters-modal__input" type="text" value={draft.name} onChange={(event) => updateDraftField('name', event.target.value)} placeholder="Character name" />
                       <p className="characters-modal__subheading">
-                        {editorMode === 'edit-custom'
-                          ? 'Click the avatar to choose or create one from your avatar library.'
-                          : draft.folderName
-                            ? <>Stored in <code>characters/{draft.folderName}</code></>
-                            : <>Click the avatar to choose or create one from your avatar library.</>}
+                        Click the avatar to choose or create one from your avatar library.
                       </p>
                     </div>
                   </div>
-                  <div className="characters-modal__field">
-                    <label className="characters-modal__label" htmlFor="character-role">Role</label>
-                    <input id="character-role" className="characters-modal__input" type="text" value={draft.role} onChange={(event) => updateDraftField('role', event.target.value)} placeholder="Imperial officer" />
+                  <div className="characters-modal__segment" role="tablist" aria-label="Character editor sections">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={editorSection === 'details'}
+                      className={`characters-modal__segment-btn${editorSection === 'details' ? ' characters-modal__segment-btn--active' : ''}`}
+                      onClick={() => {
+                        setEditorSection('details')
+                      }}
+                    >
+                      Details
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={editorSection === 'relationships'}
+                      className={`characters-modal__segment-btn${editorSection === 'relationships' ? ' characters-modal__segment-btn--active' : ''}`}
+                      onClick={() => {
+                        setEditorSection('relationships')
+                      }}
+                    >
+                      Relationships
+                    </button>
                   </div>
-                  <div className="characters-modal__field">
-                    <label className="characters-modal__label" htmlFor="character-controlled-by">Controlled By</label>
-                    <select id="character-controlled-by" className="characters-modal__input app-select" value={draft.controlledBy} onChange={(event) => updateDraftField('controlledBy', event.target.value as CharacterProfile['controlledBy'])}>
-                      <option value="ai">AI</option>
-                      <option value="user">Player</option>
-                    </select>
-                  </div>
-                  <div className="characters-modal__field">
-                    <label className="characters-modal__label" htmlFor="character-gender">Gender</label>
-                    <select id="character-gender" className="characters-modal__input app-select" value={draft.gender} onChange={(event) => handleGenderChange(event.target.value as CharacterProfile['gender'])}>
-                      <option value="male">Male</option>
-                      <option value="female">Female</option>
-                      <option value="non-specific">Non Specific</option>
-                    </select>
-                  </div>
-                  <div className="characters-modal__field">
-                    <label className="characters-modal__label" htmlFor="character-pronouns">Pronouns</label>
-                    <select id="character-pronouns" className="characters-modal__input app-select" value={draft.pronouns} onChange={(event) => updateDraftField('pronouns', event.target.value as CharacterProfile['pronouns'])}>
-                      <option value="he/him">He/Him</option>
-                      <option value="she/her">She/Her</option>
-                      <option value="they/them">They/Them</option>
-                    </select>
-                  </div>
-                  <div className="characters-modal__field">
-                    <label className="characters-modal__label" htmlFor="character-description">Description</label>
-                    <textarea id="character-description" className="characters-modal__textarea characters-modal__textarea--compact" value={draft.description} onChange={(event) => updateDraftField('description', event.target.value)} />
-                  </div>
-                  <div className="characters-modal__field">
-                    <label className="characters-modal__label" htmlFor="character-personality">Personality</label>
-                    <textarea id="character-personality" className="characters-modal__textarea characters-modal__textarea--compact" value={draft.personality} onChange={(event) => updateDraftField('personality', event.target.value)} />
-                  </div>
-                  <div className="characters-modal__field">
-                    <label className="characters-modal__label" htmlFor="character-speaking-style">Speaking Style</label>
-                    <textarea id="character-speaking-style" className="characters-modal__textarea characters-modal__textarea--compact" value={draft.speakingStyle} onChange={(event) => updateDraftField('speakingStyle', event.target.value)} />
-                  </div>
-                  <div className="characters-modal__field characters-modal__field--grow">
-                    <label className="characters-modal__label" htmlFor="character-goals">Goals</label>
-                    <textarea id="character-goals" className="characters-modal__textarea" value={draft.goals} onChange={(event) => updateDraftField('goals', event.target.value)} />
-                  </div>
+                  {editorSection === 'details' ? (
+                    <>
+                      <div className="characters-modal__field">
+                        <label className="characters-modal__label" htmlFor="character-role">Role</label>
+                        <input id="character-role" className="characters-modal__input" type="text" value={draft.role} onChange={(event) => updateDraftField('role', event.target.value)} placeholder="Imperial officer" />
+                      </div>
+                      <div className="characters-modal__field">
+                        <label className="characters-modal__label" htmlFor="character-controlled-by">Controlled By</label>
+                        <select id="character-controlled-by" className="characters-modal__input app-select" value={draft.controlledBy} onChange={(event) => updateDraftField('controlledBy', event.target.value as CharacterProfile['controlledBy'])}>
+                          <option value="ai">AI</option>
+                          <option value="user">Player</option>
+                        </select>
+                      </div>
+                      <div className="characters-modal__field">
+                        <label className="characters-modal__label" htmlFor="character-gender">Gender</label>
+                        <select id="character-gender" className="characters-modal__input app-select" value={draft.gender} onChange={(event) => handleGenderChange(event.target.value as CharacterProfile['gender'])}>
+                          <option value="male">Male</option>
+                          <option value="female">Female</option>
+                          <option value="non-specific">Non Specific</option>
+                        </select>
+                      </div>
+                      <div className="characters-modal__field">
+                        <label className="characters-modal__label" htmlFor="character-pronouns">Pronouns</label>
+                        <select id="character-pronouns" className="characters-modal__input app-select" value={draft.pronouns} onChange={(event) => updateDraftField('pronouns', event.target.value as CharacterProfile['pronouns'])}>
+                          <option value="he/him">He/Him</option>
+                          <option value="she/her">She/Her</option>
+                          <option value="they/them">They/Them</option>
+                        </select>
+                      </div>
+                      <div className="characters-modal__field">
+                        <label className="characters-modal__label" htmlFor="character-description">Description</label>
+                        <textarea id="character-description" className="characters-modal__textarea characters-modal__textarea--compact" value={draft.description} onChange={(event) => updateDraftField('description', event.target.value)} />
+                      </div>
+                      <div className="characters-modal__field">
+                        <label className="characters-modal__label" htmlFor="character-personality">Personality</label>
+                        <textarea id="character-personality" className="characters-modal__textarea characters-modal__textarea--compact" value={draft.personality} onChange={(event) => updateDraftField('personality', event.target.value)} />
+                      </div>
+                      <div className="characters-modal__field">
+                        <label className="characters-modal__label" htmlFor="character-speaking-style">Speaking Style</label>
+                        <textarea id="character-speaking-style" className="characters-modal__textarea characters-modal__textarea--compact" value={draft.speakingStyle} onChange={(event) => updateDraftField('speakingStyle', event.target.value)} />
+                      </div>
+                      <div className="characters-modal__field characters-modal__field--grow">
+                        <label className="characters-modal__label" htmlFor="character-goals">Goals</label>
+                        <textarea id="character-goals" className="characters-modal__textarea" value={draft.goals} onChange={(event) => updateDraftField('goals', event.target.value)} />
+                      </div>
+                    </>
+                  ) : (
+                    <CharacterRelationshipsPanel
+                      graph={relationshipGraph}
+                      draft={draft}
+                      characters={characters}
+                      onSave={onSaveRelationships}
+                      onDeletePair={onDeleteRelationshipPair}
+                    />
+                  )}
                 </div>
               )}
             </section>
@@ -692,9 +809,27 @@ export function CharactersModal({
               ) : undefined}
               actions={(
                 <>
-                  <button type="button" className="modal-footer__button" onClick={onClose}>Close</button>
+                  <button
+                    type="button"
+                    className="modal-footer__button"
+                    onClick={() => {
+                      void handleRequestClose()
+                    }}
+                  >
+                    Close
+                  </button>
                   {activeTab === 'existing-campaign-characters' && !isEditingCampaignCharacter ? (
                     <>
+                      <button
+                        type="button"
+                        className="modal-footer__button"
+                        disabled={!selectedCampaignCharacter || isBusy || isCharacterLibraryBusy}
+                        onClick={() => {
+                          void handleDeleteSelectedCampaignCharacter()
+                        }}
+                      >
+                        Delete
+                      </button>
                       <button
                         type="button"
                         className="modal-footer__button"
@@ -705,7 +840,7 @@ export function CharactersModal({
                           }
                         }}
                       >
-                        Save To Existing Characters
+                        Save To Global Characters
                       </button>
                       <button
                         type="button"
@@ -713,8 +848,7 @@ export function CharactersModal({
                         disabled={!selectedCampaignCharacter}
                         onClick={() => {
                           if (selectedCampaignCharacter) {
-                            setDraft(selectedCampaignCharacter)
-                            setEditorMode('edit-campaign')
+                            openCampaignCharacterEditor(selectedCampaignCharacter)
                           }
                         }}
                       >
@@ -729,9 +863,7 @@ export function CharactersModal({
                         className="modal-footer__button"
                         disabled={!selectedReusableCharacter || isCharacterLibraryBusy}
                         onClick={() => {
-                          if (selectedReusableCharacter) {
-                            void onDeleteReusableCharacter(selectedReusableCharacter.id)
-                          }
+                          void handleDeleteSelectedReusableCharacter()
                         }}
                       >
                         Delete
@@ -742,8 +874,7 @@ export function CharactersModal({
                         disabled={!selectedReusableCharacter}
                         onClick={() => {
                           if (selectedReusableCharacter) {
-                            setDraft(toCampaignCharacter(selectedReusableCharacter))
-                            setEditorMode('edit-custom')
+                            openReusableCharacterEditor(selectedReusableCharacter)
                           }
                         }}
                       >

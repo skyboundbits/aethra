@@ -9,7 +9,7 @@ import type { ReactNode } from 'react'
 import '../styles/chat.css'
 import { BookOpenTextIcon, RotateCwIcon, Trash2Icon } from './icons'
 import { RawMessageModal } from './RawMessageModal'
-import type { ChatTextSize, CharacterProfile, Message } from '../types'
+import type { ChatBubbleFormattingMode, ChatTextSize, CharacterProfile, Message } from '../types'
 
 const CHARACTER_EDITOR_AVATAR_SIZE = 220
 const CHAT_AVATAR_SIZE = 128
@@ -24,6 +24,8 @@ interface ChatAreaProps {
   characters: CharacterProfile[]
   /** Persisted chat bubble text size preset. */
   textSize: ChatTextSize
+  /** Selected action/speech formatting mode for chat bubble rendering. */
+  bubbleFormattingMode: ChatBubbleFormattingMode
   /** Whether inline markup markers should remain visible in rendered output. */
   showMarkup: boolean
   /** Called when the user requests deletion of a message. */
@@ -48,6 +50,7 @@ export function ChatArea({
   messages,
   characters,
   textSize,
+  bubbleFormattingMode,
   showMarkup,
   onDeleteMessage,
   onReplayFromMessage,
@@ -157,6 +160,7 @@ export function ChatArea({
                   message={msg}
                   character={matchedCharacter}
                   textSize={textSize}
+                  bubbleFormattingMode={bubbleFormattingMode}
                   showMarkup={showMarkup}
                   messageId={msg.id}
                   onDeleteMessage={onDeleteMessage}
@@ -253,6 +257,8 @@ interface MessageBubbleProps {
   character: CharacterProfile | null
   /** Persisted chat bubble text size preset. */
   textSize: ChatTextSize
+  /** Selected action/speech formatting mode for chat bubble rendering. */
+  bubbleFormattingMode: ChatBubbleFormattingMode
   /** Whether inline markup markers should remain visible in rendered output. */
   showMarkup: boolean
   /** Called when the user requests deletion of this message. */
@@ -625,6 +631,7 @@ function MessageBubble({
   messageId,
   character,
   textSize,
+  bubbleFormattingMode,
   showMarkup,
   onDeleteMessage,
   onReplayFromMessage,
@@ -680,6 +687,7 @@ function MessageBubble({
                 `message__content${isTypingPlaceholder ? ' message__content--typing' : ''}` +
                 `${isSegmentedMessage ? ' message__content--segmented' : ''}` +
                 `${isStrictSegmentedMessage ? ' message__content--segments-only' : ''}` +
+                `${bubbleFormattingMode === 'plain' ? ' message__content--plain-formatting' : ''}` +
                 `${showMarkup ? ' message__content--show-markup' : ''}`
               }
             >
@@ -744,6 +752,7 @@ const MemoizedMessageBubble = memo(
     prevProps.message === nextProps.message &&
     prevProps.character === nextProps.character &&
     prevProps.textSize === nextProps.textSize &&
+    prevProps.bubbleFormattingMode === nextProps.bubbleFormattingMode &&
     prevProps.showMarkup === nextProps.showMarkup &&
     prevProps.isBusy === nextProps.isBusy &&
     prevProps.messageId === nextProps.messageId,

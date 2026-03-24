@@ -22,6 +22,8 @@ import type {
 } from '../types'
 
 const CONTEXT_WINDOW_OPTIONS = [4096, 8192, 16384, 32768, 65536, 131072]
+type ModelSourceCategory = 'remote' | 'local' | 'embedded'
+
 /** Props accepted by the ModelLoaderModal component. */
 interface ModelLoaderModalProps {
   /** Compatible model sources shown in the dropdown. */
@@ -50,8 +52,12 @@ interface ModelLoaderModalProps {
   statusKind: 'error' | 'success' | null
   /** True while a load request is in flight. */
   isBusy: boolean
+  /** True while the selected source is refreshing its model catalog. */
+  isBrowsingModels: boolean
   /** Close handler for the modal. */
   onClose: () => void
+  /** Called when the user refreshes the model list for the selected source. */
+  onRefreshModels: () => void
   /** Called when the user requests a model load. */
   onLoadModel: (modelSlug: string, contextWindowTokens: number) => Promise<void>
   /** Current llama-server binary install progress, or null. */
@@ -84,7 +90,9 @@ export function ModelLoaderModal({
   statusMessage,
   statusKind,
   isBusy,
+  isBrowsingModels,
   onClose,
+  onRefreshModels,
   onLoadModel,
   binaryInstallProgress,
   onInstallBinary,
@@ -101,21 +109,47 @@ export function ModelLoaderModal({
   const [showBinaryBanner, setShowBinaryBanner] = useState(false)
 
   /**
-   * Return a concise human-readable source label for a configured server.
+   * Map a server kind to the UI category shown in the source chooser.
    *
-   * @param server - Source/server option displayed in the selector.
-   * @returns Dropdown label combining category and server name.
+   * @param kind - Provider kind attached to a configured server.
+   * @returns Source-category bucket used by the modal.
    */
-  function getSourceLabel(server: ServerProfile): string {
-    switch (server.kind) {
+  function getSourceCategory(kind: ServerKind): ModelSourceCategory {
+    switch (kind) {
       case 'lmstudio':
-        return `Local • ${server.name}`
       case 'text-generation-webui':
-        return `Remote • ${server.name}`
+        return 'local'
       case 'llama.cpp':
-        return `Embedded • ${server.name}`
+        return 'embedded'
       default:
-        return server.name
+        return 'remote'
+    }
+  }
+
+  const sourceCategories: Array<{ id: ModelSourceCategory; label: string }> = [
+    { id: 'remote', label: 'Remote' },
+    { id: 'local', label: 'Local' },
+    { id: 'embedded', label: 'Embedded' },
+  ]
+  const selectedSourceCategory = selectedServerId
+    ? (getSourceCategory(servers.find((server) => server.id === selectedServerId)?.kind ?? 'openai-compatible'))
+    : (getSourceCategory(servers[0]?.kind ?? 'openai-compatible'))
+  const serversByCategory = sourceCategories.map((category) => ({
+    ...category,
+    servers: servers.filter((server) => getSourceCategory(server.kind) === category.id),
+  }))
+  const visibleServers =
+    serversByCategory.find((category) => category.id === selectedSourceCategory)?.servers ?? []
+
+  /**
+   * Switch to a source category, selecting the first matching server.
+   *
+   * @param category - Category chosen in the pill bar.
+   */
+  function handleSourceCategorySelect(category: ModelSourceCategory): void {
+    const nextServer = servers.find((server) => getSourceCategory(server.kind) === category)
+    if (nextServer) {
+      onSelectServer(nextServer.id)
     }
   }
 
@@ -206,34 +240,60 @@ export function ModelLoaderModal({
             ) : (
               <>
                 <div className="model-loader__field">
-                  <label className="model-loader__label" htmlFor="model-loader-source">
-                    Model Source
-                  </label>
+                  <label className="model-loader__label">Model Source</label>
+                  <div className="model-loader__source-categories" role="tablist" aria-label="Model source category">
+                    {serversByCategory.map((category) => (
+                      <button
+                        key={category.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={selectedSourceCategory === category.id}
+                        className={`model-loader__source-pill${selectedSourceCategory === category.id ? ' model-loader__source-pill--active' : ''}`}
+                        onClick={() => handleSourceCategorySelect(category.id)}
+                        disabled={isBusy || category.servers.length === 0}
+                      >
+                        {category.label}
+                      </button>
+                    ))}
+                  </div>
                   <select
                     id="model-loader-source"
                     className="model-loader__input app-select"
                     value={selectedServerId ?? ''}
                     onChange={(event) => onSelectServer(event.target.value)}
-                    disabled={isBusy}
+                    disabled={isBusy || visibleServers.length === 0}
                   >
-                    {servers.map((server) => (
+                    {visibleServers.map((server) => (
                       <option key={server.id} value={server.id}>
-                        {getSourceLabel(server)}
+                        {server.name}
                       </option>
                     ))}
                   </select>
                 </div>
 
+                <div className="model-loader__field">
+                  <div className="model-loader__field-row">
+                    <label className="model-loader__label" htmlFor="model-loader-model">
+                      Model
+                    </label>
+                    <button
+                      type="button"
+                      className="settings-modal__refresh-btn"
+                      onClick={onRefreshModels}
+                      disabled={isBusy || isBrowsingModels || selectedServerId == null}
+                    >
+                      {isBrowsingModels ? 'Refreshing...' : 'Refresh Models'}
+                    </button>
+                  </div>
+                </div>
+
                 {models.length === 0 ? (
                   <div className="model-loader__empty">
-                    No models are available for this source yet. Use Browse Models in Settings first.
+                    No models are available for this source yet. Refresh models to fetch its latest catalog.
                   </div>
                 ) : (
                   <>
                 <div className="model-loader__field">
-                  <label className="model-loader__label" htmlFor="model-loader-model">
-                    Model
-                  </label>
                   <select
                     id="model-loader-model"
                     className="model-loader__input app-select"

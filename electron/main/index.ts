@@ -15,7 +15,8 @@
 
 import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_process'
-import { chmodSync, copyFileSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'fs'
+import { chmodSync, closeSync, copyFileSync, createWriteStream, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'fs'
+import { open as openFileHandle } from 'fs/promises'
 import { get as httpsGet } from 'https'
 import { cpus, totalmem } from 'os'
 import { basename, delimiter, dirname, extname, join, relative } from 'path'
@@ -30,6 +31,7 @@ import type {
   CampaignFileHandle,
   CampaignLoadProgress,
   CampaignSummary,
+  ChatBubbleFormattingMode,
   ChatTextSize,
   AssistantResponseDisplayMode,
   CharacterProfile,
@@ -80,6 +82,47 @@ const LOCAL_LLAMACPP_SERVER_ID = 'llama-cpp-local'
 const LOCAL_LLAMACPP_DEFAULT_HOST = '127.0.0.1'
 const LOCAL_LLAMACPP_DEFAULT_PORT = 3939
 const MODEL_SCAN_EXTENSIONS = new Set(['.gguf'])
+const GGUF_MAGIC = 0x46554747
+const GGUF_VALUE_TYPE_UINT8 = 0
+const GGUF_VALUE_TYPE_INT8 = 1
+const GGUF_VALUE_TYPE_UINT16 = 2
+const GGUF_VALUE_TYPE_INT16 = 3
+const GGUF_VALUE_TYPE_UINT32 = 4
+const GGUF_VALUE_TYPE_INT32 = 5
+const GGUF_VALUE_TYPE_FLOAT32 = 6
+const GGUF_VALUE_TYPE_BOOL = 7
+const GGUF_VALUE_TYPE_STRING = 8
+const GGUF_VALUE_TYPE_ARRAY = 9
+const GGUF_VALUE_TYPE_UINT64 = 10
+const GGUF_VALUE_TYPE_INT64 = 11
+const GGUF_VALUE_TYPE_FLOAT64 = 12
+const GGUF_FILE_TYPE_LABELS: Record<number, string> = {
+  0: 'F32',
+  1: 'F16',
+  2: 'Q4_0',
+  3: 'Q4_1',
+  6: 'Q5_0',
+  7: 'Q5_1',
+  8: 'Q8_0',
+  9: 'Q8_1',
+  10: 'Q2_K',
+  11: 'Q3_K_S',
+  12: 'Q3_K_M',
+  13: 'Q3_K_L',
+  14: 'Q4_K_S',
+  15: 'Q4_K_M',
+  16: 'Q5_K_S',
+  17: 'Q5_K_M',
+  18: 'Q6_K',
+  19: 'IQ2_XXS',
+  20: 'IQ2_XS',
+  21: 'IQ3_XXS',
+  22: 'IQ1_S',
+  23: 'IQ4_NL',
+  24: 'IQ3_S',
+  25: 'IQ2_S',
+  26: 'IQ4_XS',
+}
 
 /** Pinned llama.cpp GitHub release tag used for binary auto-download. */
 const LLAMA_CPP_RELEASE = 'b8460'
@@ -113,6 +156,7 @@ const LLAMA_RUNTIME_LIBRARY_EXTENSIONS = new Set(['.dll', '.dylib', '.so'])
 
 /** In-flight binary install guard — prevents concurrent installs. */
 let isBinaryInstalling = false
+const activeModelDownloads = new Map<string, AbortController>()
 
 /** In-memory rolling log of AI transport debug events. */
 const aiDebugLog: AiDebugEntry[] = []
@@ -517,6 +561,8 @@ function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSet
         ? Math.max(2, Math.min(100, Math.floor(raw.recentMessagesWindow)))
         : DEFAULT_RECENT_MESSAGES_WINDOW,
     showChatMarkup: raw?.showChatMarkup === true,
+    chatBubbleFormattingMode:
+      isChatBubbleFormattingMode(raw?.chatBubbleFormattingMode) ? raw.chatBubbleFormattingMode : 'emphasized',
     chatTextSize: isChatTextSize(raw?.chatTextSize) ? raw.chatTextSize : 'small',
     assistantResponseDisplayMode:
       isAssistantResponseDisplayMode(raw?.assistantResponseDisplayMode) ? raw.assistantResponseDisplayMode : 'stream',
@@ -750,12 +796,34 @@ function buildLocalModelPreset(
   const stats = statSync(filePath)
   const slug = buildLocalModelSlug(server, filePath)
   const storedModel = loadModelProfile(server.id, slug) ?? {}
-  const parsed = parseModelMetadataHints(
-    existingModel?.huggingFaceFile ??
-    (typeof storedModel.huggingFaceFile === 'string' && storedModel.huggingFaceFile.length > 0
-      ? storedModel.huggingFaceFile
-      : fileName),
+  let ggufMetadata: GgufMetadataSummary = {}
+  const hasCachedMetadata =
+    (typeof existingModel?.quantization === 'string' && existingModel.quantization.length > 0) ||
+    (typeof existingModel?.contextWindowTokens === 'number' && existingModel.contextWindowTokens > 0) ||
+    (typeof existingModel?.parameterSizeBillions === 'number' && existingModel.parameterSizeBillions > 0) ||
+    (typeof storedModel.quantization === 'string' && storedModel.quantization.length > 0) ||
+    (typeof storedModel.contextWindowTokens === 'number' && storedModel.contextWindowTokens > 0) ||
+    (typeof storedModel.parameterSizeBillions === 'number' && storedModel.parameterSizeBillions > 0)
+  const isFileUnchanged =
+    typeof existingModel?.fileSizeBytes === 'number' && existingModel.fileSizeBytes === stats.size
+
+  if (!(hasCachedMetadata && isFileUnchanged)) {
+    try {
+      ggufMetadata = readGgufMetadata(filePath)
+    } catch {
+      ggufMetadata = {}
+    }
+  }
+
+  const resolvedName = ggufMetadata.name?.trim() || fileName.replace(/\.gguf$/i, '')
+  const resolvedSizeLabel = ggufMetadata.sizeLabel?.trim()
+  const resolvedArchitecture = ggufMetadata.architecture?.trim()
+  const nameSuffixParts = [resolvedSizeLabel, ggufMetadata.quantization, resolvedArchitecture?.toUpperCase()].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
   )
+  const resolvedDisplayName = nameSuffixParts.length > 0
+    ? `${resolvedName} (${nameSuffixParts.join(' • ')})`
+    : resolvedName
 
   return applyLocalModelDefaults({
     ...storedModel,
@@ -768,7 +836,7 @@ function buildLocalModelPreset(
       existingModel?.name ??
       (typeof storedModel.name === 'string' && storedModel.name.length > 0
         ? storedModel.name
-        : fileName.replace(/\.gguf$/i, '')),
+        : resolvedDisplayName),
     slug,
     source:
       existingModel?.source ??
@@ -777,8 +845,17 @@ function buildLocalModelPreset(
     localPath: filePath,
     fileSizeBytes: stats.size,
     parameterSizeBillions:
-      existingModel?.parameterSizeBillions ?? storedModel.parameterSizeBillions ?? parsed.parameterSizeBillions,
-    quantization: existingModel?.quantization ?? storedModel.quantization ?? parsed.quantization,
+      ggufMetadata.parameterSizeBillions ??
+      existingModel?.parameterSizeBillions ??
+      storedModel.parameterSizeBillions,
+    quantization:
+      ggufMetadata.quantization ??
+      existingModel?.quantization ??
+      storedModel.quantization,
+    contextWindowTokens:
+      ggufMetadata.contextWindowTokens ??
+      existingModel?.contextWindowTokens ??
+      storedModel.contextWindowTokens,
   })
 }
 
@@ -1019,6 +1096,548 @@ function saveModelProfile(model: ModelPreset): void {
  */
 function isChatTextSize(value: unknown): value is ChatTextSize {
   return value === 'small' || value === 'medium' || value === 'large' || value === 'extra-large'
+}
+
+interface GgufMetadataSummary {
+  architecture?: string
+  name?: string
+  sizeLabel?: string
+  quantization?: string
+  contextWindowTokens?: number
+  parameterSizeBillions?: number
+}
+
+class GgufReader {
+  private readonly fileDescriptor: number
+  private position = 0
+
+  constructor(path: string) {
+    this.fileDescriptor = openSync(path, 'r')
+  }
+
+  close(): void {
+    closeSync(this.fileDescriptor)
+  }
+
+  private readBuffer(length: number): Buffer {
+    const buffer = Buffer.alloc(length)
+    const bytesRead = readSync(this.fileDescriptor, buffer, 0, length, this.position)
+    if (bytesRead !== length) {
+      throw new Error('Unexpected end of GGUF file.')
+    }
+
+    this.position += length
+    return buffer
+  }
+
+  readUInt32(): number {
+    return this.readBuffer(4).readUInt32LE(0)
+  }
+
+  readInt32(): number {
+    return this.readBuffer(4).readInt32LE(0)
+  }
+
+  readUInt64(): bigint {
+    return this.readBuffer(8).readBigUInt64LE(0)
+  }
+
+  readInt64(): bigint {
+    return this.readBuffer(8).readBigInt64LE(0)
+  }
+
+  readFloat32(): number {
+    return this.readBuffer(4).readFloatLE(0)
+  }
+
+  readFloat64(): number {
+    return this.readBuffer(8).readDoubleLE(0)
+  }
+
+  readUInt16(): number {
+    return this.readBuffer(2).readUInt16LE(0)
+  }
+
+  readInt16(): number {
+    return this.readBuffer(2).readInt16LE(0)
+  }
+
+  readUInt8(): number {
+    return this.readBuffer(1).readUInt8(0)
+  }
+
+  readInt8(): number {
+    return this.readBuffer(1).readInt8(0)
+  }
+
+  readBool(): boolean {
+    return this.readUInt8() !== 0
+  }
+
+  readString(): string {
+    const length = Number(this.readUInt64())
+    if (!Number.isFinite(length) || length < 0) {
+      throw new Error('Invalid GGUF string length.')
+    }
+
+    return this.readBuffer(length).toString('utf8')
+  }
+}
+
+class AsyncGgufReader {
+  private readonly fileHandlePromise: ReturnType<typeof openFileHandle>
+  private position = 0
+
+  constructor(path: string) {
+    this.fileHandlePromise = openFileHandle(path, 'r')
+  }
+
+  async close(): Promise<void> {
+    const fileHandle = await this.fileHandlePromise
+    await fileHandle.close()
+  }
+
+  private async readBuffer(length: number): Promise<Buffer> {
+    const fileHandle = await this.fileHandlePromise
+    const buffer = Buffer.alloc(length)
+    const { bytesRead } = await fileHandle.read(buffer, 0, length, this.position)
+    if (bytesRead !== length) {
+      throw new Error('Unexpected end of GGUF file.')
+    }
+
+    this.position += length
+    return buffer
+  }
+
+  async readUInt32(): Promise<number> {
+    return (await this.readBuffer(4)).readUInt32LE(0)
+  }
+
+  async readInt32(): Promise<number> {
+    return (await this.readBuffer(4)).readInt32LE(0)
+  }
+
+  async readUInt64(): Promise<bigint> {
+    return (await this.readBuffer(8)).readBigUInt64LE(0)
+  }
+
+  async readInt64(): Promise<bigint> {
+    return (await this.readBuffer(8)).readBigInt64LE(0)
+  }
+
+  async readFloat32(): Promise<number> {
+    return (await this.readBuffer(4)).readFloatLE(0)
+  }
+
+  async readFloat64(): Promise<number> {
+    return (await this.readBuffer(8)).readDoubleLE(0)
+  }
+
+  async readUInt16(): Promise<number> {
+    return (await this.readBuffer(2)).readUInt16LE(0)
+  }
+
+  async readInt16(): Promise<number> {
+    return (await this.readBuffer(2)).readInt16LE(0)
+  }
+
+  async readUInt8(): Promise<number> {
+    return (await this.readBuffer(1)).readUInt8(0)
+  }
+
+  async readInt8(): Promise<number> {
+    return (await this.readBuffer(1)).readInt8(0)
+  }
+
+  async readBool(): Promise<boolean> {
+    return (await this.readUInt8()) !== 0
+  }
+
+  async readString(): Promise<string> {
+    const length = Number(await this.readUInt64())
+    if (!Number.isFinite(length) || length < 0) {
+      throw new Error('Invalid GGUF string length.')
+    }
+
+    return (await this.readBuffer(length)).toString('utf8')
+  }
+}
+
+function parseParameterSizeBillions(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  const match = value.toUpperCase().match(/(\d+(?:\.\d+)?)B\b/)
+  return match ? Number(match[1]) : undefined
+}
+
+function skipGgufValue(reader: GgufReader, valueType: number): void {
+  switch (valueType) {
+    case GGUF_VALUE_TYPE_UINT8:
+    case GGUF_VALUE_TYPE_INT8:
+    case GGUF_VALUE_TYPE_BOOL:
+      reader.readUInt8()
+      return
+    case GGUF_VALUE_TYPE_UINT16:
+    case GGUF_VALUE_TYPE_INT16:
+      reader.readUInt16()
+      return
+    case GGUF_VALUE_TYPE_UINT32:
+    case GGUF_VALUE_TYPE_INT32:
+    case GGUF_VALUE_TYPE_FLOAT32:
+      reader.readUInt32()
+      return
+    case GGUF_VALUE_TYPE_UINT64:
+    case GGUF_VALUE_TYPE_INT64:
+    case GGUF_VALUE_TYPE_FLOAT64:
+      reader.readUInt64()
+      return
+    case GGUF_VALUE_TYPE_STRING:
+      reader.readString()
+      return
+    case GGUF_VALUE_TYPE_ARRAY: {
+      const elementType = reader.readUInt32()
+      const elementCount = Number(reader.readUInt64())
+      for (let index = 0; index < elementCount; index += 1) {
+        skipGgufValue(reader, elementType)
+      }
+      return
+    }
+    default:
+      throw new Error(`Unsupported GGUF metadata value type: ${valueType}`)
+  }
+}
+
+function readGgufValue(reader: GgufReader, valueType: number): unknown {
+  switch (valueType) {
+    case GGUF_VALUE_TYPE_UINT8:
+      return reader.readUInt8()
+    case GGUF_VALUE_TYPE_INT8:
+      return reader.readInt8()
+    case GGUF_VALUE_TYPE_UINT16:
+      return reader.readUInt16()
+    case GGUF_VALUE_TYPE_INT16:
+      return reader.readInt16()
+    case GGUF_VALUE_TYPE_UINT32:
+      return reader.readUInt32()
+    case GGUF_VALUE_TYPE_INT32:
+      return reader.readInt32()
+    case GGUF_VALUE_TYPE_FLOAT32:
+      return reader.readFloat32()
+    case GGUF_VALUE_TYPE_BOOL:
+      return reader.readBool()
+    case GGUF_VALUE_TYPE_STRING:
+      return reader.readString()
+    case GGUF_VALUE_TYPE_UINT64:
+      return Number(reader.readUInt64())
+    case GGUF_VALUE_TYPE_INT64:
+      return Number(reader.readInt64())
+    case GGUF_VALUE_TYPE_FLOAT64:
+      return reader.readFloat64()
+    case GGUF_VALUE_TYPE_ARRAY: {
+      const elementType = reader.readUInt32()
+      const elementCount = Number(reader.readUInt64())
+      const values: unknown[] = []
+      for (let index = 0; index < elementCount; index += 1) {
+        values.push(readGgufValue(reader, elementType))
+      }
+      return values
+    }
+    default:
+      throw new Error(`Unsupported GGUF metadata value type: ${valueType}`)
+  }
+}
+
+function readGgufMetadata(path: string): GgufMetadataSummary {
+  const reader = new GgufReader(path)
+
+  try {
+    const magic = reader.readUInt32()
+    if (magic !== GGUF_MAGIC) {
+      throw new Error('Not a GGUF file.')
+    }
+
+    const version = reader.readUInt32()
+    if (version < 2 || version > 3) {
+      throw new Error(`Unsupported GGUF version: ${version}`)
+    }
+
+    reader.readUInt64() // tensor count
+    const metadataEntryCount = Number(reader.readUInt64())
+    const metadata = new Map<string, unknown>()
+
+    for (let index = 0; index < metadataEntryCount; index += 1) {
+      const key = reader.readString()
+      const valueType = reader.readUInt32()
+
+      if (
+        key === 'general.architecture' ||
+        key === 'general.name' ||
+        key === 'general.basename' ||
+        key === 'general.size_label' ||
+        key === 'general.file_type'
+      ) {
+        metadata.set(key, readGgufValue(reader, valueType))
+        continue
+      }
+
+      const contextLengthMatch = key.match(/^([a-z0-9_]+)\.context_length$/i)
+      if (contextLengthMatch) {
+        metadata.set(key, readGgufValue(reader, valueType))
+        continue
+      }
+
+      skipGgufValue(reader, valueType)
+    }
+
+    const architecture = typeof metadata.get('general.architecture') === 'string'
+      ? metadata.get('general.architecture') as string
+      : undefined
+    const explicitName = typeof metadata.get('general.name') === 'string'
+      ? metadata.get('general.name') as string
+      : undefined
+    const basenameValue = typeof metadata.get('general.basename') === 'string'
+      ? metadata.get('general.basename') as string
+      : undefined
+    const sizeLabel = typeof metadata.get('general.size_label') === 'string'
+      ? metadata.get('general.size_label') as string
+      : undefined
+    const fileTypeValue = metadata.get('general.file_type')
+    const contextWindowValue = architecture ? metadata.get(`${architecture}.context_length`) : undefined
+    const contextWindowTokens =
+      typeof contextWindowValue === 'number' && Number.isFinite(contextWindowValue) && contextWindowValue > 0
+        ? Math.floor(contextWindowValue)
+        : undefined
+
+    return {
+      architecture,
+      name: explicitName ?? basenameValue,
+      sizeLabel,
+      quantization:
+        typeof fileTypeValue === 'number' && Number.isFinite(fileTypeValue)
+          ? GGUF_FILE_TYPE_LABELS[Math.floor(fileTypeValue)]
+          : undefined,
+      contextWindowTokens,
+      parameterSizeBillions: parseParameterSizeBillions(sizeLabel),
+    }
+  } finally {
+    reader.close()
+  }
+}
+
+async function skipAsyncGgufValue(reader: AsyncGgufReader, valueType: number): Promise<void> {
+  switch (valueType) {
+    case GGUF_VALUE_TYPE_UINT8:
+    case GGUF_VALUE_TYPE_INT8:
+    case GGUF_VALUE_TYPE_BOOL:
+      await reader.readUInt8()
+      return
+    case GGUF_VALUE_TYPE_UINT16:
+    case GGUF_VALUE_TYPE_INT16:
+      await reader.readUInt16()
+      return
+    case GGUF_VALUE_TYPE_UINT32:
+    case GGUF_VALUE_TYPE_INT32:
+    case GGUF_VALUE_TYPE_FLOAT32:
+      await reader.readUInt32()
+      return
+    case GGUF_VALUE_TYPE_UINT64:
+    case GGUF_VALUE_TYPE_INT64:
+    case GGUF_VALUE_TYPE_FLOAT64:
+      await reader.readUInt64()
+      return
+    case GGUF_VALUE_TYPE_STRING:
+      await reader.readString()
+      return
+    case GGUF_VALUE_TYPE_ARRAY: {
+      const elementType = await reader.readUInt32()
+      const elementCount = Number(await reader.readUInt64())
+      for (let index = 0; index < elementCount; index += 1) {
+        await skipAsyncGgufValue(reader, elementType)
+      }
+      return
+    }
+    default:
+      throw new Error(`Unsupported GGUF metadata value type: ${valueType}`)
+  }
+}
+
+async function readAsyncGgufValue(reader: AsyncGgufReader, valueType: number): Promise<unknown> {
+  switch (valueType) {
+    case GGUF_VALUE_TYPE_UINT8:
+      return reader.readUInt8()
+    case GGUF_VALUE_TYPE_INT8:
+      return reader.readInt8()
+    case GGUF_VALUE_TYPE_UINT16:
+      return reader.readUInt16()
+    case GGUF_VALUE_TYPE_INT16:
+      return reader.readInt16()
+    case GGUF_VALUE_TYPE_UINT32:
+      return reader.readUInt32()
+    case GGUF_VALUE_TYPE_INT32:
+      return reader.readInt32()
+    case GGUF_VALUE_TYPE_FLOAT32:
+      return reader.readFloat32()
+    case GGUF_VALUE_TYPE_BOOL:
+      return reader.readBool()
+    case GGUF_VALUE_TYPE_STRING:
+      return reader.readString()
+    case GGUF_VALUE_TYPE_UINT64:
+      return Number(await reader.readUInt64())
+    case GGUF_VALUE_TYPE_INT64:
+      return Number(await reader.readInt64())
+    case GGUF_VALUE_TYPE_FLOAT64:
+      return reader.readFloat64()
+    case GGUF_VALUE_TYPE_ARRAY: {
+      const elementType = await reader.readUInt32()
+      const elementCount = Number(await reader.readUInt64())
+      const values: unknown[] = []
+      for (let index = 0; index < elementCount; index += 1) {
+        values.push(await readAsyncGgufValue(reader, elementType))
+      }
+      return values
+    }
+    default:
+      throw new Error(`Unsupported GGUF metadata value type: ${valueType}`)
+  }
+}
+
+async function readGgufMetadataAsync(path: string): Promise<GgufMetadataSummary> {
+  const reader = new AsyncGgufReader(path)
+
+  try {
+    const magic = await reader.readUInt32()
+    if (magic !== GGUF_MAGIC) {
+      throw new Error('Not a GGUF file.')
+    }
+
+    const version = await reader.readUInt32()
+    if (version < 2 || version > 3) {
+      throw new Error(`Unsupported GGUF version: ${version}`)
+    }
+
+    await reader.readUInt64()
+    const metadataEntryCount = Number(await reader.readUInt64())
+    const metadata = new Map<string, unknown>()
+
+    for (let index = 0; index < metadataEntryCount; index += 1) {
+      const key = await reader.readString()
+      const valueType = await reader.readUInt32()
+
+      if (
+        key === 'general.architecture' ||
+        key === 'general.name' ||
+        key === 'general.basename' ||
+        key === 'general.size_label' ||
+        key === 'general.file_type'
+      ) {
+        metadata.set(key, await readAsyncGgufValue(reader, valueType))
+        continue
+      }
+
+      if (key.match(/^([a-z0-9_]+)\.context_length$/i)) {
+        metadata.set(key, await readAsyncGgufValue(reader, valueType))
+        continue
+      }
+
+      await skipAsyncGgufValue(reader, valueType)
+    }
+
+    const architecture = typeof metadata.get('general.architecture') === 'string'
+      ? metadata.get('general.architecture') as string
+      : undefined
+    const explicitName = typeof metadata.get('general.name') === 'string'
+      ? metadata.get('general.name') as string
+      : undefined
+    const basenameValue = typeof metadata.get('general.basename') === 'string'
+      ? metadata.get('general.basename') as string
+      : undefined
+    const sizeLabel = typeof metadata.get('general.size_label') === 'string'
+      ? metadata.get('general.size_label') as string
+      : undefined
+    const fileTypeValue = metadata.get('general.file_type')
+    const contextWindowValue = architecture ? metadata.get(`${architecture}.context_length`) : undefined
+    const contextWindowTokens =
+      typeof contextWindowValue === 'number' && Number.isFinite(contextWindowValue) && contextWindowValue > 0
+        ? Math.floor(contextWindowValue)
+        : undefined
+
+    return {
+      architecture,
+      name: explicitName ?? basenameValue,
+      sizeLabel,
+      quantization:
+        typeof fileTypeValue === 'number' && Number.isFinite(fileTypeValue)
+          ? GGUF_FILE_TYPE_LABELS[Math.floor(fileTypeValue)]
+          : undefined,
+      contextWindowTokens,
+      parameterSizeBillions: parseParameterSizeBillions(sizeLabel),
+    }
+  } finally {
+    await reader.close()
+  }
+}
+
+/**
+ * Delete a local GGUF model and, when applicable, its containing folder.
+ *
+ * If the model file sits directly under the configured models root, only the
+ * file itself is removed so the root directory is preserved. When the file
+ * lives in a nested folder, that folder is only removed if it becomes empty
+ * after the model file is deleted.
+ *
+ * @param server - Local server profile that owns the models directory.
+ * @param model - Local model preset to delete.
+ */
+function deleteLocalModelFiles(server: ServerProfile, model: ModelPreset): void {
+  if (!model.localPath) {
+    throw new Error('The selected local model does not have a filesystem path.')
+  }
+
+  const modelsRoot = ensureLocalModelsDirectory(server)
+  const targetPath = model.localPath
+
+  if (!existsSync(targetPath)) {
+    return
+  }
+
+  const relativeModelPath = relative(modelsRoot, targetPath)
+  if (
+    relativeModelPath.length === 0 ||
+    relativeModelPath.startsWith('..') ||
+    relativeModelPath.includes(':')
+  ) {
+    throw new Error('Refusing to delete a model outside the configured models directory.')
+  }
+
+  const modelDirectory = dirname(targetPath)
+  const relativeModelDirectory = relative(modelsRoot, modelDirectory)
+  const shouldDeleteDirectory =
+    relativeModelDirectory.length > 0 &&
+    !relativeModelDirectory.startsWith('..') &&
+    !relativeModelDirectory.includes(':')
+
+  unlinkSync(targetPath)
+
+  if (!shouldDeleteDirectory || !existsSync(modelDirectory)) {
+    return
+  }
+
+  const remainingEntries = readdirSync(modelDirectory, { withFileTypes: true })
+  if (remainingEntries.length === 0) {
+    rmSync(modelDirectory, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Validate persisted chat bubble formatting modes loaded from disk.
+ *
+ * @param value - Unknown persisted value.
+ * @returns True when the value is a supported chat bubble formatting mode.
+ */
+function isChatBubbleFormattingMode(value: unknown): value is ChatBubbleFormattingMode {
+  return value === 'emphasized' || value === 'plain'
 }
 
 /**
@@ -3155,20 +3774,61 @@ async function browseHuggingFaceRepo(repoId: string, token?: string): Promise<Hu
     siblings?: Array<{ rfilename?: string, size?: number }>
   }
 
-  return (json.siblings ?? [])
+  const ggufFiles = (json.siblings ?? [])
     .filter((file): file is { rfilename: string, size?: number } =>
       typeof file.rfilename === 'string' && file.rfilename.toLowerCase().endsWith('.gguf'),
     )
-    .map((file) => {
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : undefined
+
+  const filesWithMetadata = await Promise.all(ggufFiles.map(async (file) => {
+      let sizeBytes = typeof file.size === 'number' && Number.isFinite(file.size) && file.size > 0 ? file.size : null
+
+      if (sizeBytes === null) {
+        try {
+          const fileResponse = await fetch(
+            `https://huggingface.co/${trimmedRepoId}/resolve/main/${encodeRepositoryPath(file.rfilename)}?download=true`,
+            {
+              method: 'HEAD',
+              headers: authHeaders,
+            },
+          )
+          const contentLength = fileResponse.headers.get('content-length')
+          const parsedSize = contentLength ? Number(contentLength) : null
+          sizeBytes =
+            typeof parsedSize === 'number' && Number.isFinite(parsedSize) && parsedSize > 0
+              ? parsedSize
+              : null
+        } catch {
+          sizeBytes = null
+        }
+      }
+
       const parsed = parseModelMetadataHints(file.rfilename)
       return {
         path: file.rfilename,
         name: basename(file.rfilename),
-        sizeBytes: typeof file.size === 'number' && Number.isFinite(file.size) && file.size > 0 ? file.size : null,
+        sizeBytes,
         parameterSizeBillions: parsed.parameterSizeBillions ?? null,
         quantization: parsed.quantization ?? null,
       }
-    })
+    }))
+
+  return filesWithMetadata.sort((left, right) => {
+    const leftSize = typeof left.sizeBytes === 'number' && Number.isFinite(left.sizeBytes) ? left.sizeBytes : null
+    const rightSize = typeof right.sizeBytes === 'number' && Number.isFinite(right.sizeBytes) ? right.sizeBytes : null
+
+    if (leftSize === null && rightSize === null) {
+      return left.path.localeCompare(right.path)
+    }
+    if (leftSize === null) {
+      return 1
+    }
+    if (rightSize === null) {
+      return -1
+    }
+
+    return leftSize - rightSize
+  })
 }
 
 /**
@@ -3207,6 +3867,8 @@ async function downloadHuggingFaceModel(
     ? { Authorization: `Bearer ${server.huggingFaceToken}` }
     : undefined
   const url = `https://huggingface.co/${trimmedRepoId}/resolve/main/${encodeRepositoryPath(trimmedFileName)}?download=true`
+  const controller = new AbortController()
+  const downloadKey = `${server.id}:${trimmedRepoId}:${trimmedFileName}`
 
   if (existsSync(destinationPath)) {
     const settings = loadSettings({ syncLocalModels: false })
@@ -3230,8 +3892,11 @@ async function downloadHuggingFaceModel(
     message: null,
   })
 
-  const response = await fetch(url, { method: 'GET', headers })
+  activeModelDownloads.set(downloadKey, controller)
+
+  const response = await fetch(url, { method: 'GET', headers, signal: controller.signal })
   if (!response.ok || !response.body) {
+    activeModelDownloads.delete(downloadKey)
     throw new Error(`Hugging Face returned HTTP ${response.status}: ${await response.text()}`)
   }
 
@@ -3268,23 +3933,27 @@ async function downloadHuggingFaceModel(
       }
     }
   } catch (error) {
+    activeModelDownloads.delete(downloadKey)
     writer.close()
     if (existsSync(tempPath)) {
       unlinkSync(tempPath)
     }
+    const wasCancelled =
+      (error instanceof Error && error.name === 'AbortError') ||
+      controller.signal.aborted
     broadcastModelDownloadProgress({
       downloadId,
       serverId: server.id,
       repoId: trimmedRepoId,
       fileName: trimmedFileName,
       destinationPath,
-      status: 'error',
+      status: wasCancelled ? 'cancelled' : 'error',
       bytesDownloaded,
       totalBytes: totalBytes && Number.isFinite(totalBytes) ? totalBytes : null,
       percent: null,
-      message: error instanceof Error ? error.message : String(error),
+      message: wasCancelled ? 'Download cancelled.' : (error instanceof Error ? error.message : String(error)),
     })
-    throw error
+    throw (wasCancelled ? new Error('Download cancelled.') : error)
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -3292,6 +3961,7 @@ async function downloadHuggingFaceModel(
     writer.end(resolve)
   })
   renameSync(tempPath, destinationPath)
+  activeModelDownloads.delete(downloadKey)
   broadcastModelDownloadProgress({
     downloadId,
     serverId: server.id,
@@ -3309,7 +3979,32 @@ async function downloadHuggingFaceModel(
   const existingModel = settings.models.find((model) =>
     model.serverId === server.id && model.localPath === destinationPath,
   )
-  const downloadedModel = buildLocalModelPreset(server, destinationPath, existingModel)
+  let downloadedModel = buildLocalModelPreset(server, destinationPath, existingModel)
+  try {
+    const stats = statSync(destinationPath)
+    const asyncMetadata = await readGgufMetadataAsync(destinationPath)
+    downloadedModel = applyLocalModelDefaults({
+      ...downloadedModel,
+      fileSizeBytes: stats.size,
+      name: (() => {
+        const resolvedName = asyncMetadata.name?.trim() || basename(destinationPath).replace(/\.gguf$/i, '')
+        const resolvedSizeLabel = asyncMetadata.sizeLabel?.trim()
+        const resolvedArchitecture = asyncMetadata.architecture?.trim()
+        const suffixParts = [resolvedSizeLabel, asyncMetadata.quantization, resolvedArchitecture?.toUpperCase()].filter(
+          (value): value is string => typeof value === 'string' && value.length > 0,
+        )
+        return suffixParts.length > 0 ? `${resolvedName} (${suffixParts.join(' • ')})` : resolvedName
+      })(),
+      parameterSizeBillions:
+        asyncMetadata.parameterSizeBillions ?? downloadedModel.parameterSizeBillions,
+      quantization:
+        asyncMetadata.quantization ?? downloadedModel.quantization,
+      contextWindowTokens:
+        asyncMetadata.contextWindowTokens ?? downloadedModel.contextWindowTokens,
+    })
+  } catch {
+    // Fall back to the cached/synchronous model preset if async metadata read fails.
+  }
   downloadedModel.source = 'huggingface'
   downloadedModel.huggingFaceRepo = trimmedRepoId
   downloadedModel.huggingFaceFile = trimmedFileName
@@ -4601,6 +5296,42 @@ ipcMain.handle('llama:hf:download', async (_event, serverId: string, repoId: str
   const nextSettings = synchronizeLocalModels(loadSettings({ syncLocalModels: false }))
   saveSettings(nextSettings)
   return downloadedModel
+})
+
+/** Local llama.cpp: cancel an in-flight Hugging Face GGUF download. */
+ipcMain.handle('llama:hf:cancel-download', async (_event, serverId: string, repoId: string, fileName: string): Promise<void> => {
+  const downloadKey = `${serverId}:${repoId.trim()}:${fileName.trim()}`
+  const controller = activeModelDownloads.get(downloadKey)
+
+  if (!controller) {
+    throw new Error('No matching model download is currently in progress.')
+  }
+
+  controller.abort()
+})
+
+/** Local llama.cpp: delete a downloaded local model file/folder and persist settings. */
+ipcMain.handle('llama:model:delete', async (_event, serverId: string, modelSlug: string): Promise<AppSettings> => {
+  const settings = synchronizeLocalModels(loadSettings({ syncLocalModels: false }))
+  const server = settings.servers.find((candidate) => candidate.id === serverId)
+
+  if (!server || !isLocalLlamaServer(server)) {
+    throw new Error('Select the local llama.cpp provider before deleting local models.')
+  }
+
+  const model = settings.models.find((candidate) => candidate.serverId === server.id && candidate.slug === modelSlug)
+  if (!model || !model.localPath) {
+    throw new Error('The selected local model could not be found.')
+  }
+
+  if (localRuntimeStatus.serverId === server.id && localRuntimeStatus.modelSlug === model.slug) {
+    stopLocalRuntime()
+  }
+
+  deleteLocalModelFiles(server, model)
+  const nextSettings = synchronizeLocalModels(loadSettings({ syncLocalModels: false }))
+  saveSettings(nextSettings)
+  return nextSettings
 })
 
 /** Local llama.cpp: read the managed runtime status. */

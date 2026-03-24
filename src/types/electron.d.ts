@@ -123,6 +123,21 @@ declare global {
       downloadHuggingFaceModel: (serverId: string, repoId: string, fileName: string) => Promise<ModelPreset>
 
       /**
+       * Cancel an in-flight GGUF download from Hugging Face.
+       * @param serverId - Local llama.cpp server profile id.
+       * @param repoId - Hugging Face repository identifier.
+       * @param fileName - Repository-relative GGUF path.
+       */
+      cancelHuggingFaceModelDownload: (serverId: string, repoId: string, fileName: string) => Promise<void>
+
+      /**
+       * Delete a local llama.cpp model and return the updated persisted settings.
+       * @param serverId - Local llama.cpp server profile id.
+       * @param modelSlug - Local model slug to delete.
+       */
+      deleteLocalModel: (serverId: string, modelSlug: string) => Promise<AppSettings>
+
+      /**
        * Subscribe to model download progress updates.
        * @param listener - Called whenever download progress changes.
        * @returns Cleanup function to remove the listener.

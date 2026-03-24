@@ -323,6 +323,14 @@
   font-style: italic;
 }
 
+.message__content--plain-formatting .message__segment--speech {
+  font-weight: 400;
+}
+
+.message__content--plain-formatting .message__segment--action {
+  font-style: normal;
+}
+
 .message__typing {
   display: inline-flex;
   align-items: center;

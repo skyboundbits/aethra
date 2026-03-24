@@ -636,6 +636,22 @@ input {
   border-color: var(--border-color-accent);
 }
 
+.app-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg);
+  color: var(--text-color-primary);
+  font: inherit;
+  outline: none;
+  transition: border-color var(--motion-base), background-color var(--motion-base);
+}
+
+.app-input:focus {
+  border-color: var(--border-color-accent);
+}
+
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {

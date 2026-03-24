@@ -23,6 +23,7 @@ import type {
   AvailableModel,
   AssistantResponseDisplayMode,
   BinaryInstallProgress,
+  ChatBubbleFormattingMode,
   ChatTextSize,
   HardwareInfo,
   HuggingFaceModelFile,
@@ -251,6 +252,8 @@ interface SettingsModalProps {
   activeThemeId: string
   /** Currently active chat bubble text size preset. */
   chatTextSize: ChatTextSize
+  /** Selected action/speech formatting mode for chat bubble rendering. */
+  chatBubbleFormattingMode: ChatBubbleFormattingMode
   /** Whether assistant replies render during the stream or after completion. */
   assistantResponseDisplayMode: AssistantResponseDisplayMode
   /** Whether hidden chat markup markers should be shown in the transcript. */
@@ -259,7 +262,7 @@ interface SettingsModalProps {
   assistantResponseRevealDelayMs: number
   /** Base campaign roleplay instruction template. */
   campaignBasePrompt: string
-  /** Chat formatting rules appended to the campaign prompt. */
+  /** Prompt formatting rules appended to the campaign base prompt. */
   formattingRules: string
   /** Rolling summary system instruction template. */
   rollingSummarySystemPrompt: string
@@ -281,8 +284,8 @@ interface SettingsModalProps {
   onClose: () => void
   /** Called when the user selects a server profile. */
   onServerSelect: (serverId: string) => void
-  /** Called when the user selects a model preset. */
-  onModelSelect: (modelSlug: string) => void
+  /** Called when the user deletes a local embedded model. */
+  onDeleteLocalModel: (modelSlug: string) => void
   /** Called when the user saves a context budget override for a model. */
   onSaveModelContext: (modelSlug: string, contextWindowTokens: number | null) => Promise<void>
   /** Called when the user refreshes the model list for the active server. */
@@ -308,10 +311,14 @@ interface SettingsModalProps {
   onBrowseHuggingFaceModels: (repoId: string) => void
   /** Called when the user downloads a GGUF file from Hugging Face. */
   onDownloadHuggingFaceModel: (repoId: string, fileName: string) => void
+  /** Called when the user cancels an in-flight GGUF download. */
+  onCancelHuggingFaceModelDownload: (repoId: string, fileName: string) => void
   /** Called when the user selects a theme. */
   onThemeSelect: (themeId: string) => void
   /** Called when the user selects a chat text size preset. */
   onChatTextSizeSelect: (textSize: ChatTextSize) => void
+  /** Called when the user selects the chat bubble formatting mode. */
+  onChatBubbleFormattingModeSelect: (mode: ChatBubbleFormattingMode) => void
   /** Called when the user selects how assistant replies appear during streaming. */
   onAssistantResponseDisplayModeSelect: (mode: AssistantResponseDisplayMode) => void
   /** Called when the user toggles raw chat markup visibility. */
@@ -349,9 +356,6 @@ function buildModelDescription(model: AvailableModel | ModelPreset): string {
   }
   if (model.quantization) {
     parts.push(model.quantization)
-  }
-  if (typeof model.contextWindowTokens === 'number' && model.contextWindowTokens > 0) {
-    parts.push(`${model.contextWindowTokens.toLocaleString()} ctx`)
   }
 
   return parts.join(' • ')
@@ -403,6 +407,7 @@ export function SettingsModal({
   isDownloadingModel,
   activeThemeId,
   chatTextSize,
+  chatBubbleFormattingMode,
   assistantResponseDisplayMode,
   showChatMarkup,
   assistantResponseRevealDelayMs,
@@ -418,7 +423,7 @@ export function SettingsModal({
   statusKind,
   onClose,
   onServerSelect,
-  onModelSelect,
+  onDeleteLocalModel,
   onSaveModelContext,
   onBrowseModels,
   onSaveServerAddress,
@@ -427,8 +432,10 @@ export function SettingsModal({
   onPickLlamaExecutable,
   onBrowseHuggingFaceModels,
   onDownloadHuggingFaceModel,
+  onCancelHuggingFaceModelDownload,
   onThemeSelect,
   onChatTextSizeSelect,
+  onChatBubbleFormattingModeSelect,
   onAssistantResponseDisplayModeSelect,
   onShowChatMarkupToggle,
   onAssistantResponseRevealDelayChange,
@@ -614,7 +621,7 @@ export function SettingsModal({
   }
 
   /**
-   * Persist the currently visible AI settings without closing the modal.
+   * Persist the settings represented by the currently visible section.
    */
   async function handleSaveSettings(): Promise<void> {
     try {
@@ -675,23 +682,6 @@ export function SettingsModal({
       onSetStatus('success', 'Settings saved.')
     } catch {
       // Parent callbacks publish the relevant error status.
-    }
-  }
-
-  /**
-   * Persist both prompt templates using the current editor values.
-   */
-  async function handlePromptTemplatesSave(): Promise<void> {
-    setIsSaving(true)
-    try {
-      await onSavePromptTemplates({
-        campaignBasePrompt: campaignBasePromptValue,
-        formattingRules: formattingRulesValue,
-        rollingSummarySystemPrompt: rollingSummarySystemPromptValue,
-        relationshipSummarySystemPrompt: relationshipSummarySystemPromptValue,
-      })
-    } finally {
-      setIsSaving(false)
     }
   }
 
@@ -911,18 +901,6 @@ export function SettingsModal({
                   />
                 </div>
 
-                <div className="settings-modal__prompt-actions">
-                  <button
-                    type="button"
-                    className="modal-footer__button modal-footer__button--primary"
-                    onClick={() => {
-                      void handlePromptTemplatesSave()
-                    }}
-                    disabled={isSaving}
-                  >
-                    {isSaving ? 'Saving...' : 'Save Prompts'}
-                  </button>
-                </div>
               </section>
             ) : activeSection === 'campaign' ? (
               <section className="settings-modal__section">
@@ -1010,7 +988,7 @@ export function SettingsModal({
                 <div>
                   <h2 className="settings-modal__heading">Chat</h2>
                   <p className="settings-modal__subheading">
-                    Chat appearance and output formatting settings.
+                    Chat bubble appearance and rendering settings.
                   </p>
                 </div>
 
@@ -1030,6 +1008,25 @@ export function SettingsModal({
                       onChange={(event) => onShowChatMarkupToggle(event.target.checked)}
                     />
                   </label>
+                  <div className="settings-modal__field">
+                    <label className="settings-modal__label" htmlFor="settings-chat-bubble-formatting-mode">
+                      Chat Bubble Formatting
+                    </label>
+                    <select
+                      id="settings-chat-bubble-formatting-mode"
+                      className="settings-modal__select app-select"
+                      value={chatBubbleFormattingMode}
+                      onChange={(event) => onChatBubbleFormattingModeSelect(
+                        event.target.value as ChatBubbleFormattingMode,
+                      )}
+                    >
+                      <option value="emphasized">Emphasized</option>
+                      <option value="plain">Plain</option>
+                    </select>
+                    <p className="settings-modal__field-hint">
+                      Controls how actions and speech are styled inside chat bubbles.
+                    </p>
+                  </div>
                   <div className="settings-modal__field">
                     <label className="settings-modal__label" htmlFor="settings-chat-text-size">
                       Chat Text Size
@@ -1069,20 +1066,6 @@ export function SettingsModal({
                     </p>
                   </div>
                   <div className="settings-modal__field">
-                    <PromptTemplateEditor
-                      id="settings-formatting-rules"
-                      label="Formatting Rules"
-                      hint="Appended to the campaign prompt last, so these rules can override the default chat output format."
-                      value={formattingRulesValue}
-                      defaultValue={DEFAULT_CHAT_FORMATTING_RULES}
-                      disabled={isSaving}
-                      onChange={setFormattingRulesValue}
-                      onReset={() => {
-                        void handlePromptReset('formattingRules')
-                      }}
-                    />
-                  </div>
-                  <div className="settings-modal__field">
                     <div className="settings-modal__field-row">
                       <label className="settings-modal__label" htmlFor="settings-assistant-reveal-delay">
                         Response Reveal Delay
@@ -1117,18 +1100,6 @@ export function SettingsModal({
                       Holds the typing indicator for at least this long before assistant text begins to appear.
                     </p>
                   </div>
-                </div>
-                <div className="settings-modal__prompt-actions">
-                  <button
-                    type="button"
-                    className="modal-footer__button modal-footer__button--primary"
-                    onClick={() => {
-                      void handlePromptTemplatesSave()
-                    }}
-                    disabled={isSaving}
-                  >
-                    {isSaving ? 'Saving...' : 'Save Chat Settings'}
-                  </button>
                 </div>
               </section>
             ) : activeSection === 'remote-ai' ? (
@@ -1183,7 +1154,7 @@ export function SettingsModal({
                     </label>
                     <input
                       id="settings-server-address"
-                      className="settings-modal__select"
+                      className="settings-modal__select app-input"
                       type="text"
                       placeholder="http://localhost:1234/v1"
                       value={serverAddressValue}
@@ -1195,64 +1166,6 @@ export function SettingsModal({
                     </p>
                   </div>
 
-                  <div className="settings-modal__field">
-                    <div className="settings-modal__field-row">
-                      <label className="settings-modal__label" htmlFor="settings-model-list">
-                        Models
-                      </label>
-                      <button
-                        type="button"
-                        className="settings-modal__refresh-btn"
-                        onClick={onBrowseModels}
-                        disabled={!activeServer || isBrowsingModels}
-                      >
-                        {isBrowsingModels ? 'Refreshing...' : 'Browse Models'}
-                      </button>
-                    </div>
-                    <div
-                      id="settings-model-list"
-                      className="settings-modal__model-list"
-                      role="radiogroup"
-                      aria-label="Available models"
-                    >
-                      {modelOptions.length === 0 ? (
-                        <p className="settings-modal__empty">
-                          No models loaded yet. Browse the active server to fetch its available models.
-                        </p>
-                      ) : (
-                        modelOptions.map((model) => (
-                          <ModelOption
-                            key={model.id}
-                            id={model.slug}
-                            name={model.name}
-                            description={buildModelDescription(model)}
-                            checked={activeModelSlug === model.slug}
-                            onSelect={onModelSelect}
-                          />
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="settings-modal__field">
-                    <label className="settings-modal__label" htmlFor="settings-context-budget">
-                      Context Budget
-                    </label>
-                    <input
-                      id="settings-context-budget"
-                      className="settings-modal__select"
-                      type="number"
-                      min="1"
-                      step="1"
-                      placeholder="e.g. 8192"
-                      value={contextWindowValue}
-                      onChange={(event) => setContextWindowValue(event.target.value)}
-                      disabled={!activeModel}
-                    />
-                    <p className="settings-modal__field-hint">
-                      Override the selected model&apos;s total context window in tokens.
-                    </p>
-                  </div>
                 </div>
               </section>
             ) : (
@@ -1290,6 +1203,8 @@ export function SettingsModal({
 
                   {isEmbeddedServer ? (
                     <>
+                      <HardwareCard hardwareInfo={hardwareInfo} runtimeStatus={localRuntimeStatus} />
+
                       <div className="settings-modal__field">
                         <label className="settings-modal__label" htmlFor="settings-models-directory">
                           Models Directory
@@ -1297,7 +1212,7 @@ export function SettingsModal({
                         <div className="settings-modal__inline-input">
                           <input
                             id="settings-models-directory"
-                            className="settings-modal__select"
+                            className="settings-modal__select app-input"
                             type="text"
                             value={modelsDirectoryValue}
                             onChange={(event) => setModelsDirectoryValue(event.target.value)}
@@ -1335,7 +1250,7 @@ export function SettingsModal({
                         <div className="settings-modal__inline-input">
                           <input
                             id="settings-llama-executable"
-                            className="settings-modal__select"
+                            className="settings-modal__select app-input"
                             type="text"
                             value={executablePathValue}
                             onChange={(event) => setExecutablePathValue(event.target.value)}
@@ -1360,7 +1275,7 @@ export function SettingsModal({
                           </label>
                           <input
                             id="settings-llama-host"
-                            className="settings-modal__select"
+                            className="settings-modal__select app-input"
                             type="text"
                             value={hostValue}
                             onChange={(event) => setHostValue(event.target.value)}
@@ -1372,7 +1287,7 @@ export function SettingsModal({
                           </label>
                           <input
                             id="settings-llama-port"
-                            className="settings-modal__select"
+                            className="settings-modal__select app-input"
                             type="number"
                             min="1"
                             step="1"
@@ -1388,7 +1303,7 @@ export function SettingsModal({
                         </label>
                         <input
                           id="settings-hf-token"
-                          className="settings-modal__select"
+                          className="settings-modal__select app-input"
                           type="password"
                           value={huggingFaceTokenValue}
                           onChange={(event) => setHuggingFaceTokenValue(event.target.value)}
@@ -1396,7 +1311,6 @@ export function SettingsModal({
                         />
                       </div>
 
-                      <HardwareCard hardwareInfo={hardwareInfo} runtimeStatus={localRuntimeStatus} />
                       <div className="settings-modal__group">
                         <div className="settings-modal__field">
                           <div className="settings-modal__group-title">Hugging Face</div>
@@ -1406,7 +1320,7 @@ export function SettingsModal({
                           <div className="settings-modal__inline-input">
                             <input
                               id="settings-hf-repo"
-                              className="settings-modal__select"
+                              className="settings-modal__select app-input"
                               type="text"
                               placeholder="e.g. bartowski/Llama-3.2-3B-Instruct-GGUF or https://huggingface.co/..."
                               value={huggingFaceRepoValue}
@@ -1427,12 +1341,27 @@ export function SettingsModal({
                         </div>
 
                         {modelDownloadProgress ? (
-                          <div className="settings-modal__status">
-                            {modelDownloadProgress.status === 'downloading'
-                              ? `Downloading ${modelDownloadProgress.fileName}... ${modelDownloadProgress.percent ?? 0}%`
-                              : modelDownloadProgress.status === 'completed'
-                                ? `Downloaded ${modelDownloadProgress.fileName}.`
-                                : modelDownloadProgress.message ?? 'Download update'}
+                          <div className="settings-modal__field">
+                            <div className="settings-modal__field-row">
+                              <div className="settings-modal__status">
+                                {modelDownloadProgress.status === 'downloading'
+                                  ? `Downloading ${modelDownloadProgress.fileName}... ${modelDownloadProgress.percent ?? 0}%`
+                                  : modelDownloadProgress.status === 'completed'
+                                    ? `Downloaded ${modelDownloadProgress.fileName}.`
+                                    : modelDownloadProgress.status === 'cancelled'
+                                      ? `Cancelled ${modelDownloadProgress.fileName}.`
+                                      : modelDownloadProgress.message ?? 'Download update'}
+                              </div>
+                              {modelDownloadProgress.status === 'starting' || modelDownloadProgress.status === 'downloading' ? (
+                                <button
+                                  type="button"
+                                  className="settings-modal__refresh-btn settings-modal__refresh-btn--danger"
+                                  onClick={() => onCancelHuggingFaceModelDownload(modelDownloadProgress.repoId, modelDownloadProgress.fileName)}
+                                >
+                                  Cancel Download
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
                         ) : null}
 
@@ -1448,16 +1377,31 @@ export function SettingsModal({
                                   <span className="settings-modal__option-name">{file.name}</span>
                                   <span className="settings-modal__option-description">{file.path}</span>
                                   <span className="settings-modal__option-description">
-                                    {formatBytes(file.sizeBytes)}{file.quantization ? ` • ${file.quantization}` : ''}
+                                    {typeof file.sizeBytes === 'number' && file.sizeBytes > 0
+                                      ? `Download size: ${formatBytes(file.sizeBytes)}`
+                                      : 'Download size unavailable'}
+                                    {file.quantization ? ` • ${file.quantization}` : ''}
                                   </span>
                                 </div>
                                 <button
                                   type="button"
                                   className="settings-modal__refresh-btn"
-                                  onClick={() => onDownloadHuggingFaceModel(normalizeHuggingFaceRepoId(huggingFaceRepoValue), file.path)}
-                                  disabled={isDownloadingModel}
+                                  onClick={() =>
+                                    modelDownloadProgress?.status === 'starting' || modelDownloadProgress?.status === 'downloading'
+                                      ? onCancelHuggingFaceModelDownload(modelDownloadProgress.repoId, modelDownloadProgress.fileName)
+                                      : onDownloadHuggingFaceModel(normalizeHuggingFaceRepoId(huggingFaceRepoValue), file.path)
+                                  }
+                                  disabled={
+                                    (isDownloadingModel || modelDownloadProgress?.status === 'starting' || modelDownloadProgress?.status === 'downloading') &&
+                                    modelDownloadProgress?.fileName !== file.path
+                                  }
                                 >
-                                  {isDownloadingModel ? 'Downloading...' : 'Download'}
+                                  {modelDownloadProgress?.fileName === file.path &&
+                                  (modelDownloadProgress.status === 'starting' || modelDownloadProgress.status === 'downloading')
+                                    ? 'Cancel'
+                                    : isDownloadingModel
+                                      ? 'Downloading...'
+                                      : 'Download'}
                                 </button>
                               </div>
                             ))}
@@ -1491,38 +1435,18 @@ export function SettingsModal({
                             </p>
                           ) : (
                             modelOptions.map((model) => (
-                              <ModelOption
+                              <LocalModelOption
                                 key={model.id}
                                 id={model.slug}
                                 name={model.name}
                                 description={buildModelDescription(model)}
-                                checked={activeModelSlug === model.slug}
-                                onSelect={onModelSelect}
+                                onDelete={onDeleteLocalModel}
                               />
                             ))
                           )}
                         </div>
                       </div>
 
-                      <div className="settings-modal__field">
-                        <label className="settings-modal__label" htmlFor="settings-context-budget">
-                          Context Budget
-                        </label>
-                        <input
-                          id="settings-context-budget"
-                          className="settings-modal__select"
-                          type="number"
-                          min="1"
-                          step="1"
-                          placeholder="e.g. 8192"
-                          value={contextWindowValue}
-                          onChange={(event) => setContextWindowValue(event.target.value)}
-                          disabled={!activeModel}
-                        />
-                        <p className="settings-modal__field-hint">
-                          Override the selected model&apos;s total context window in tokens.
-                        </p>
-                      </div>
                     </>
                   ) : (
                     <div className="settings-modal__empty-panel">
@@ -1607,6 +1531,42 @@ function ModelOption({ id, name, description, checked, onSelect }: ModelOptionPr
         <span className="settings-modal__option-description">{description}</span>
       </span>
     </label>
+  )
+}
+
+/** Props accepted by the LocalModelOption component. */
+interface LocalModelOptionProps {
+  /** Model slug used as the action value. */
+  id: string
+  /** Display name shown to the user. */
+  name: string
+  /** Secondary metadata shown under the model name. */
+  description: string
+  /** Called when the user deletes the local model. */
+  onDelete: (modelSlug: string) => void
+}
+
+/**
+ * LocalModelOption
+ * Local GGUF row with explicit select and delete actions.
+ */
+function LocalModelOption({ id, name, description, onDelete }: LocalModelOptionProps) {
+  return (
+    <div className="settings-modal__download-option" role="listitem">
+      <div className="settings-modal__option-body">
+        <span className="settings-modal__option-name">{name}</span>
+        <span className="settings-modal__option-description">{description}</span>
+      </div>
+      <div className="settings-modal__row-actions">
+        <button
+          type="button"
+          className="settings-modal__refresh-btn settings-modal__refresh-btn--danger"
+          onClick={() => onDelete(id)}
+        >
+          Delete
+        </button>
+      </div>
+    </div>
   )
 }
 

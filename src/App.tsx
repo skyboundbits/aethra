@@ -60,6 +60,7 @@ import type {
   CampaignLoadProgress,
   CampaignSummary,
   AssistantResponseDisplayMode,
+  ChatBubbleFormattingMode,
   CharacterProfile,
   HardwareInfo,
   HuggingFaceModelFile,
@@ -101,6 +102,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   enableRollingRelationshipSummaries: false,
   recentMessagesWindow: DEFAULT_RECENT_MESSAGES_WINDOW,
   showChatMarkup: false,
+  chatBubbleFormattingMode: 'emphasized',
   chatTextSize: 'small',
   assistantResponseDisplayMode: 'stream',
   assistantResponseRevealDelayMs: DEFAULT_ASSISTANT_RESPONSE_REVEAL_DELAY_MS,
@@ -1351,6 +1353,8 @@ export default function App() {
 
   /** Persisted app settings loaded from Electron. */
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
+  /** Latest model download progress snapshot for close/unload cancellation. */
+  const modelDownloadProgressRef = useRef<ModelDownloadProgress | null>(null)
 
   /**
    * Ref that always holds the latest appSettings value, used by event listeners
@@ -1604,9 +1608,8 @@ export default function App() {
     })
     const disposeDownloadListener = window.api.onModelDownloadProgress((progress) => {
       setModelDownloadProgress(progress)
-      if (progress.status === 'completed' || progress.status === 'error') {
-        setIsDownloadingModel(false)
-      }
+      modelDownloadProgressRef.current = progress
+      setIsDownloadingModel(progress.status === 'starting' || progress.status === 'downloading')
     })
     const disposeBinaryInstallListener = window.api.onBinaryInstallProgress((progress) => {
       setBinaryInstallProgress(progress)
@@ -1641,6 +1644,47 @@ export default function App() {
   campaignLoadProgressRef.current = campaignLoadProgress
   charactersRef.current = characters
   isStreamingRef.current = isStreaming
+
+  /**
+   * Cancel the currently active GGUF download when one is in flight.
+   */
+  async function cancelActiveModelDownloadIfNeeded(): Promise<void> {
+    const activeDownload = modelDownloadProgressRef.current
+    const activeServerState = appSettingsRef.current.servers.find((server) => server.id === appSettingsRef.current.activeServerId) ?? null
+
+    if (
+      !activeDownload ||
+      (activeDownload.status !== 'starting' && activeDownload.status !== 'downloading') ||
+      !activeServerState ||
+      activeServerState.kind !== 'llama.cpp'
+    ) {
+      return
+    }
+
+    try {
+      await window.api.cancelHuggingFaceModelDownload(
+        activeServerState.id,
+        activeDownload.repoId,
+        activeDownload.fileName,
+      )
+    } catch {
+      // Best-effort cancellation during close/unload.
+    }
+  }
+
+  /**
+   * Best-effort cancellation for window close/reload while a model download is active.
+   */
+  useEffect(() => {
+    function handleBeforeUnload(): void {
+      void cancelActiveModelDownloadIfNeeded()
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [])
 
   /**
    * Apply the currently active theme whenever theme settings change.
@@ -2831,6 +2875,7 @@ function syncStreamedAssistantMessages(
    * Close the settings modal.
    */
   function handleCloseSettings(): void {
+    void cancelActiveModelDownloadIfNeeded()
     setIsSettingsOpen(false)
   }
 
@@ -3335,6 +3380,32 @@ function syncStreamedAssistantMessages(
   }
 
   /**
+   * Persist the selected chat bubble formatting preset.
+   *
+   * @param mode - Selected action/speech rendering mode.
+   */
+  async function handleChatBubbleFormattingModeSelect(mode: ChatBubbleFormattingMode): Promise<void> {
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      chatBubbleFormattingMode: mode,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage(
+        mode === 'emphasized'
+          ? 'Chat bubble formatting set to emphasized.'
+          : 'Chat bubble formatting set to plain.',
+      )
+    } catch (err) {
+      console.error('[Aethra] Could not save chat bubble formatting mode:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save the chat bubble formatting setting.')
+    }
+  }
+
+  /**
    * Persist how assistant replies should be displayed while a stream is active.
    *
    * @param mode - Selected assistant response display mode.
@@ -3640,13 +3711,25 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Query the active server for its available models and persist the catalog
+   * Query the chosen server for its available models and persist the catalog
    * into settings so it remains selectable on future launches.
+   *
+   * @param serverId - Server profile to browse.
+   * @param statusTarget - UI surface that should receive status updates.
    */
-  async function handleBrowseModels(): Promise<void> {
-    if (!activeServer) {
-      setSettingsStatusKind('error')
-      setSettingsStatusMessage('Select a server before browsing models.')
+  async function handleBrowseModelsForServer(
+    serverId: string,
+    statusTarget: 'settings' | 'model-loader' = 'settings',
+  ): Promise<void> {
+    const server = appSettings.servers.find((candidate) => candidate.id === serverId) ?? null
+    if (!server) {
+      if (statusTarget === 'model-loader') {
+        setModelLoaderStatusKind('error')
+        setModelLoaderStatusMessage('Select a server before refreshing models.')
+      } else {
+        setSettingsStatusKind('error')
+        setSettingsStatusMessage('Select a server before browsing models.')
+      }
       return
     }
 
@@ -3654,14 +3737,14 @@ function syncStreamedAssistantMessages(
 
     try {
       await appendAiDebugEntry('info', 'ai.models.browse.start', {
-        serverId: activeServer.id,
-        serverName: activeServer.name,
-        baseUrl: activeServer.baseUrl,
+        serverId: server.id,
+        serverName: server.name,
+        baseUrl: server.baseUrl,
       })
 
-      const discoveredModels = await window.api.browseModels(activeServer.id)
+      const discoveredModels = await window.api.browseModels(server.id)
       await appendAiDebugEntry('response', 'ai.models.browse.result', {
-        serverId: activeServer.id,
+        serverId: server.id,
         count: discoveredModels.length,
         models: discoveredModels.map((model) => ({
           id: model.id,
@@ -3705,7 +3788,7 @@ function syncStreamedAssistantMessages(
       })
 
       const nextModels = [
-        ...appSettings.models.filter((model) => model.serverId !== activeServer.id),
+        ...appSettings.models.filter((model) => model.serverId !== server.id),
         ...persistedModels,
       ]
 
@@ -3716,14 +3799,14 @@ function syncStreamedAssistantMessages(
       const nextSettings: AppSettings = {
         ...appSettings,
         models: nextModels,
-        activeServerId: activeServer.id,
+        activeServerId: server.id,
         activeModelSlug: nextActiveModelSlug,
       }
 
       setAvailableModels(discoveredModels)
       await persistSettings(nextSettings)
       await appendAiDebugEntry('info', 'ai.models.persisted', {
-        serverId: activeServer.id,
+        serverId: server.id,
         activeModelSlug: nextActiveModelSlug,
         persistedModels: persistedModels.map((model) => ({
           id: model.id,
@@ -3732,22 +3815,94 @@ function syncStreamedAssistantMessages(
           contextWindowTokens: model.contextWindowTokens ?? null,
         })),
       })
-      setSettingsStatusKind('success')
-      setSettingsStatusMessage(
+      const successMessage =
         discoveredModels.length > 0
-          ? `Loaded ${discoveredModels.length} model${discoveredModels.length === 1 ? '' : 's'} from ${activeServer.name}.`
-          : `No models were reported by ${activeServer.name}.`,
-      )
+          ? `Loaded ${discoveredModels.length} model${discoveredModels.length === 1 ? '' : 's'} from ${server.name}.`
+          : `No models were reported by ${server.name}.`
+
+      if (statusTarget === 'model-loader') {
+        setModelLoaderStatusKind('success')
+        setModelLoaderStatusMessage(successMessage)
+      } else {
+        setSettingsStatusKind('success')
+        setSettingsStatusMessage(successMessage)
+      }
     } catch (err) {
       await appendAiDebugEntry('error', 'ai.models.browse.error', {
-        serverId: activeServer.id,
+        serverId: server.id,
         message: err instanceof Error ? err.message : String(err),
       })
       console.error('[Aethra] Could not browse models:', err)
-      setSettingsStatusKind('error')
-      setSettingsStatusMessage(err instanceof Error ? err.message : 'Could not browse models.')
+      if (statusTarget === 'model-loader') {
+        setModelLoaderStatusKind('error')
+        setModelLoaderStatusMessage(err instanceof Error ? err.message : 'Could not refresh models.')
+      } else {
+        setSettingsStatusKind('error')
+        setSettingsStatusMessage(err instanceof Error ? err.message : 'Could not browse models.')
+      }
     } finally {
       setIsBrowsingModels(false)
+    }
+  }
+
+  /**
+   * Query the active settings server for its available models.
+   */
+  async function handleBrowseModels(): Promise<void> {
+    if (!activeServer) {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Select a server before browsing models.')
+      return
+    }
+
+    await handleBrowseModelsForServer(activeServer.id, 'settings')
+  }
+
+  /**
+   * Delete one local embedded model after explicit confirmation.
+   *
+   * When the GGUF lives in a nested folder, the containing folder is removed
+   * recursively. Files at the root of the models directory are deleted
+   * individually so the models root itself is preserved.
+   *
+   * @param modelSlug - Local model slug to delete.
+   */
+  async function handleDeleteLocalModel(modelSlug: string): Promise<void> {
+    const server = activeServer
+    if (!server || server.kind !== 'llama.cpp') {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Select the embedded AI provider before deleting local models.')
+      return
+    }
+
+    const model = appSettings.models.find((candidate) => candidate.serverId === server.id && candidate.slug === modelSlug) ?? null
+    if (!model) {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not find the selected local model.')
+      return
+    }
+
+    const confirmed = await confirm({
+      title: `Delete ${model.name}?`,
+      message: `Delete ${model.name} from local storage?`,
+      warning: 'This permanently removes the model file and, when present, its containing folder.',
+      confirmLabel: 'Delete',
+    })
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      const nextSettings = await window.api.deleteLocalModel(server.id, model.slug)
+      setAppSettings(nextSettings)
+      setAvailableModels((prev) => prev.filter((candidate) => !(candidate.serverId === server.id && candidate.slug === model.slug)))
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage(`Deleted ${model.name}.`)
+    } catch (err) {
+      console.error('[Aethra] Could not delete local model:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage(err instanceof Error ? err.message : 'Could not delete the local model.')
     }
   }
 
@@ -4215,6 +4370,30 @@ function syncStreamedAssistantMessages(
       setSettingsStatusMessage(err instanceof Error ? err.message : 'Could not download the selected model.')
     } finally {
       setIsDownloadingModel(false)
+    }
+  }
+
+  /**
+   * Cancel an in-flight GGUF download from Hugging Face.
+   *
+   * @param repoId - Hugging Face repository identifier.
+   * @param fileName - Repository-relative GGUF path.
+   */
+  async function handleCancelHuggingFaceModelDownload(repoId: string, fileName: string): Promise<void> {
+    if (!activeServer || activeServer.kind !== 'llama.cpp') {
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Select the local llama.cpp provider before cancelling downloads.')
+      return
+    }
+
+    try {
+      await window.api.cancelHuggingFaceModelDownload(activeServer.id, repoId, fileName)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage(`Cancelling ${fileName}...`)
+    } catch (err) {
+      console.error('[Aethra] Could not cancel Hugging Face model download:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage(err instanceof Error ? err.message : 'Could not cancel the model download.')
     }
   }
 
@@ -5192,6 +5371,7 @@ function syncStreamedAssistantMessages(
               messages={messages}
               characters={characters}
               textSize={appSettings.chatTextSize}
+              bubbleFormattingMode={appSettings.chatBubbleFormattingMode}
               showMarkup={appSettings.showChatMarkup}
               onDeleteMessage={handleDeleteMessage}
               onReplayFromMessage={(messageId) => {
@@ -5276,6 +5456,7 @@ function syncStreamedAssistantMessages(
           isDownloadingModel={isDownloadingModel}
           activeThemeId={appSettings.activeThemeId}
           chatTextSize={appSettings.chatTextSize}
+          chatBubbleFormattingMode={appSettings.chatBubbleFormattingMode}
           assistantResponseDisplayMode={appSettings.assistantResponseDisplayMode}
           showChatMarkup={appSettings.showChatMarkup}
           assistantResponseRevealDelayMs={appSettings.assistantResponseRevealDelayMs}
@@ -5292,8 +5473,8 @@ function syncStreamedAssistantMessages(
           onServerSelect={(serverId) => {
             void handleServerSelect(serverId)
           }}
-          onModelSelect={(modelSlug) => {
-            void handleModelSelect(modelSlug)
+          onDeleteLocalModel={(modelSlug) => {
+            void handleDeleteLocalModel(modelSlug)
           }}
           onSaveModelContext={(modelSlug, contextWindowTokens) => handleSaveModelContext(modelSlug, contextWindowTokens)}
           onBrowseModels={() => {
@@ -5309,11 +5490,17 @@ function syncStreamedAssistantMessages(
           onDownloadHuggingFaceModel={(repoId, fileName) => {
             void handleDownloadHuggingFaceModel(repoId, fileName)
           }}
+          onCancelHuggingFaceModelDownload={(repoId, fileName) => {
+            void handleCancelHuggingFaceModelDownload(repoId, fileName)
+          }}
           onThemeSelect={(themeId) => {
             void handleThemeSelect(themeId)
           }}
           onChatTextSizeSelect={(textSize) => {
             void handleChatTextSizeSelect(textSize)
+          }}
+          onChatBubbleFormattingModeSelect={(mode) => {
+            void handleChatBubbleFormattingModeSelect(mode)
           }}
           onAssistantResponseDisplayModeSelect={(mode) => {
             void handleAssistantResponseDisplayModeSelect(mode)
@@ -5368,7 +5555,11 @@ function syncStreamedAssistantMessages(
           statusMessage={modelLoaderStatusMessage}
           statusKind={modelLoaderStatusKind}
           isBusy={isModelLoading}
+          isBrowsingModels={isBrowsingModels}
           onClose={handleCloseModelLoader}
+          onRefreshModels={() => {
+            if (modelLoaderServer) void handleBrowseModelsForServer(modelLoaderServer.id, 'model-loader')
+          }}
           onLoadModel={(modelSlug, contextWindowTokens) => handleLoadModel(modelSlug, contextWindowTokens)}
           onInstallBinary={() => {
             if (modelLoaderServer?.kind === 'llama.cpp') void window.api.installLlamaBinary(modelLoaderServer.id)

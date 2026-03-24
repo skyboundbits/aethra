@@ -303,6 +303,9 @@ export type ThemeMode = 'dark' | 'light'
 /** Supported chat bubble text size presets. */
 export type ChatTextSize = 'small' | 'medium' | 'large' | 'extra-large'
 
+/** Supported chat bubble formatting presets for action and speech rendering. */
+export type ChatBubbleFormattingMode = 'emphasized' | 'plain'
+
 /** Supported assistant response display modes while a stream is in progress. */
 export type AssistantResponseDisplayMode = 'stream' | 'after-complete'
 
@@ -580,7 +583,7 @@ export interface ModelDownloadProgress {
   /** Absolute destination path on disk. */
   destinationPath: string
   /** Current status of the download. */
-  status: 'starting' | 'downloading' | 'completed' | 'error'
+  status: 'starting' | 'downloading' | 'completed' | 'cancelled' | 'error'
   /** Bytes written so far. */
   bytesDownloaded: number
   /** Expected total bytes, when reported by the server. */
@@ -687,6 +690,8 @@ export interface AppSettings {
   recentMessagesWindow: number
   /** Whether hidden inline markup markers should be shown in chat bubbles. */
   showChatMarkup: boolean
+  /** Selected action/speech formatting mode for chat bubble rendering. */
+  chatBubbleFormattingMode: ChatBubbleFormattingMode
   /** Selected chat bubble text size preset. */
   chatTextSize: ChatTextSize
   /** Whether assistant replies render during the live stream or only after completion. */

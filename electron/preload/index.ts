@@ -186,6 +186,28 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   /**
+   * Cancel an in-flight GGUF download from Hugging Face.
+   *
+   * @param serverId - Local llama.cpp server profile id.
+   * @param repoId - Hugging Face repository identifier.
+   * @param fileName - Repository-relative GGUF path.
+   */
+  cancelHuggingFaceModelDownload(serverId: string, repoId: string, fileName: string): Promise<void> {
+    return ipcRenderer.invoke('llama:hf:cancel-download', serverId, repoId, fileName) as Promise<void>
+  },
+
+  /**
+   * Delete a local llama.cpp model and persist the resulting settings state.
+   *
+   * @param serverId - Local llama.cpp server profile id.
+   * @param modelSlug - Local model slug to delete.
+   * @returns Promise resolving to the updated app settings.
+   */
+  deleteLocalModel(serverId: string, modelSlug: string): Promise<AppSettings> {
+    return ipcRenderer.invoke('llama:model:delete', serverId, modelSlug) as Promise<AppSettings>
+  },
+
+  /**
    * Subscribe to Hugging Face model download progress updates.
    *
    * @param listener - Called whenever the main process emits a progress update.
