@@ -261,6 +261,8 @@ interface SettingsModalProps {
   rollingSummarySystemPrompt: string
   /** Whether prompts should use rolling summaries plus a recent chat window. */
   enableRollingSummaries: boolean
+  /** Number of recent prompt-visible messages kept verbatim when summaries are enabled. */
+  recentMessagesWindow: number
   /** Current llama-server binary install progress, or null. */
   binaryInstallProgress: BinaryInstallProgress | null
   /** Optional status text shown after save/import attempts. */
@@ -308,6 +310,8 @@ interface SettingsModalProps {
   onAssistantResponseRevealDelayChange: (delayMs: number) => void
   /** Called when the user toggles rolling summaries for campaign prompts. */
   onRollingSummariesToggle: (enabled: boolean) => void
+  /** Called when the user changes the recent-message window size for rolling summaries. */
+  onRecentMessagesWindowChange: (count: number) => void
   /** Called when the user saves edited prompt templates. */
   onSavePromptTemplates: (prompts: {
     campaignBasePrompt: string
@@ -392,6 +396,7 @@ export function SettingsModal({
   formattingRules,
   rollingSummarySystemPrompt,
   enableRollingSummaries,
+  recentMessagesWindow,
   binaryInstallProgress,
   statusMessage,
   statusKind,
@@ -411,6 +416,7 @@ export function SettingsModal({
   onShowChatMarkupToggle,
   onAssistantResponseRevealDelayChange,
   onRollingSummariesToggle,
+  onRecentMessagesWindowChange,
   onSavePromptTemplates,
   onSetStatus,
 }: SettingsModalProps) {
@@ -848,7 +854,7 @@ export function SettingsModal({
                     <span className="settings-modal__toggle-body">
                       <span className="settings-modal__label">Rolling Scene Summaries</span>
                       <span className="settings-modal__field-hint">
-                        Send the rolling scene summary plus the latest 10 chats instead of the full transcript.
+                        Send the rolling scene summary plus a configurable recent chat window instead of the full transcript.
                       </span>
                     </span>
                     <input
@@ -859,6 +865,32 @@ export function SettingsModal({
                       onChange={(event) => onRollingSummariesToggle(event.target.checked)}
                     />
                   </label>
+                  <div className="settings-modal__field">
+                    <div className="settings-modal__field-row">
+                      <label className="settings-modal__label" htmlFor="settings-recent-messages-window">
+                        Recent Messages To Keep
+                      </label>
+                      <span className="settings-modal__value-pill">
+                        {recentMessagesWindow}
+                      </span>
+                    </div>
+                    <div className="settings-modal__slider-row">
+                      <input
+                        id="settings-recent-messages-window"
+                        className="settings-modal__slider"
+                        type="range"
+                        min="2"
+                        max="100"
+                        step="1"
+                        value={recentMessagesWindow.toString()}
+                        onChange={(event) => onRecentMessagesWindowChange(Number(event.target.value))}
+                        disabled={!enableRollingSummaries}
+                      />
+                    </div>
+                    <p className="settings-modal__field-hint">
+                      Number of recent prompt-visible messages to send verbatim when rolling summaries are enabled.
+                    </p>
+                  </div>
                 </div>
               </section>
             ) : activeSection === 'chat' ? (

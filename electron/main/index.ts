@@ -71,6 +71,7 @@ const MIN_WINDOW_HEIGHT = 600
 const MAX_AI_DEBUG_ENTRIES = 200
 const AI_STREAM_INITIAL_TIMEOUT_MS = 30_000
 const AI_STREAM_IDLE_TIMEOUT_MS = 60_000
+const DEFAULT_RECENT_MESSAGES_WINDOW = 10
 const AWAITING_PLAYER_ACTION_MARKER = '[System] Awaiting player action...'
 const TRANSIENT_ERROR_MARKER = '[System Error]'
 const LEGACY_STREAM_ERROR_MESSAGE = '⚠️ Could not reach the selected AI server. Check that it is running and the server address is correct.'
@@ -484,6 +485,10 @@ function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSet
         ? raw.rollingSummarySystemPrompt
         : DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
     enableRollingSummaries: raw?.enableRollingSummaries === true,
+    recentMessagesWindow:
+      typeof raw?.recentMessagesWindow === 'number' && Number.isFinite(raw.recentMessagesWindow)
+        ? Math.max(2, Math.min(100, Math.floor(raw.recentMessagesWindow)))
+        : DEFAULT_RECENT_MESSAGES_WINDOW,
     showChatMarkup: raw?.showChatMarkup === true,
     chatTextSize: isChatTextSize(raw?.chatTextSize) ? raw.chatTextSize : 'small',
     assistantResponseRevealDelayMs:
@@ -3831,6 +3836,131 @@ async function* streamServerChat(
 }
 
 /**
+ * Normalize chat history for strict templates that require exactly one leading
+ * system message followed by alternating user/assistant turns.
+ *
+ * Adjacent messages with the same role are merged into one block so roleplay
+ * transcripts with multiple player turns or appended retry instructions remain
+ * compatible with stricter model templates.
+ *
+ * @param messages - Raw chat payload prepared by the renderer.
+ * @returns Compatibility-normalized message list.
+ */
+function normalizeChatMessagesForTemplate(messages: ChatMessage[]): ChatMessage[] {
+  const condensedMessages: ChatMessage[] = []
+
+  for (const message of messages) {
+    const content = typeof message.content === 'string' ? message.content.trim() : ''
+    if (!content) {
+      continue
+    }
+
+    const previousMessage = condensedMessages[condensedMessages.length - 1] ?? null
+    if (previousMessage && previousMessage.role === message.role) {
+      previousMessage.content = `${previousMessage.content}\n\n${content}`
+      continue
+    }
+
+    condensedMessages.push({
+      role: message.role,
+      content,
+    })
+  }
+
+  const systemMessage = condensedMessages[0]?.role === 'system'
+    ? condensedMessages[0]
+    : null
+  const conversationMessages = systemMessage ? condensedMessages.slice(1) : condensedMessages.slice()
+  const leadingAssistantMessages: ChatMessage[] = []
+
+  while (conversationMessages[0]?.role === 'assistant') {
+    const leadingAssistantMessage = conversationMessages.shift()
+    if (leadingAssistantMessage) {
+      leadingAssistantMessages.push(leadingAssistantMessage)
+    }
+  }
+
+  if (leadingAssistantMessages.length === 0) {
+    return condensedMessages
+  }
+
+  const leadingAssistantContext = leadingAssistantMessages
+    .map((message) => message.content)
+    .join('\n\n')
+  const repairedSystemContent = [
+    systemMessage?.content ?? '',
+    'Prior assistant context retained from earlier transcript:',
+    leadingAssistantContext,
+  ]
+    .filter((section) => section.trim().length > 0)
+    .join('\n\n')
+
+  return [
+    {
+      role: 'system',
+      content: repairedSystemContent,
+    },
+    ...conversationMessages,
+  ]
+}
+
+/**
+ * Inspect a chat payload for template-order violations after normalization.
+ *
+ * Strict chat templates allow at most one leading system message, followed by
+ * alternating user/assistant turns. This helper reports the first violation so
+ * AI Debug can show the exact failure shape.
+ *
+ * @param messages - Compatibility-normalized message list.
+ * @returns Null when the sequence is valid, otherwise a short violation record.
+ */
+function findChatTemplateSequenceViolation(messages: ChatMessage[]): {
+  index: number
+  previousRole: ChatMessage['role'] | null
+  currentRole: ChatMessage['role']
+  reason: string
+} | null {
+  let seenNonSystem = false
+  let previousRole: ChatMessage['role'] | null = null
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const currentRole = messages[index].role
+
+    if (currentRole === 'system') {
+      if (index !== 0) {
+        return {
+          index,
+          previousRole,
+          currentRole,
+          reason: 'system message appeared after the first position',
+        }
+      }
+      previousRole = currentRole
+      continue
+    }
+
+    if (!seenNonSystem) {
+      seenNonSystem = true
+      previousRole = currentRole
+      continue
+    }
+
+    if (previousRole === currentRole) {
+      return {
+        index,
+        previousRole,
+        currentRole,
+        reason: 'adjacent messages share the same role',
+      }
+    }
+
+    previousRole = currentRole
+  }
+
+  return null
+}
+
+/**
  * Estimate token usage for an outbound prompt payload conservatively enough
  * to leave headroom when reserving completion tokens.
  *
@@ -4935,6 +5065,8 @@ ipcMain.on('ai:stream', async (event, payload: {
 }) => {
   const { id, messages, serverId, modelSlug } = payload
   const settings = loadSettings({ syncLocalModels: false })
+  const normalizedMessages = normalizeChatMessagesForTemplate(messages)
+  const templateSequenceViolation = findChatTemplateSequenceViolation(normalizedMessages)
 
   const server =
     settings.servers.find((s) => s.id === serverId) ??
@@ -4955,7 +5087,7 @@ ipcMain.on('ai:stream', async (event, payload: {
   const activeModel = settings.models.find((candidate) =>
     candidate.serverId === server.id && candidate.slug === slug,
   )
-  const promptEstimate = estimatePromptTokens(messages)
+  const promptEstimate = estimatePromptTokens(normalizedMessages)
   const contextWindowTokens =
     typeof activeModel?.contextWindowTokens === 'number' && activeModel.contextWindowTokens > 0
       ? activeModel.contextWindowTokens
@@ -5011,7 +5143,11 @@ ipcMain.on('ai:stream', async (event, payload: {
 
   debug('info', 'ai.stream.start', {
     requestId: id,
-    messageCount: messages.length,
+    messageCount: normalizedMessages.length,
+    originalMessageCount: messages.length,
+    messages,
+    normalizedMessages,
+    templateSequenceViolation,
     promptEstimate,
     contextWindowTokens,
     temperature,
@@ -5028,7 +5164,7 @@ ipcMain.on('ai:stream', async (event, payload: {
     for await (const item of streamServerChat(
       server,
       slug,
-      messages,
+      normalizedMessages,
       contextWindowTokens,
       temperature,
       topP,

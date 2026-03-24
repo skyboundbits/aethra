@@ -79,6 +79,11 @@ const ASSISTANT_RESPONSE_REVEAL_DELAY_RANGE_MS = {
   min: 0,
   max: 10000,
 } as const
+const RECENT_MESSAGES_WINDOW_RANGE = {
+  min: 2,
+  max: 100,
+} as const
+const DEFAULT_RECENT_MESSAGES_WINDOW = 10
 
 const DEFAULT_SETTINGS: AppSettings = {
   servers: [],
@@ -90,6 +95,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   formattingRules: DEFAULT_CHAT_FORMATTING_RULES,
   rollingSummarySystemPrompt: DEFAULT_ROLLING_SUMMARY_SYSTEM_PROMPT,
   enableRollingSummaries: false,
+  recentMessagesWindow: DEFAULT_RECENT_MESSAGES_WINDOW,
   showChatMarkup: false,
   chatTextSize: 'small',
   assistantResponseRevealDelayMs: DEFAULT_ASSISTANT_RESPONSE_REVEAL_DELAY_MS,
@@ -110,7 +116,6 @@ const AWAITING_PLAYER_ACTION_MARKER = '[System] Awaiting player action...'
 const TRANSIENT_ERROR_MARKER = '[System Error]'
 const LEGACY_STREAM_ERROR_MESSAGE = '⚠️ Could not reach the selected AI server. Check that it is running and the server address is correct.'
 const MAX_UNTAGGED_ASSISTANT_ATTEMPTS = 3
-const SUMMARY_RECENT_MESSAGE_COUNT = 10
 const SUMMARY_IDLE_DELAY_MS = 1500
 const SUMMARY_REBUILD_CONTEXT_FRACTION = 0.75
 const CHAT_LOADING_MIN_DURATION_MS = 220
@@ -179,7 +184,9 @@ function getVisiblePromptMessages(messages: Message[]): Message[] {
 function getPromptWindowMessages(
   session: Session,
   useRollingSummary: boolean,
+  recentMessagesWindow: number,
   pendingMessages: Message[] = [],
+  forceRecentWindowOnly = false,
 ): Message[] {
   const visibleMessages = getVisiblePromptMessages([...session.messages, ...pendingMessages])
   const lastVisibleMessage = visibleMessages[visibleMessages.length - 1] ?? null
@@ -196,7 +203,15 @@ function getPromptWindowMessages(
     return livePromptMessages
   }
 
-  const recentStartIndex = Math.max(livePromptMessages.length - SUMMARY_RECENT_MESSAGE_COUNT, 0)
+  const normalizedRecentMessagesWindow = Math.max(
+    RECENT_MESSAGES_WINDOW_RANGE.min,
+    Math.floor(recentMessagesWindow || DEFAULT_RECENT_MESSAGES_WINDOW),
+  )
+  const recentStartIndex = Math.max(livePromptMessages.length - normalizedRecentMessagesWindow, 0)
+  if (forceRecentWindowOnly) {
+    return livePromptMessages.slice(recentStartIndex)
+  }
+
   const summarizedCount = session.rollingSummary.trim().length > 0
     ? Math.max(0, Math.floor(session.summarizedMessageCount))
     : 0
@@ -600,6 +615,7 @@ function buildRequestMessages(
   pendingMessages: Message[] = [],
   trailingInstructions: ChatMessage[] = [],
   relationshipGraph: RelationshipGraph | null = null,
+  forceRecentWindowOnly = false,
 ): ChatMessage[] {
   return [
     ...buildSystemContext(
@@ -612,7 +628,15 @@ function buildRequestMessages(
       getPromptSceneSummary(session, settings.enableRollingSummaries),
       relationshipGraph,
     ),
-    ...toApiMessages(getPromptWindowMessages(session, settings.enableRollingSummaries, pendingMessages)),
+    ...toApiMessages(
+      getPromptWindowMessages(
+        session,
+        settings.enableRollingSummaries,
+        settings.recentMessagesWindow,
+        pendingMessages,
+        forceRecentWindowOnly,
+      ),
+    ),
     ...trailingInstructions,
   ]
 }
@@ -623,9 +647,16 @@ function buildRequestMessages(
  * @param session - Session candidate.
  * @returns Snapshot describing the next summary pass, or null when no work is needed.
  */
-function createSessionSummarySnapshot(session: Session): SessionSummarySnapshot | null {
+function createSessionSummarySnapshot(
+  session: Session,
+  recentMessagesWindow: number,
+): SessionSummarySnapshot | null {
   const visibleMessages = getVisiblePromptMessages(session.messages)
-  const nextSummarizedCount = Math.max(visibleMessages.length - SUMMARY_RECENT_MESSAGE_COUNT, 0)
+  const normalizedRecentMessagesWindow = Math.max(
+    RECENT_MESSAGES_WINDOW_RANGE.min,
+    Math.floor(recentMessagesWindow || DEFAULT_RECENT_MESSAGES_WINDOW),
+  )
+  const nextSummarizedCount = Math.max(visibleMessages.length - normalizedRecentMessagesWindow, 0)
   const currentSummary = session.rollingSummary.trim()
   const baseSummarizedCount = currentSummary.length > 0
     ? Math.max(0, Math.min(session.summarizedMessageCount, nextSummarizedCount))
@@ -1912,8 +1943,14 @@ export default function App() {
       return []
     }
 
-    return toApiMessages(getPromptWindowMessages(activeSession, appSettings.enableRollingSummaries))
-  }, [activeSession, appSettings.enableRollingSummaries])
+    return toApiMessages(
+      getPromptWindowMessages(
+        activeSession,
+        appSettings.enableRollingSummaries,
+        appSettings.recentMessagesWindow,
+      ),
+    )
+  }, [activeSession, appSettings.enableRollingSummaries, appSettings.recentMessagesWindow])
 
   /** Approximate tokens used by the current outbound prompt. */
   const estimatedPromptTokens = useMemo(
@@ -3085,12 +3122,12 @@ function syncStreamedAssistantMessages(
 
     const isDirty = summaryDirtySessionsRef.current.has(sessionId)
     const visibleMessages = getVisiblePromptMessages(session.messages)
-    if (isDirty && visibleMessages.length <= SUMMARY_RECENT_MESSAGE_COUNT) {
+    if (isDirty && visibleMessages.length <= settings.recentMessagesWindow) {
       summaryDirtySessionsRef.current.delete(sessionId)
       return
     }
 
-    const snapshot = createSessionSummarySnapshot(session)
+    const snapshot = createSessionSummarySnapshot(session, settings.recentMessagesWindow)
     if (!isDirty && !snapshot) {
       return
     }
@@ -3199,6 +3236,7 @@ function syncStreamedAssistantMessages(
    * @returns Latest session snapshot after catch-up completes.
    */
   async function catchUpRollingSummaryBeforeSend(sessionId: string): Promise<Session | null> {
+    const recentMessagesWindow = appSettingsRef.current.recentMessagesWindow
     if (!appSettingsRef.current.enableRollingSummaries) {
       return campaignRef.current?.sessions.find((session) => session.id === sessionId) ?? null
     }
@@ -3209,18 +3247,18 @@ function syncStreamedAssistantMessages(
         return null
       }
 
-      if (summaryDirtySessionsRef.current.has(sessionId) && getVisiblePromptMessages(session.messages).length <= SUMMARY_RECENT_MESSAGE_COUNT) {
+      if (summaryDirtySessionsRef.current.has(sessionId) && getVisiblePromptMessages(session.messages).length <= recentMessagesWindow) {
         summaryDirtySessionsRef.current.delete(sessionId)
         return session
       }
 
-      if (summaryDirtySessionsRef.current.has(sessionId) || createSessionSummarySnapshot(session)) {
+      if (summaryDirtySessionsRef.current.has(sessionId) || createSessionSummarySnapshot(session, recentMessagesWindow)) {
         clearSummaryTimer(sessionId)
         await runRollingSummary(sessionId, { allowDuringStreaming: true })
         continue
       }
 
-      if (!createSessionSummarySnapshot(session)) {
+      if (!createSessionSummarySnapshot(session, recentMessagesWindow)) {
         return session
       }
     }
@@ -3397,6 +3435,32 @@ function syncStreamedAssistantMessages(
       console.error('[Aethra] Could not update rolling summary setting:', err)
       setSettingsStatusKind('error')
       setSettingsStatusMessage('Could not save the rolling summary setting.')
+    }
+  }
+
+  /**
+   * Persist the recent-message window kept verbatim when rolling summaries are enabled.
+   *
+   * @param count - Desired number of recent prompt-visible messages.
+   */
+  async function handleRecentMessagesWindowChange(count: number): Promise<void> {
+    const normalizedCount = Math.max(
+      RECENT_MESSAGES_WINDOW_RANGE.min,
+      Math.min(RECENT_MESSAGES_WINDOW_RANGE.max, Math.floor(Number.isFinite(count) ? count : DEFAULT_RECENT_MESSAGES_WINDOW)),
+    )
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      recentMessagesWindow: normalizedCount,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage(`Recent message window updated to ${normalizedCount}.`)
+    } catch (err) {
+      console.error('[Aethra] Could not save recent message window:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save the recent message window.')
     }
   }
 
@@ -4547,6 +4611,7 @@ function syncStreamedAssistantMessages(
     characterId?: string
     characterName?: string
     clearComposer?: boolean
+    forceRecentWindowOnly?: boolean
   }): Promise<void> {
     const currentCampaign = campaignRef.current
     if (!currentCampaign || isStreaming) {
@@ -4601,15 +4666,11 @@ function syncStreamedAssistantMessages(
       updatedAt: userMessage.timestamp,
     }
 
-    const summaryReadySession = options.sessionOverride
-      ? sessionForPrompt
-      : await catchUpRollingSummaryBeforeSend(sessionId)
-    const latestSessionForPrompt = summaryReadySession ?? sessionForPrompt
-
     upsertMessage(sessionId, userMessage)
     if (options.clearComposer !== false) {
       setInputValue('')
     }
+    isStreamingRef.current = true
     setIsStreaming(true)
     setLastTokenUsage(null)
 
@@ -4624,37 +4685,72 @@ function syncStreamedAssistantMessages(
     }
     upsertMessage(sessionId, assistantMessage)
 
-    // Generate relationship narrative alongside the summary (catchUpRollingSummaryBeforeSend already rebuilt the summary)
-    if (
-      appSettingsRef.current.enableRollingSummaries
-      && latestSessionForPrompt
-      && campaign
-      && campaignPath
-    ) {
-      try {
-        const sessionCharacters = getEnabledSessionCharacters(latestSessionForPrompt, characters)
-        const relationshipNarrative = await window.api.generateRelationshipNarrative(
-          campaignPath,
-          campaign.id,
-          sessionCharacters,
-          [latestSessionForPrompt],
-        )
-        // Update session with relationship narrative
-        updateCampaign((prev) => ({
-          ...prev,
-          sessions: prev.sessions.map((session) =>
-            session.id === sessionId
-              ? {
-                ...session,
-                relationshipNarrativeSummary: relationshipNarrative,
-                updatedAt: Date.now(),
-              }
-              : session,
-          ),
-        }))
-      } catch (err) {
-        console.error('[Aethra] Could not generate relationship narrative before sending:', err)
+    let latestSessionForPrompt = sessionForPrompt
+
+    try {
+      const summaryReadySession = options.sessionOverride
+        ? sessionForPrompt
+        : await catchUpRollingSummaryBeforeSend(sessionId)
+      latestSessionForPrompt = summaryReadySession ?? sessionForPrompt
+
+      // Generate relationship narrative alongside the summary (catchUpRollingSummaryBeforeSend already rebuilt the summary)
+      if (
+        appSettingsRef.current.enableRollingSummaries
+        && latestSessionForPrompt
+        && campaign
+        && campaignPath
+      ) {
+        try {
+          const sessionCharacters = getEnabledSessionCharacters(latestSessionForPrompt, characters)
+          const relationshipNarrative = await window.api.generateRelationshipNarrative(
+            campaignPath,
+            campaign.id,
+            sessionCharacters,
+            [latestSessionForPrompt],
+          )
+          // Update session with relationship narrative
+          updateCampaign((prev) => ({
+            ...prev,
+            sessions: prev.sessions.map((session) =>
+              session.id === sessionId
+                ? {
+                  ...session,
+                  relationshipNarrativeSummary: relationshipNarrative,
+                  updatedAt: Date.now(),
+                }
+                : session,
+            ),
+          }))
+        } catch (err) {
+          console.error('[Aethra] Could not generate relationship narrative before sending:', err)
+        }
       }
+    } catch (err) {
+      console.error('[Aethra] Could not prepare AI request before streaming:', err)
+      updateCampaign((prev) => ({
+        ...prev,
+        sessions: prev.sessions.map((session) => {
+          if (session.id !== sessionId) {
+            return session
+          }
+
+          return {
+            ...session,
+            messages: session.messages.map((message) => (
+              message.id === assistantMessage.id
+                ? {
+                  ...message,
+                  content: `${TRANSIENT_ERROR_MARKER} Could not prepare the AI request. Please try again.`,
+                }
+                : message
+            )),
+            updatedAt: Date.now(),
+          }
+        }),
+      }))
+      isStreamingRef.current = false
+      setIsStreaming(false)
+      return
     }
 
     // Accumulate streamed text outside React state to avoid excessive re-renders,
@@ -4673,6 +4769,7 @@ function syncStreamedAssistantMessages(
       [userMessage],
       undefined,
       relationshipGraph,
+      options.forceRecentWindowOnly === true,
     )
     const playerControlledNames = new Set(
       enabledSessionCharacters
@@ -4757,6 +4854,7 @@ function syncStreamedAssistantMessages(
         return
       }
 
+      isStreamingRef.current = false
       setIsStreaming(false)
       scheduleRollingSummary(sessionId)
     }
@@ -4827,6 +4925,7 @@ function syncStreamedAssistantMessages(
             content: 'Your previous reply was invalid. Retry and output only lines beginning with [Name]. Every line must start with [Scene] or the exact name of an AI-controlled character. Do not write any content for player-controlled characters.',
           }],
           relationshipGraph,
+          options.forceRecentWindowOnly === true,
         )
 
       streamCompletion(
@@ -4879,6 +4978,7 @@ function syncStreamedAssistantMessages(
               }
             }),
           }))
+          isStreamingRef.current = false
           setIsStreaming(false)
         },
       )
@@ -4966,6 +5066,7 @@ function syncStreamedAssistantMessages(
       sessionOverride: nextSession,
       characterId: message.characterId,
       characterName: message.characterName,
+      forceRecentWindowOnly: true,
     })
   }
 
@@ -5119,6 +5220,7 @@ function syncStreamedAssistantMessages(
           formattingRules={appSettings.formattingRules}
           rollingSummarySystemPrompt={appSettings.rollingSummarySystemPrompt}
           enableRollingSummaries={appSettings.enableRollingSummaries}
+          recentMessagesWindow={appSettings.recentMessagesWindow}
           statusMessage={settingsStatusMessage}
           statusKind={settingsStatusKind}
           onClose={handleCloseSettings}
@@ -5156,6 +5258,9 @@ function syncStreamedAssistantMessages(
           }}
           onRollingSummariesToggle={(enabled) => {
             void handleRollingSummariesToggle(enabled)
+          }}
+          onRecentMessagesWindowChange={(count) => {
+            void handleRecentMessagesWindowChange(count)
           }}
           onSavePromptTemplates={handlePromptTemplatesSave}
           onSetStatus={(kind, message) => {

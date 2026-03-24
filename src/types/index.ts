@@ -676,6 +676,8 @@ export interface AppSettings {
   rollingSummarySystemPrompt: string
   /** Whether campaign chats should send a rolling summary plus the most recent messages. */
   enableRollingSummaries: boolean
+  /** Number of recent prompt-visible messages to keep verbatim when summaries are enabled. */
+  recentMessagesWindow: number
   /** Whether hidden inline markup markers should be shown in chat bubbles. */
   showChatMarkup: boolean
   /** Selected chat bubble text size preset. */
