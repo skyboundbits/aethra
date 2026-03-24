@@ -303,6 +303,9 @@ export type ThemeMode = 'dark' | 'light'
 /** Supported chat bubble text size presets. */
 export type ChatTextSize = 'small' | 'medium' | 'large' | 'extra-large'
 
+/** Supported assistant response display modes while a stream is in progress. */
+export type AssistantResponseDisplayMode = 'stream' | 'after-complete'
+
 /** Supported AI provider kinds. */
 export type ServerKind = 'lmstudio' | 'text-generation-webui' | 'openai-compatible' | 'llama.cpp'
 
@@ -682,6 +685,8 @@ export interface AppSettings {
   showChatMarkup: boolean
   /** Selected chat bubble text size preset. */
   chatTextSize: ChatTextSize
+  /** Whether assistant replies render during the live stream or only after completion. */
+  assistantResponseDisplayMode: AssistantResponseDisplayMode
   /** Minimum delay before assistant text starts rendering, in milliseconds. */
   assistantResponseRevealDelayMs: number
   /** Selected visual theme ID. Built-ins and custom themes share the same namespace. */

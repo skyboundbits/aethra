@@ -58,6 +58,7 @@ import type {
   Campaign,
   CampaignLoadProgress,
   CampaignSummary,
+  AssistantResponseDisplayMode,
   CharacterProfile,
   HardwareInfo,
   HuggingFaceModelFile,
@@ -98,6 +99,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   recentMessagesWindow: DEFAULT_RECENT_MESSAGES_WINDOW,
   showChatMarkup: false,
   chatTextSize: 'small',
+  assistantResponseDisplayMode: 'stream',
   assistantResponseRevealDelayMs: DEFAULT_ASSISTANT_RESPONSE_REVEAL_DELAY_MS,
   activeThemeId: 'default',
   customThemes: [],
@@ -3330,6 +3332,32 @@ function syncStreamedAssistantMessages(
   }
 
   /**
+   * Persist how assistant replies should be displayed while a stream is active.
+   *
+   * @param mode - Selected assistant response display mode.
+   */
+  async function handleAssistantResponseDisplayModeSelect(mode: AssistantResponseDisplayMode): Promise<void> {
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      assistantResponseDisplayMode: mode,
+    }
+
+    try {
+      await persistSettings(nextSettings)
+      setSettingsStatusKind('success')
+      setSettingsStatusMessage(
+        mode === 'stream'
+          ? 'Assistant replies will now stream live.'
+          : 'Assistant replies will now appear after completion.',
+      )
+    } catch (err) {
+      console.error('[Aethra] Could not save assistant response display mode:', err)
+      setSettingsStatusKind('error')
+      setSettingsStatusMessage('Could not save the assistant response display setting.')
+    }
+  }
+
+  /**
    * Persist whether inline markup markers should remain visible in chat bubbles.
    *
    * @param enabled - Whether raw chat markup should be shown.
@@ -4866,6 +4894,8 @@ function syncStreamedAssistantMessages(
      * @param attemptNumber - 1-based attempt counter for malformed replies.
      */
     function ensureAssistantReveal(attemptNumber: number): void {
+      const shouldRenderDuringStream = appSettingsRef.current.assistantResponseDisplayMode === 'stream'
+
       if (canRenderAssistantText) {
         if (streamFinished) {
           finishAssistantAttempt(attemptNumber)
@@ -4876,7 +4906,7 @@ function syncStreamedAssistantMessages(
       const remainingDelay = getAssistantRevealDelayRemaining()
       if (remainingDelay <= 0) {
         canRenderAssistantText = true
-        if (accumulated.length > 0) {
+        if (shouldRenderDuringStream && accumulated.length > 0) {
           scheduleStreamedAssistantSync()
         }
         if (streamFinished) {
@@ -4892,7 +4922,7 @@ function syncStreamedAssistantMessages(
       revealTimeoutId = window.setTimeout(() => {
         revealTimeoutId = null
         canRenderAssistantText = true
-        if (accumulated.length > 0) {
+        if (shouldRenderDuringStream && accumulated.length > 0) {
           scheduleStreamedAssistantSync()
         }
         if (streamFinished) {
@@ -4933,7 +4963,7 @@ function syncStreamedAssistantMessages(
         /* onToken */ (chunk) => {
           accumulated += chunk
           ensureAssistantReveal(attemptNumber)
-          if (canRenderAssistantText) {
+          if (canRenderAssistantText && appSettingsRef.current.assistantResponseDisplayMode === 'stream') {
             scheduleStreamedAssistantSync()
           }
         },
@@ -5214,6 +5244,7 @@ function syncStreamedAssistantMessages(
           isDownloadingModel={isDownloadingModel}
           activeThemeId={appSettings.activeThemeId}
           chatTextSize={appSettings.chatTextSize}
+          assistantResponseDisplayMode={appSettings.assistantResponseDisplayMode}
           showChatMarkup={appSettings.showChatMarkup}
           assistantResponseRevealDelayMs={appSettings.assistantResponseRevealDelayMs}
           campaignBasePrompt={appSettings.campaignBasePrompt}
@@ -5249,6 +5280,9 @@ function syncStreamedAssistantMessages(
           }}
           onChatTextSizeSelect={(textSize) => {
             void handleChatTextSizeSelect(textSize)
+          }}
+          onAssistantResponseDisplayModeSelect={(mode) => {
+            void handleAssistantResponseDisplayModeSelect(mode)
           }}
           onShowChatMarkupToggle={(enabled) => {
             void handleShowChatMarkupToggle(enabled)

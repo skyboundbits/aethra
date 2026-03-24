@@ -18,7 +18,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_pro
 import { chmodSync, copyFileSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { get as httpsGet } from 'https'
 import { cpus, totalmem } from 'os'
-import { basename, dirname, extname, join, relative } from 'path'
+import { basename, delimiter, dirname, extname, join, relative } from 'path'
 
 import type {
   AffinityLabel,
@@ -31,6 +31,7 @@ import type {
   CampaignLoadProgress,
   CampaignSummary,
   ChatTextSize,
+  AssistantResponseDisplayMode,
   CharacterProfile,
   ReusableAvatar,
   ReusableCharacter,
@@ -107,6 +108,8 @@ const BACKEND_DISPLAY: Record<string, 'CUDA' | 'Vulkan' | 'Metal' | 'CPU'> = {
   metal:  'Metal',
   cpu:    'CPU',
 }
+
+const LLAMA_RUNTIME_LIBRARY_EXTENSIONS = new Set(['.dll', '.dylib', '.so'])
 
 /** In-flight binary install guard — prevents concurrent installs. */
 let isBinaryInstalling = false
@@ -342,7 +345,26 @@ function inferServerKind(server: Partial<ServerProfile> | null | undefined): Ser
 
   const normalizedId = typeof server?.id === 'string' ? server.id.trim().toLowerCase() : ''
   const normalizedName = typeof server?.name === 'string' ? server.name.trim().toLowerCase() : ''
+  const normalizedBaseUrl = typeof server?.baseUrl === 'string' ? server.baseUrl.trim().toLowerCase() : ''
+  const hasLocalLlamaFields =
+    (typeof server?.modelsDirectory === 'string' && server.modelsDirectory.trim().length > 0) ||
+    (typeof server?.executablePath === 'string' && server.executablePath.trim().length > 0) ||
+    (typeof server?.host === 'string' && server.host.trim().length > 0) ||
+    (typeof server?.port === 'number' && Number.isFinite(server.port) && server.port > 0)
+
   if (normalizedId === LOCAL_LLAMACPP_SERVER_ID || normalizedName === 'local llama.cpp') {
+    return 'llama.cpp'
+  }
+  if (
+    normalizedId.includes('llama') ||
+    normalizedId.includes('gguf') ||
+    normalizedName.includes('llama.cpp') ||
+    normalizedName.includes('llama cpp') ||
+    normalizedName.includes('gguf') ||
+    hasLocalLlamaFields ||
+    normalizedBaseUrl === 'http://127.0.0.1:3939/v1' ||
+    normalizedBaseUrl === 'http://localhost:3939/v1'
+  ) {
     return 'llama.cpp'
   }
   if (normalizedId === 'lmstudio-default' || normalizedName === 'lm studio') {
@@ -491,6 +513,8 @@ function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSet
         : DEFAULT_RECENT_MESSAGES_WINDOW,
     showChatMarkup: raw?.showChatMarkup === true,
     chatTextSize: isChatTextSize(raw?.chatTextSize) ? raw.chatTextSize : 'small',
+    assistantResponseDisplayMode:
+      isAssistantResponseDisplayMode(raw?.assistantResponseDisplayMode) ? raw.assistantResponseDisplayMode : 'stream',
     assistantResponseRevealDelayMs:
       typeof raw?.assistantResponseRevealDelayMs === 'number' && Number.isFinite(raw.assistantResponseRevealDelayMs)
         ? Math.max(0, Math.min(10000, Math.round(raw.assistantResponseRevealDelayMs)))
@@ -990,6 +1014,16 @@ function saveModelProfile(model: ModelPreset): void {
  */
 function isChatTextSize(value: unknown): value is ChatTextSize {
   return value === 'small' || value === 'medium' || value === 'large' || value === 'extra-large'
+}
+
+/**
+ * Validate persisted assistant-response display modes loaded from disk.
+ *
+ * @param value - Unknown persisted value.
+ * @returns True when the value is a supported assistant response display mode.
+ */
+function isAssistantResponseDisplayMode(value: unknown): value is AssistantResponseDisplayMode {
+  return value === 'stream' || value === 'after-complete'
 }
 
 /**
@@ -2712,13 +2746,13 @@ async function installLlamaBinary(): Promise<string> {
     }
     copyFileSync(sourceBinary, destBinary)
 
-    if (process.platform === 'win32') {
-      // Copy all DLLs from source root (required runtime dependencies)
-      readdirSync(sourceRoot)
-        .filter((f) => f.toLowerCase().endsWith('.dll'))
-        .forEach((dll) => copyFileSync(join(sourceRoot, dll), join(destination, dll)))
-    } else {
-      // Ensure the binary is executable on macOS and Linux
+    // Copy bundled runtime libraries beside the executable so the loader can resolve them.
+    readdirSync(sourceRoot)
+      .filter((entry) => LLAMA_RUNTIME_LIBRARY_EXTENSIONS.has(extname(entry).toLowerCase()))
+      .forEach((libraryFile) => copyFileSync(join(sourceRoot, libraryFile), join(destination, libraryFile)))
+
+    if (process.platform !== 'win32') {
+      // Ensure the binary is executable on macOS and Linux.
       chmodSync(destBinary, 0o755)
     }
 
@@ -2777,6 +2811,29 @@ function resolveLlamaExecutablePath(server: ServerProfile): string | null {
   }
 
   return null
+}
+
+/**
+ * Build environment overrides so llama-server can resolve sibling runtime libraries.
+ *
+ * @param executablePath - Absolute path to the selected llama-server binary.
+ * @returns Environment object with platform-specific library search paths prepended.
+ */
+function buildLlamaRuntimeEnvironment(executablePath: string): NodeJS.ProcessEnv {
+  const executableDir = dirname(executablePath)
+  const env: NodeJS.ProcessEnv = { ...process.env }
+
+  if (process.platform === 'darwin') {
+    env.DYLD_LIBRARY_PATH = [executableDir, env.DYLD_LIBRARY_PATH]
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      .join(delimiter)
+  } else if (process.platform === 'linux') {
+    env.LD_LIBRARY_PATH = [executableDir, env.LD_LIBRARY_PATH]
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      .join(delimiter)
+  }
+
+  return env
 }
 
 /**
@@ -2966,6 +3023,7 @@ async function startLocalRuntime(server: ServerProfile, model: ModelPreset): Pro
   args.push('--flash-attn', model.flashAttention === false ? 'off' : 'on')
 
   const child = spawn(executablePath, args, {
+    env: buildLlamaRuntimeEnvironment(executablePath),
     windowsHide: true,
     stdio: 'pipe',
   })

@@ -20,6 +20,7 @@ import '../styles/settings.css'
 
 import type {
   AvailableModel,
+  AssistantResponseDisplayMode,
   BinaryInstallProgress,
   ChatTextSize,
   HardwareInfo,
@@ -249,6 +250,8 @@ interface SettingsModalProps {
   activeThemeId: string
   /** Currently active chat bubble text size preset. */
   chatTextSize: ChatTextSize
+  /** Whether assistant replies render during the stream or after completion. */
+  assistantResponseDisplayMode: AssistantResponseDisplayMode
   /** Whether hidden chat markup markers should be shown in the transcript. */
   showChatMarkup: boolean
   /** Minimum delay before assistant text starts rendering, in milliseconds. */
@@ -304,6 +307,8 @@ interface SettingsModalProps {
   onThemeSelect: (themeId: string) => void
   /** Called when the user selects a chat text size preset. */
   onChatTextSizeSelect: (textSize: ChatTextSize) => void
+  /** Called when the user selects how assistant replies appear during streaming. */
+  onAssistantResponseDisplayModeSelect: (mode: AssistantResponseDisplayMode) => void
   /** Called when the user toggles raw chat markup visibility. */
   onShowChatMarkupToggle: (enabled: boolean) => void
   /** Called when the user changes the assistant response reveal delay. */
@@ -390,6 +395,7 @@ export function SettingsModal({
   isDownloadingModel,
   activeThemeId,
   chatTextSize,
+  assistantResponseDisplayMode,
   showChatMarkup,
   assistantResponseRevealDelayMs,
   campaignBasePrompt,
@@ -413,6 +419,7 @@ export function SettingsModal({
   onDownloadHuggingFaceModel,
   onThemeSelect,
   onChatTextSizeSelect,
+  onAssistantResponseDisplayModeSelect,
   onShowChatMarkupToggle,
   onAssistantResponseRevealDelayChange,
   onRollingSummariesToggle,
@@ -935,6 +942,25 @@ export function SettingsModal({
                     </select>
                     <p className="settings-modal__field-hint">
                       Adjusts the text size used inside chat bubbles.
+                    </p>
+                  </div>
+                  <div className="settings-modal__field">
+                    <label className="settings-modal__label" htmlFor="settings-chat-response-display-mode">
+                      Assistant Response Display
+                    </label>
+                    <select
+                      id="settings-chat-response-display-mode"
+                      className="settings-modal__select app-select"
+                      value={assistantResponseDisplayMode}
+                      onChange={(event) => onAssistantResponseDisplayModeSelect(
+                        event.target.value as AssistantResponseDisplayMode,
+                      )}
+                    >
+                      <option value="stream">Stream live as tokens arrive</option>
+                      <option value="after-complete">Wait until the reply is complete</option>
+                    </select>
+                    <p className="settings-modal__field-hint">
+                      Delaying display can reduce visible formatting churn on slower machines.
                     </p>
                   </div>
                   <div className="settings-modal__field">
