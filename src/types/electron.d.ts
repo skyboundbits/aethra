@@ -404,6 +404,32 @@ declare global {
        * @returns Cleanup function to remove the listener.
        */
       onWindowStateChange: (listener: (state: WindowControlsState) => void) => () => void
+
+      /**
+       * Fetch pre-authored app characters and avatars.
+       * Returns object with { avatars, characters } arrays.
+       */
+      getAppContent(): Promise<{
+        avatars: Array<{
+          id: string
+          name: string
+          imageData: string
+          crop: { x: number; y: number; scale: number }
+        }>
+        characters: Array<{
+          id: string
+          name: string
+          role: string
+          gender: 'male' | 'female' | 'non-specific'
+          pronouns: 'he/him' | 'she/her' | 'they/them'
+          description: string
+          personality: string
+          speakingStyle: string
+          goals: string
+          avatarImageData: string
+          avatarCrop: { x: number; y: number; scale: number }
+        }>
+      }>
     }
   }
 }
