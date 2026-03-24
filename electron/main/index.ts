@@ -5356,6 +5356,39 @@ ipcMain.handle('settings:set', (_event, settings: AppSettings): void => {
 })
 
 /**
+ * Fetch app-provided characters and avatars from the bundled JSON files.
+ * Returns an object with { avatars, characters } arrays.
+ * If files don't exist or are malformed, returns empty arrays.
+ */
+ipcMain.handle('appContent:get', async () => {
+  try {
+    const resourcesPath = join(__dirname, '..', 'resources', 'app-content')
+
+    let avatars: unknown[] = []
+    let characters: unknown[] = []
+
+    // Load avatars
+    const avatarsPath = join(resourcesPath, 'app-avatars.json')
+    if (existsSync(avatarsPath)) {
+      const avatarsData = JSON.parse(readFileSync(avatarsPath, 'utf-8'))
+      avatars = avatarsData.avatars || []
+    }
+
+    // Load characters
+    const charactersPath = join(resourcesPath, 'app-characters.json')
+    if (existsSync(charactersPath)) {
+      const charactersData = JSON.parse(readFileSync(charactersPath, 'utf-8'))
+      characters = charactersData.characters || []
+    }
+
+    return { avatars, characters }
+  } catch (error) {
+    console.error('Error loading app content:', error)
+    return { avatars: [], characters: [] }
+  }
+})
+
+/**
  * Models: read the current remote model list for a configured server.
  */
 ipcMain.handle('models:browse', async (_event, serverId: string): Promise<AvailableModel[]> => {
