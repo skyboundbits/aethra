@@ -125,7 +125,7 @@ export function CampaignLauncher({
             </p>
           ) : (
             <div className="campaign-launcher__list" role="list" aria-label="Stored campaigns">
-              {campaigns.slice(-3).map((campaign) => (
+              {campaigns.slice(0, 3).map((campaign) => (
                 <button
                   key={campaign.id}
                   type="button"

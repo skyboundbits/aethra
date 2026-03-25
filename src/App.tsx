@@ -2918,6 +2918,7 @@ function syncStreamedAssistantMessages(
     setActiveTab('')
     lastSavedCampaignRef.current = null
     setComposerFocusRequestKey((prev) => prev + 1)
+    await refreshCampaigns()
   }
 
   /**
@@ -5665,6 +5666,7 @@ function syncStreamedAssistantMessages(
    */
   useEffect(() => {
     if (isCampaignModalOpen) {
+      setIsCampaignBusy(false)
       void refreshCampaigns()
     }
   }, [isCampaignModalOpen])

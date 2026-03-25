@@ -8,6 +8,10 @@
   height: 76vh;
 }
 
+.modal--campaign .modal-layout__panel--workspace {
+  overflow-y: hidden;
+}
+
 .campaign-modal__nav {
   display: flex;
   flex-direction: column;
@@ -74,14 +78,19 @@
 
 .campaign-modal__panel {
   min-height: 0;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .campaign-modal__section {
   display: flex;
   flex-direction: column;
+  flex: 1;
   gap: var(--space-4);
   padding-right: var(--space-3);
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .campaign-modal__section-header {
@@ -203,6 +212,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
 }
 
 .campaign-modal__recent-header {
@@ -226,8 +237,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  max-height: 260px;
+  flex: 1;
   overflow-y: auto;
+  padding-right: var(--space-3);
 }
 
 .campaign-modal__recent-item {

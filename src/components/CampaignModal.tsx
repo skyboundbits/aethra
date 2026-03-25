@@ -85,7 +85,11 @@ export function CampaignModal({
   }, [activeTab, onRefreshCampaigns])
 
   const recentOptions = useMemo(
-    () => recentCampaigns.filter((entry) => entry.path !== campaignPath),
+    () =>
+      recentCampaigns
+        .filter((entry) => entry.path !== campaignPath)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 5),
     [campaignPath, recentCampaigns],
   )
 
@@ -323,7 +327,6 @@ export function CampaignModal({
                 <div className="campaign-modal__recent">
                   <div className="campaign-modal__recent-header">
                     <h3 className="campaign-modal__recent-title">Recent Campaigns</h3>
-                    <span className="campaign-modal__recent-count">{recentOptions.length}</span>
                   </div>
 
                   {recentOptions.length === 0 ? (

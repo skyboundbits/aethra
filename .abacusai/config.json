@@ -7,7 +7,12 @@
       "Bash(powershell *)",
       "Bash(powershell *)",
       "Bash(powershell *)",
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "Bash(grep *)",
+      "Bash(dir *)",
+      "Bash(findstr *)",
+      "Bash(find *)",
+      "Bash(head *)"
     ]
   }
 }
