@@ -246,6 +246,12 @@ declare global {
       listCampaigns: () => Promise<CampaignSummary[]>
 
       /**
+       * Get the absolute path to the app-managed campaigns root directory.
+       * @returns Promise resolving to the campaigns root path.
+       */
+      getCampaignsRootPath: () => Promise<string>
+
+      /**
        * Open a stored campaign by its folder path.
        * @param path - Absolute filesystem path of the campaign folder.
        * @returns Promise resolving to the loaded campaign and path.
@@ -261,9 +267,10 @@ declare global {
 
       /**
        * Open a native file picker for an existing campaign JSON file.
+       * @param defaultPath - Optional path to open the dialog at.
        * @returns Promise resolving to the selected campaign folder path, or null when cancelled.
        */
-      pickCampaignFile: () => Promise<string | null>
+      pickCampaignFile: (defaultPath?: string) => Promise<string | null>
 
       /**
        * Persist the current campaign to its JSON file.

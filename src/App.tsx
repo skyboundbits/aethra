@@ -1420,6 +1420,8 @@ export default function App() {
 
   /** Timestamp recorded the moment a relationship refresh call is dispatched. Used to badge "updated" entries in the review modal. */
   const refreshStartedAtRef = useRef<number>(0)
+  /** Tracks whether the user has opened a campaign from file during this session. */
+  const hasOpenedFromFileRef = useRef(false)
 
   /** Detected local hardware inventory used for llama.cpp fit guidance. */
   const [hardwareInfo, setHardwareInfo] = useState<HardwareInfo | null>(null)
@@ -2835,11 +2837,16 @@ function syncStreamedAssistantMessages(
     setCampaignStatusMessage(null)
 
     try {
-      const selectedPath = await window.api.pickCampaignFile()
+      // On first open during this session, start at the campaigns root folder
+      const defaultPath = hasOpenedFromFileRef.current
+        ? undefined
+        : await window.api.getCampaignsRootPath()
+      const selectedPath = await window.api.pickCampaignFile(defaultPath)
       if (!selectedPath) {
         return
       }
 
+      hasOpenedFromFileRef.current = true
       await handleOpenCampaign(selectedPath)
     } catch (err) {
       console.error('[Aethra] Could not pick campaign file:', err)

@@ -5631,6 +5631,13 @@ ipcMain.handle('campaign:list', (): CampaignSummary[] => {
 })
 
 /**
+ * Campaigns: get the absolute path to the campaigns root directory.
+ */
+ipcMain.handle('campaign:root-path', (): string => {
+  return ensureCampaignsRoot()
+})
+
+/**
  * Campaigns: open an existing managed campaign by folder path.
  */
 ipcMain.handle('campaign:open', async (_event, path: string): Promise<CampaignFileHandle> => {
@@ -5657,9 +5664,10 @@ ipcMain.handle('campaign:open', async (_event, path: string): Promise<CampaignFi
 /**
  * Campaigns: choose a campaign.json file from disk and return its folder path.
  */
-ipcMain.handle('campaign:pick-file', async (): Promise<string | null> => {
+ipcMain.handle('campaign:pick-file', async (_event, defaultPath?: string): Promise<string | null> => {
   const result = await dialog.showOpenDialog({
     title: 'Open Campaign File',
+    defaultPath,
     properties: ['openFile'],
     filters: [
       {

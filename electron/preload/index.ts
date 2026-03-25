@@ -388,6 +388,15 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   /**
+   * Get the absolute path to the app-managed campaigns root directory.
+   *
+   * @returns Promise resolving to the campaigns root path.
+   */
+  getCampaignsRootPath(): Promise<string> {
+    return ipcRenderer.invoke('campaign:root-path') as Promise<string>
+  },
+
+  /**
    * Open an existing stored campaign by folder path.
    *
    * @param path - Absolute path to the campaign folder.
@@ -417,10 +426,11 @@ contextBridge.exposeInMainWorld('api', {
   /**
    * Open a native file picker for an existing campaign JSON file.
    *
+   * @param defaultPath - Optional path to open the dialog at.
    * @returns Promise resolving to the selected campaign folder path, or null.
    */
-  pickCampaignFile(): Promise<string | null> {
-    return ipcRenderer.invoke('campaign:pick-file') as Promise<string | null>
+  pickCampaignFile(defaultPath?: string): Promise<string | null> {
+    return ipcRenderer.invoke('campaign:pick-file', defaultPath) as Promise<string | null>
   },
 
   /**
