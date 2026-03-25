@@ -4736,7 +4736,7 @@ function syncStreamedAssistantMessages(
    *
    * @param appCharacter - The pre-authored app character to copy.
    */
-  async function handleUseAppCharacter(appCharacter: typeof appCharacters[0]): Promise<void> {
+  async function handleUseAppCharacter(appCharacter: typeof appCharacters[0], controlledBy?: 'ai' | 'user'): Promise<void> {
     if (!campaignPath) {
       console.warn('[Aethra] No active campaign; cannot copy character')
       return
@@ -4755,6 +4755,7 @@ function syncStreamedAssistantMessages(
         id: characterId,
         folderName: folderName,
         ...newCharProfile,
+        controlledBy: controlledBy ?? newCharProfile.controlledBy,
       }
 
       // Save to campaign using existing handler

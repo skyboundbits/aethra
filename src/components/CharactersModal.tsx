@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Modal } from './Modal'
 import { ModalFooter, ModalPopupLayout, ModalWorkspaceLayout } from './ModalLayouts'
 import { ConfirmModal } from './ConfirmModal'
+import { CharacterControlTypeModal } from './CharacterControlTypeModal'
 import { useConfirm } from '../hooks/useConfirm'
 import { AvatarCropEditor } from './AvatarCropEditor'
 import { UserCircleIcon, UserIcon, UserPlusIcon, UsersIcon, UsersRoundIcon, WorldStarIcon } from './icons'
@@ -320,7 +321,7 @@ interface CharactersModalProps {
     goals: string
     avatarImageData: string
     avatarCrop: { x: number; y: number; scale: number }
-  }>[number]) => Promise<void>
+  }>[number], controlledBy?: 'ai' | 'user') => Promise<void>
 }
 
 function createCampaignCharacterDraft(): CharacterProfile {
@@ -721,6 +722,7 @@ export function CharactersModal({
   const [selectedAppAvatarId, setSelectedAppAvatarId] = useState<string | null>(null)
   const [selectedAppCharacterId, setSelectedAppCharacterId] = useState<string | null>(null)
   const [isViewingAppCharacter, setIsViewingAppCharacter] = useState(false)
+  const [pendingAppCharacter, setPendingAppCharacter] = useState<(typeof appCharacters)[0] | null>(null)
   const initialAvatarDraft = createEmptyAvatarDraft()
   const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>(initialAvatarDraft)
   const [savedAvatarDraftSnapshot, setSavedAvatarDraftSnapshot] = useState<string>(() => getAvatarDraftSnapshot(initialAvatarDraft))
@@ -2178,7 +2180,7 @@ export function CharactersModal({
                         disabled={!selectedAppCharacter || isBusy}
                         onClick={() => {
                           if (selectedAppCharacter) {
-                            onUseAppCharacter?.(selectedAppCharacter)
+                            setPendingAppCharacter(selectedAppCharacter)
                           }
                         }}
                       >
@@ -2192,7 +2194,7 @@ export function CharactersModal({
                       disabled={!selectedAppCharacter || isBusy}
                       onClick={() => {
                         if (selectedAppCharacter) {
-                          onUseAppCharacter?.(selectedAppCharacter)
+                          setPendingAppCharacter(selectedAppCharacter)
                         }
                       }}
                     >
@@ -2344,6 +2346,18 @@ export function CharactersModal({
           onToggleIncludeRelationships={setIncludeRelationshipsOnImport}
           onConfirm={() => { void handleConfirmImportReusableCharacter() }}
           onCancel={() => { setImportReusableConfirmation(null) }}
+        />
+      ) : null}
+      {pendingAppCharacter ? (
+        <CharacterControlTypeModal
+          character={pendingAppCharacter}
+          onSelectControlType={(controlledBy) => {
+            setPendingAppCharacter(null)
+            onUseAppCharacter?.(pendingAppCharacter, controlledBy)
+          }}
+          onCancel={() => {
+            setPendingAppCharacter(null)
+          }}
         />
       ) : null}
     </>

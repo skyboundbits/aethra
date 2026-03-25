@@ -159,3 +159,59 @@
   font-size: var(--font-size-small);
   line-height: 1.5;
 }
+
+/* ─── CharacterControlTypeModal body ────────────────────────────────────── */
+
+.character-control-type-modal__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  text-align: center;
+}
+
+.character-control-type-modal__avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background-color: var(--surface-bg-emphasis);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-color-secondary);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.character-control-type-modal__avatar--image {
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.character-control-type-modal__info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.character-control-type-modal__name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-color-primary);
+}
+
+.character-control-type-modal__role {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-color-secondary);
+}
+
+.character-control-type-modal__prompt {
+  margin: 0;
+  color: var(--text-color-primary);
+  font-size: 14px;
+  line-height: 1.5;
+}
