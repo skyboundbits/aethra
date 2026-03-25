@@ -1768,6 +1768,9 @@ export function CharactersModal({
                               {avatarStyle ? null : character.name.slice(0, 2).toUpperCase()}
                             </div>
                             <span className="characters-modal__gallery-name">{character.name}</span>
+                            <span className={`character-control-badge${character.controlledBy === 'user' ? ' character-control-badge--player' : ''}`}>
+                              {character.controlledBy === 'user' ? 'Player' : 'AI-Controlled'}
+                            </span>
                             <span className="characters-modal__gallery-summary">{character.role || 'No role yet.'}</span>
                           </button>
                         )
@@ -1891,6 +1894,9 @@ export function CharactersModal({
                               {avatarStyle ? null : character.name.slice(0, 2).toUpperCase()}
                             </div>
                             <span className="characters-modal__gallery-name">{character.name}</span>
+                            <span className={`character-control-badge${character.controlledBy === 'user' ? ' character-control-badge--player' : ''}`}>
+                              {character.controlledBy === 'user' ? 'Player' : 'AI-Controlled'}
+                            </span>
                             <span className="characters-modal__gallery-summary">{character.role || 'No role yet.'}</span>
                           </button>
                         )
@@ -1943,6 +1949,9 @@ export function CharactersModal({
                               {avatarStyle ? null : character.name.slice(0, 2).toUpperCase()}
                             </div>
                             <span className="characters-modal__gallery-name">{character.name}</span>
+                            <span className={`character-control-badge${character.controlledBy === 'user' ? ' character-control-badge--player' : ''}`}>
+                              {character.controlledBy === 'user' ? 'Player' : 'AI-Controlled'}
+                            </span>
                             <span className="characters-modal__gallery-summary">{character.role || 'No role yet.'}</span>
                           </button>
                         )

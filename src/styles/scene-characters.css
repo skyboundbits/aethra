@@ -83,18 +83,18 @@
 .scene-characters__pill {
   display: inline-flex;
   align-items: center;
-  min-height: 26px;
-  padding: 0 10px;
+  min-height: 24px;
+  padding: 2px 8px;
   border-radius: var(--radius-pill);
-  background-color: var(--panel-bg);
-  border: 1px solid var(--border-color);
-  color: var(--text-color-primary);
+  background-color: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
   font-size: var(--font-size-label);
+  font-weight: 500;
 }
 
 .scene-characters__pill--player {
   background-color: var(--surface-bg-user-message);
-  border-color: var(--border-color-accent);
+  color: var(--text-color-primary);
 }
 
 .scene-characters__meta {

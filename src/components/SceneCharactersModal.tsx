@@ -154,7 +154,7 @@ export function SceneCharactersModal({
                     <div className="scene-characters__name-row">
                       <span className="scene-characters__name">{character.name}</span>
                       <span className={`scene-characters__pill${character.controlledBy === 'user' ? ' scene-characters__pill--player' : ''}`}>
-                        {character.controlledBy === 'user' ? 'Player' : 'AI'}
+                        {character.controlledBy === 'user' ? 'Player' : 'AI-Controlled'}
                       </span>
                     </div>
                     <div className="scene-characters__meta">
