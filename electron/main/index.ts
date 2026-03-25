@@ -1928,13 +1928,13 @@ function campaignFilePath(folderPath: string): string {
 }
 
 /**
- * Return the absolute path to a campaign's chat storage folder.
+ * Return the absolute path to a campaign's scene storage folder.
  *
  * @param folderPath - Absolute campaign folder path.
- * @returns Full path to the chats directory.
+ * @returns Full path to the scenes directory.
  */
 function campaignChatsPath(folderPath: string): string {
-  return join(folderPath, 'chats')
+  return join(folderPath, 'scenes')
 }
 
 /**

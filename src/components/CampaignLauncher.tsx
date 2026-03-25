@@ -82,7 +82,7 @@ export function CampaignLauncher({
           Start with a campaign
         </h1>
         <p className="campaign-launcher__copy">
-          Create a new campaign with a name and description, or reopen one stored in the app data directory.
+          Campaigns are collections of scenes that you create to enjoy your roleplaying adventures.
         </p>
 
         <div className="campaign-launcher__actions">
@@ -116,10 +116,7 @@ export function CampaignLauncher({
 
         <div className="campaign-launcher__library">
           <div className="campaign-launcher__library-header">
-            <h2 className="campaign-launcher__library-title">Existing Campaigns</h2>
-            <span className="campaign-launcher__library-count">
-              {campaigns.length} stored
-            </span>
+            <h2 className="campaign-launcher__library-title">Latest Campaigns</h2>
           </div>
 
           {campaigns.length === 0 ? (
@@ -128,7 +125,7 @@ export function CampaignLauncher({
             </p>
           ) : (
             <div className="campaign-launcher__list" role="list" aria-label="Stored campaigns">
-              {campaigns.map((campaign) => (
+              {campaigns.slice(-3).map((campaign) => (
                 <button
                   key={campaign.id}
                   type="button"
