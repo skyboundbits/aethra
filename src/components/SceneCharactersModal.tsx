@@ -1,22 +1,22 @@
 /**
- * src/components/SessionCharactersModal.tsx
- * Modal dialog for enabling and disabling campaign characters per session.
+ * src/components/SceneCharactersModal.tsx
+ * Modal dialog for enabling and disabling campaign characters per scene.
  */
 
 import { Modal } from './Modal'
-import '../styles/session-characters.css'
-import type { CharacterProfile, Session } from '../types'
+import '../styles/scene-characters.css'
+import type { CharacterProfile, Scene } from '../types'
 
 const CHARACTER_EDITOR_AVATAR_SIZE = 220
 const MODAL_AVATAR_SIZE = 48
 
-/** Props accepted by the SessionCharactersModal component. */
-interface SessionCharactersModalProps {
-  /** Active session whose cast is being managed. */
-  activeSession: Session | null
-  /** Campaign characters available for the current session. */
+/** Props accepted by the SceneCharactersModal component. */
+interface SceneCharactersModalProps {
+  /** Active scene whose cast is being managed. */
+  activeScene: Scene | null
+  /** Campaign characters available for the current scene. */
   characters: CharacterProfile[]
-  /** Called when one character is enabled or disabled for the session. */
+  /** Called when one character is enabled or disabled for the scene. */
   onToggleCharacter: (characterId: string) => void
   /** Called when the modal should close. */
   onClose: () => void
@@ -57,41 +57,41 @@ function getCharacterInitials(characterName: string): string | null {
 }
 
 /**
- * Determine whether a character already appears in the active session.
+ * Determine whether a character already appears in the active scene.
  *
- * @param session - Session being managed.
+ * @param scene - Scene being managed.
  * @param character - Campaign character to inspect.
  * @returns True when the character has appeared in chat history.
  */
-function hasCharacterAppearedInSession(session: Session | null, character: CharacterProfile): boolean {
-  if (!session) {
+function hasCharacterAppearedInScene(scene: Scene | null, character: CharacterProfile): boolean {
+  if (!scene) {
     return false
   }
 
   const normalizedCharacterName = character.name.trim().toLocaleLowerCase()
-  return session.messages.some((message) => (
+  return scene.messages.some((message) => (
     message.characterId === character.id ||
     message.characterName?.trim().toLocaleLowerCase() === normalizedCharacterName
   ))
 }
 
 /**
- * Resolve the currently enabled character IDs for a session.
+ * Resolve the currently enabled character IDs for a scene.
  *
- * @param session - Session being managed.
+ * @param scene - Scene being managed.
  * @param characters - Campaign character roster.
- * @returns Stable set of character IDs currently active in that session.
+ * @returns Stable set of character IDs currently active in that scene.
  */
-function getEnabledCharacterIds(session: Session | null, characters: CharacterProfile[]): Set<string> {
-  if (!session) {
+function getEnabledCharacterIds(scene: Scene | null, characters: CharacterProfile[]): Set<string> {
+  if (!scene) {
     return new Set()
   }
 
-  if (Array.isArray(session.activeCharacterIds)) {
-    return new Set(session.activeCharacterIds.filter((characterId) => characterId.trim().length > 0))
+  if (Array.isArray(scene.activeCharacterIds)) {
+    return new Set(scene.activeCharacterIds.filter((characterId) => characterId.trim().length > 0))
   }
 
-  const disabledCharacterIds = new Set((session.disabledCharacterIds ?? []).filter((characterId) => characterId.trim().length > 0))
+  const disabledCharacterIds = new Set((scene.disabledCharacterIds ?? []).filter((characterId) => characterId.trim().length > 0))
   return new Set(
     characters
       .map((character) => character.id)
@@ -100,33 +100,33 @@ function getEnabledCharacterIds(session: Session | null, characters: CharacterPr
 }
 
 /**
- * SessionCharactersModal
- * Lists all campaign characters with avatar previews and per-session toggles.
+ * SceneCharactersModal
+ * Lists all campaign characters with avatar previews and per-scene toggles.
  */
-export function SessionCharactersModal({
-  activeSession,
+export function SceneCharactersModal({
+  activeScene,
   characters,
   onToggleCharacter,
   onClose,
-}: SessionCharactersModalProps) {
+}: SceneCharactersModalProps) {
   const sortedCharacters = sortCharacters(characters)
-  const enabledCharacterIds = getEnabledCharacterIds(activeSession, characters)
+  const enabledCharacterIds = getEnabledCharacterIds(activeScene, characters)
 
   return (
-    <Modal title="Session Characters" onClose={onClose} className="modal--session-characters">
-      {!activeSession ? (
-        <p className="session-characters__empty">Select a session to manage its active cast.</p>
+    <Modal title="Scene Characters" onClose={onClose} className="modal--scene-characters">
+      {!activeScene ? (
+        <p className="scene-characters__empty">Select a scene to manage its active cast.</p>
       ) : sortedCharacters.length === 0 ? (
-        <p className="session-characters__empty">No campaign characters are available yet.</p>
+        <p className="scene-characters__empty">No campaign characters are available yet.</p>
       ) : (
-        <div className="session-characters">
-          <p className="session-characters__intro">
-            Enable the campaign characters that should participate in this session.
+        <div className="scene-characters">
+          <p className="scene-characters__intro">
+            Enable the campaign characters that should participate in this scene.
           </p>
-          <div className="session-characters__list" role="list" aria-label="Campaign characters">
+          <div className="scene-characters__list" role="list" aria-label="Campaign characters">
             {sortedCharacters.map((character) => {
               const isEnabled = enabledCharacterIds.has(character.id)
-              const hasAppeared = hasCharacterAppearedInSession(activeSession, character)
+              const hasAppeared = hasCharacterAppearedInScene(activeScene, character)
               const avatarLabel = getCharacterInitials(character.name)
               const avatarOffsetScale = MODAL_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
               const avatarStyle = character.avatarImageData
@@ -140,38 +140,38 @@ export function SessionCharactersModal({
               return (
                 <label
                   key={character.id}
-                  className={`session-characters__item${isEnabled ? '' : ' session-characters__item--disabled'}`}
+                  className={`scene-characters__item${isEnabled ? '' : ' scene-characters__item--disabled'}`}
                   role="listitem"
                 >
                   <div
-                    className={`session-characters__avatar${avatarStyle ? ' session-characters__avatar--image' : ''}`}
+                    className={`scene-characters__avatar${avatarStyle ? ' scene-characters__avatar--image' : ''}`}
                     style={avatarStyle}
                     aria-hidden="true"
                   >
                     {avatarStyle ? null : avatarLabel}
                   </div>
-                  <div className="session-characters__copy">
-                    <div className="session-characters__name-row">
-                      <span className="session-characters__name">{character.name}</span>
-                      <span className={`session-characters__pill${character.controlledBy === 'user' ? ' session-characters__pill--player' : ''}`}>
+                  <div className="scene-characters__copy">
+                    <div className="scene-characters__name-row">
+                      <span className="scene-characters__name">{character.name}</span>
+                      <span className={`scene-characters__pill${character.controlledBy === 'user' ? ' scene-characters__pill--player' : ''}`}>
                         {character.controlledBy === 'user' ? 'Player' : 'AI'}
                       </span>
                     </div>
-                    <div className="session-characters__meta">
-                      {isEnabled ? 'Active in this session' : 'Inactive in this session'}
+                    <div className="scene-characters__meta">
+                      {isEnabled ? 'Active in this scene' : 'Inactive in this scene'}
                     </div>
                     {hasAppeared ? (
-                      <div className="session-characters__warning">
-                        Already appears in this chat. Turning them off may affect session flow.
+                      <div className="scene-characters__warning">
+                        Already appears in this chat. Turning them off may affect scene flow.
                       </div>
                     ) : null}
                   </div>
-                  <span className="session-characters__toggle">
+                  <span className="scene-characters__toggle">
                     <input
                       type="checkbox"
                       checked={isEnabled}
                       onChange={() => onToggleCharacter(character.id)}
-                      aria-label={`${isEnabled ? 'Disable' : 'Enable'} ${character.name} for this session`}
+                      aria-label={`${isEnabled ? 'Disable' : 'Enable'} ${character.name} for this scene`}
                     />
                   </span>
                 </label>
