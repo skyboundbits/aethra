@@ -1585,7 +1585,62 @@ export function CharactersModal({
                   </div>
                 )
               ) : activeTab === 'app-characters' ? (
-                <div className="characters-modal__blank">App characters are not available yet.</div>
+                <div className="characters-modal__library">
+                  <div>
+                    <h2 className="characters-modal__heading">App Content</h2>
+                    <p className="characters-modal__subheading">Pre-authored characters and avatars from the application.</p>
+                  </div>
+                  {(appAvatars?.length ?? 0) === 0 && (appCharacters?.length ?? 0) === 0 ? (
+                    <div className="characters-modal__blank">No app content available.</div>
+                  ) : (
+                    <div>
+                      {(appAvatars?.length ?? 0) > 0 && (
+                        <div>
+                          <h3 className="characters-modal__heading--section">App Avatars</h3>
+                          <div className="characters-modal__gallery" role="list" aria-label="Application avatars">
+                            {appAvatars?.map(avatar => (
+                              <div key={avatar.id} role="listitem" className="characters-modal__gallery-item">
+                                <div
+                                  className="characters-modal__gallery-avatar characters-modal__gallery-avatar--image"
+                                  style={{ backgroundImage: `url(${avatar.imageData})` }}
+                                />
+                                <span className="characters-modal__gallery-name">{avatar.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {(appCharacters?.length ?? 0) > 0 && (
+                        <div>
+                          <h3 className="characters-modal__heading--section">App Characters</h3>
+                          {appCharacters?.map(character => (
+                            <div key={character.id} className="characters-modal__relationship-card">
+                              <div className="characters-modal__relationship-summary">
+                                <div
+                                  className="characters-modal__relationship-avatar characters-modal__relationship-avatar--image"
+                                  style={{ backgroundImage: `url(${character.avatarImageData})` }}
+                                />
+                                <div>
+                                  <div className="characters-modal__relationship-name">{character.name}</div>
+                                  <div className="characters-modal__relationship-subheading">{character.role}</div>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className="characters-modal__footer-btn characters-modal__footer-btn--primary"
+                                onClick={() => {
+                                  // TODO: Implement copy-on-use (next task)
+                                }}
+                              >
+                                Use This Character
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               ) : activeTab === 'existing-campaign-characters' && !isEditingCampaignCharacter ? (
                 <div className="characters-modal__library">
                   <div>
