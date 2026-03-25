@@ -1601,7 +1601,7 @@ export function CharactersModal({
                     <div className="characters-modal__header">
                       <div className="characters-modal__field">
                         <h2 className="characters-modal__heading">Avatars</h2>
-                        <p className="characters-modal__subheading">Manage reusable avatars and apply them to characters from one place.</p>
+                        <p className="characters-modal__subheading">Add, edit, delete and select personal and Aethra avatars.</p>
                       </div>
                       <button
                         type="button"
@@ -1635,7 +1635,7 @@ export function CharactersModal({
                             setAvatarSection('application-avatars')
                           }}
                         >
-                          Application Avatars
+                          Aethra Avatars
                         </button>
                       </div>
                       {isSelectingAvatarForCharacter && (() => {
@@ -1731,7 +1731,7 @@ export function CharactersModal({
                 <div className="characters-modal__library">
                   <div>
                     <h2 className="characters-modal__heading">App Characters</h2>
-                    <p className="characters-modal__subheading">Pre-authored characters included with the application.</p>
+                    <p className="characters-modal__subheading">Pre-authored characters included with Aethra.</p>
                   </div>
                   <LibrarySearchInput
                     value={librarySearch}
@@ -1853,7 +1853,7 @@ export function CharactersModal({
                 <div className="characters-modal__library">
                   <div>
                     <h2 className="characters-modal__heading">Campaign Characters</h2>
-                    <p className="characters-modal__subheading">Characters already stored inside this campaign.</p>
+                    <p className="characters-modal__subheading">Characters already assigned to this campaign.</p>
                   </div>
                   <LibrarySearchInput
                     value={librarySearch}
@@ -1910,7 +1910,7 @@ export function CharactersModal({
                 <div className="characters-modal__library">
                   <div>
                     <h2 className="characters-modal__heading">Global Characters</h2>
-                    <p className="characters-modal__subheading">Global custom characters that can be reused across campaigns.</p>
+                    <p className="characters-modal__subheading">Your custom characters that can be reused across campaigns.</p>
                   </div>
                   <LibrarySearchInput
                     value={librarySearch}

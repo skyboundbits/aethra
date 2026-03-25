@@ -1361,9 +1361,9 @@ export default function App() {
   const { confirm, confirmState } = useConfirm()
 
   /** ID of the scene currently displayed in the chat area. */
-  const [activeSceneId, setActiveSessionId] = useState<string | null>(null)
+  const [activeSceneId, setActiveSceneId] = useState<string | null>(null)
   /** ID of the scene currently highlighted in the sidebar. */
-  const [selectedSceneId, setSelectedSessionId] = useState<string | null>(null)
+  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null)
   /** True while the chat panel is switching to a different scene transcript. */
   const [isChatLoading, setIsChatLoading] = useState(false)
 
@@ -1539,11 +1539,11 @@ export default function App() {
   /** True while a reusable character operation is in progress. */
   const [isCharacterLibraryBusy, setIsCharacterLibraryBusy] = useState(false)
   /** Status message shown in the new-scene character picker. */
-  const [newSceneStatusMessage, setNewSessionStatusMessage] = useState<string | null>(null)
+  const [newSceneStatusMessage, setNewSceneStatusMessage] = useState<string | null>(null)
   /** Visual state of the new-scene status message. */
-  const [newSceneStatusKind, setNewSessionStatusKind] = useState<'error' | 'success' | null>(null)
+  const [newSceneStatusKind, setNewSceneStatusKind] = useState<'error' | 'success' | null>(null)
   /** True while importing characters and creating a new scene. */
-  const [isStartingScene, setIsStartingSession] = useState(false)
+  const [isStartingScene, setIsStartingScene] = useState(false)
 
   /** True while the create campaign modal is open. */
   const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false)
@@ -1883,21 +1883,21 @@ export default function App() {
     if (nextSessionId === activeSceneId) {
       clearScheduledChatReveal()
       chatLoadingStartedAtRef.current = null
-      setSelectedSessionId(nextSessionId)
+      setSelectedSceneId(nextSessionId)
       setIsChatLoading(false)
       return
     }
 
     clearScheduledSessionSwitch()
     clearScheduledChatReveal()
-    setSelectedSessionId(nextSessionId)
+    setSelectedSceneId(nextSessionId)
     chatLoadingStartedAtRef.current = Date.now()
     setIsChatLoading(true)
 
     sceneSwitchFrameRef.current = window.requestAnimationFrame(() => {
       sceneSwitchFrameRef.current = window.requestAnimationFrame(() => {
         sceneSwitchFrameRef.current = null
-        setActiveSessionId(nextSessionId)
+        setActiveSceneId(nextSessionId)
       })
     })
   }
@@ -2200,32 +2200,32 @@ export default function App() {
   useEffect(() => {
     if (!campaign) {
       if (activeSceneId !== null) {
-        setActiveSessionId(null)
+        setActiveSceneId(null)
       }
       if (selectedSceneId !== null) {
-        setSelectedSessionId(null)
+        setSelectedSceneId(null)
       }
       return
     }
 
     if (campaign.scenes.length === 0) {
       if (activeSceneId !== null) {
-        setActiveSessionId(null)
+        setActiveSceneId(null)
       }
       if (selectedSceneId !== null) {
-        setSelectedSessionId(null)
+        setSelectedSceneId(null)
       }
       return
     }
 
     const hasActiveSession = campaign.scenes.some((scene) => scene.id === activeSceneId)
     if (!hasActiveSession) {
-      setActiveSessionId(campaign.scenes[0].id)
+      setActiveSceneId(campaign.scenes[0].id)
     }
 
     const hasSelectedSession = campaign.scenes.some((scene) => scene.id === selectedSceneId)
     if (!hasSelectedSession) {
-      setSelectedSessionId(hasActiveSession ? activeSceneId : campaign.scenes[0].id)
+      setSelectedSceneId(hasActiveSession ? activeSceneId : campaign.scenes[0].id)
     }
   }, [activeSceneId, campaign, selectedSceneId])
 
@@ -2423,8 +2423,8 @@ function syncStreamedAssistantMessages(
       return activeSceneId
     }
 
-    setNewSessionStatusKind('error')
-    setNewSessionStatusMessage('Start a scene and choose its active characters before sending messages.')
+    setNewSceneStatusKind('error')
+    setNewSceneStatusMessage('Start a scene and choose its active characters before sending messages.')
     setIsNewSceneModalOpen(true)
     return null
   }
@@ -2435,8 +2435,8 @@ function syncStreamedAssistantMessages(
    * Create a new empty scene, add it to the list, and make it active.
    */
   function handleNewSession(): void {
-    setNewSessionStatusKind(null)
-    setNewSessionStatusMessage(null)
+    setNewSceneStatusKind(null)
+    setNewSceneStatusMessage(null)
     setIsNewSceneModalOpen(true)
   }
 
@@ -2607,8 +2607,8 @@ function syncStreamedAssistantMessages(
 
     if (activeSceneId === pendingDeleteSceneId) {
       const nextSession = remainingSessions[sessionIndex] ?? remainingSessions[sessionIndex - 1] ?? null
-      setActiveSessionId(nextSession?.id ?? null)
-      setSelectedSessionId(nextSession?.id ?? null)
+      setActiveSceneId(nextSession?.id ?? null)
+      setSelectedSceneId(nextSession?.id ?? null)
     }
 
     setPendingDeleteSessionId(null)
@@ -2702,8 +2702,8 @@ function syncStreamedAssistantMessages(
       setActiveCharacterId(nextCharacters[0]?.id ?? null)
       setCampaign(hydratedCampaign)
       setCampaignPath(created.path)
-      setActiveSessionId(hydratedCampaign.scenes[0]?.id ?? null)
-      setSelectedSessionId(hydratedCampaign.scenes[0]?.id ?? null)
+      setActiveSceneId(hydratedCampaign.scenes[0]?.id ?? null)
+      setSelectedSceneId(hydratedCampaign.scenes[0]?.id ?? null)
       lastSavedCampaignRef.current = hydratedCampaign
       setIsCampaignModalOpen(false)
       setIsCreateCampaignOpen(false)
@@ -2754,8 +2754,8 @@ function syncStreamedAssistantMessages(
       setActiveCharacterId(nextCharacters[0]?.id ?? null)
       setCampaign(hydratedCampaign)
       setCampaignPath(opened.path)
-      setActiveSessionId(hydratedCampaign.scenes[0]?.id ?? null)
-      setSelectedSessionId(hydratedCampaign.scenes[0]?.id ?? null)
+      setActiveSceneId(hydratedCampaign.scenes[0]?.id ?? null)
+      setSelectedSceneId(hydratedCampaign.scenes[0]?.id ?? null)
       lastSavedCampaignRef.current = hydratedCampaign
       setCampaignLauncherLoadingState(null)
 
@@ -2862,8 +2862,8 @@ function syncStreamedAssistantMessages(
     setPendingRelationshipGraph(null)
     setRefreshRelationshipsError(null)
     setRefreshStartedAt(0)
-    setActiveSessionId(null)
-    setSelectedSessionId(null)
+    setActiveSceneId(null)
+    setSelectedSceneId(null)
     setActiveCharacterId(null)
     setComposerCharacterId(null)
     setInputValue('')
@@ -3039,8 +3039,8 @@ function syncStreamedAssistantMessages(
     }
 
     setIsNewSceneModalOpen(false)
-    setNewSessionStatusKind(null)
-    setNewSessionStatusMessage(null)
+    setNewSceneStatusKind(null)
+    setNewSceneStatusMessage(null)
   }
 
   /**
@@ -4712,8 +4712,8 @@ function syncStreamedAssistantMessages(
       if (removedSessionIds.size > 0) {
         const survivingSessions = campaign.scenes.filter((scene) => !removedSessionIds.has(scene.id))
         const nextSessionId = survivingSessions[0]?.id ?? null
-        setActiveSessionId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSessionId)
-        setSelectedSessionId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSessionId)
+        setActiveSceneId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSessionId)
+        setSelectedSceneId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSessionId)
       }
       setCharactersStatusKind('success')
       setCharactersStatusMessage(
@@ -5080,8 +5080,8 @@ function syncStreamedAssistantMessages(
     openingNotes: string,
   ): Promise<void> {
     if (!campaign) {
-      setNewSessionStatusKind('error')
-      setNewSessionStatusMessage('Open a campaign before starting a scene.')
+      setNewSceneStatusKind('error')
+      setNewSceneStatusMessage('Open a campaign before starting a scene.')
       return
     }
 
@@ -5089,34 +5089,30 @@ function syncStreamedAssistantMessages(
       selectedCampaignCharacterIds.includes(character.id) && character.controlledBy === 'user',
     )
     if (!hasSelectedCampaignPlayer) {
-      setNewSessionStatusKind('error')
-      setNewSessionStatusMessage('Select at least one player character before starting a scene.')
+      setNewSceneStatusKind('error')
+      setNewSceneStatusMessage('Select at least one player character before starting a scene.')
       return
     }
     if (title.trim().length === 0) {
-      setNewSessionStatusKind('error')
-      setNewSessionStatusMessage('Enter a scene name before starting the scene.')
+      setNewSceneStatusKind('error')
+      setNewSceneStatusMessage('Enter a scene name before starting the scene.')
       return
     }
     if (sceneSetup.trim().length === 0) {
-      setNewSessionStatusKind('error')
-      setNewSessionStatusMessage('Write a scene setup before starting the scene.')
+      setNewSceneStatusKind('error')
+      setNewSceneStatusMessage('Write a scene setup before starting the scene.')
       return
     }
 
-    setIsStartingSession(true)
-    setNewSessionStatusKind(null)
-    setNewSessionStatusMessage(null)
+    setIsStartingScene(true)
+    setNewSceneStatusKind(null)
+    setNewSceneStatusMessage(null)
 
     try {
       const selectedCharacterIds = new Set([
         ...selectedCampaignCharacterIds,
       ])
-      const nextCharacters = [
-        ...characters,
-        ...importedCharacters,
-      ]
-      const disabledCharacterIds = nextCharacters
+      const disabledCharacterIds = characters
         .filter((character) => !selectedCharacterIds.has(character.id))
         .map((character) => character.id)
 
