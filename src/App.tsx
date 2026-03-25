@@ -5067,14 +5067,12 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Create a scene from the selected campaign and global characters.
+   * Create a scene from the selected campaign characters.
    *
    * @param selectedCampaignCharacterIds - Existing campaign characters to keep active.
-   * @param selectedReusableCharacterIds - Global characters to import and activate.
    */
   async function handleStartNewSession(
     selectedCampaignCharacterIds: string[],
-    selectedReusableCharacterIds: string[],
     title: string,
     sceneSetup: string,
     continuitySourceSceneId: string | null,
@@ -5089,10 +5087,7 @@ function syncStreamedAssistantMessages(
     const hasSelectedCampaignPlayer = characters.some((character) =>
       selectedCampaignCharacterIds.includes(character.id) && character.controlledBy === 'user',
     )
-    const hasSelectedReusablePlayer = reusableCharacters.some((character) =>
-      selectedReusableCharacterIds.includes(character.id) && character.controlledBy === 'user',
-    )
-    if (!hasSelectedCampaignPlayer && !hasSelectedReusablePlayer) {
+    if (!hasSelectedCampaignPlayer) {
       setNewSessionStatusKind('error')
       setNewSessionStatusMessage('Select at least one player character before starting a scene.')
       return
@@ -5113,16 +5108,8 @@ function syncStreamedAssistantMessages(
     setNewSessionStatusMessage(null)
 
     try {
-      const selectedReusableCharacters = reusableCharacters.filter((character) => selectedReusableCharacterIds.includes(character.id))
-      const importedCharacters: CharacterProfile[] = []
-
-      for (const reusableCharacter of selectedReusableCharacters) {
-        importedCharacters.push(...await importReusableCharacterToCampaign(reusableCharacter))
-      }
-
       const selectedCharacterIds = new Set([
         ...selectedCampaignCharacterIds,
-        ...importedCharacters.map((character) => character.id),
       ])
       const nextCharacters = [
         ...characters,
@@ -5978,15 +5965,13 @@ function syncStreamedAssistantMessages(
         <NewSceneModal
           scenes={scenes}
           campaignCharacters={characters}
-          reusableCharacters={reusableCharacters}
           statusMessage={newSceneStatusMessage}
           statusKind={newSceneStatusKind}
           isBusy={isStartingScene}
           onClose={handleCloseNewSceneModal}
-          onStartSession={(campaignCharacterIds, reusableCharacterIds, title, sceneSetup, continuitySourceSceneId, openingNotes) =>
+          onStartScene={(campaignCharacterIds, title, sceneSetup, continuitySourceSceneId, openingNotes) =>
             handleStartNewSession(
               campaignCharacterIds,
-              reusableCharacterIds,
               title,
               sceneSetup,
               continuitySourceSceneId,
