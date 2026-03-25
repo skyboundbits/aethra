@@ -2418,7 +2418,7 @@ function syncStreamedAssistantMessages(
    *
    * @returns Active scene ID, or null when the user must create one first.
    */
-  function ensureActiveSession(): string | null {
+  function ensureActiveScene(): string | null {
     if (activeSceneId) {
       return activeSceneId
     }
@@ -3046,7 +3046,7 @@ function syncStreamedAssistantMessages(
   /**
    * Open the scene character management modal.
    */
-  function handleOpenSessionCharacters(): void {
+  function handleOpenSceneCharacters(): void {
     setIsSessionCharactersOpen(true)
   }
 
@@ -5186,8 +5186,8 @@ function syncStreamedAssistantMessages(
     if (!sceneId) {
       return
     }
-    const targetSession = options.sessionOverride
-      ?? currentCampaign.scenes.find((scene) => scene.id === sessionId)
+    const targetSession = options.sceneOverride
+      ?? currentCampaign.scenes.find((scene) => scene.id === sceneId)
       ?? null
 
     const shouldSendAsDirector = isContinueShortcut || isDirectorComposerSelected
@@ -5245,9 +5245,9 @@ function syncStreamedAssistantMessages(
     let latestSessionForPrompt = sessionForPrompt
 
     try {
-      const summaryReadySession = options.sessionOverride
+      const summaryReadySession = options.sceneOverride
         ? sessionForPrompt
-        : await catchUpRollingSummaryBeforeSend(sessionId)
+        : await catchUpRollingSummaryBeforeSend(sceneId)
       latestSessionForPrompt = summaryReadySession ?? sessionForPrompt
 
       // Generate relationship narrative alongside the summary (catchUpRollingSummaryBeforeSend already rebuilt the summary)
@@ -5623,7 +5623,7 @@ function syncStreamedAssistantMessages(
     await sendUserMessage({
       content: message.content,
       sessionId: activeScene.id,
-      sessionOverride: nextSession,
+      sceneOverride: nextSession,
       characterId: message.characterId,
       characterName: message.characterName,
       forceRecentWindowOnly: true,
@@ -5740,7 +5740,7 @@ function syncStreamedAssistantMessages(
             activeCharacters={enabledSceneCharacters}
             totalCharacterCount={characters.length}
             onOpenSummary={handleOpenSummaryModal}
-            onOpenSessionCharacters={handleOpenSessionCharacters}
+            onOpenSceneCharacters={handleOpenSceneCharacters}
             onRefreshRelationships={() => { void handleRefreshRelationships() }}
             isRefreshingRelationships={isRefreshingRelationships}
             refreshRelationshipsError={refreshRelationshipsError}

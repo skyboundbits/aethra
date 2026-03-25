@@ -12,9 +12,9 @@ const DETAILS_AVATAR_SIZE = 32
 /** Props accepted by the DetailsPanel component. */
 interface DetailsPanelProps {
   /** The currently active scene, or null when none is selected. */
-  activeSession: Scene | null
+  activeScene: Scene | null
   /** Active scene summary text, or null when no scene is selected. */
-  activeSessionSummary: string | null
+  activeSceneSummary: string | null
   /** Characters currently enabled for the active scene. */
   activeCharacters: CharacterProfile[]
   /** Total campaign characters available in the active campaign. */
@@ -22,7 +22,7 @@ interface DetailsPanelProps {
   /** Called when the user wants to inspect the current summary. */
   onOpenSummary: () => void
   /** Called when the user wants to manage scene characters. */
-  onOpenSessionCharacters: () => void
+  onOpenSceneCharacters: () => void
   /** Called when user triggers a relationship refresh. */
   onRefreshRelationships: () => void
   /** True while a refresh LLM call is in progress. */
@@ -81,17 +81,17 @@ function getCharacterInitials(characterName: string): string | null {
  * Renders the right-hand panel for active scene characters only.
  */
 export function DetailsPanel({
-  activeSession,
-  activeSessionSummary,
+  activeScene,
+  activeSceneSummary,
   activeCharacters,
   totalCharacterCount,
   onOpenSummary,
-  onOpenSessionCharacters,
+  onOpenSceneCharacters,
   onRefreshRelationships,
   isRefreshingRelationships,
   refreshRelationshipsError,
 }: DetailsPanelProps) {
-  const activeSpeakerNames = getActiveSpeakerNames(activeSession)
+  const activeSpeakerNames = getActiveSpeakerNames(activeScene)
 
   return (
     <aside className="panel panel--details">
@@ -100,9 +100,9 @@ export function DetailsPanel({
           <div className="details__eyebrow">Scene</div>
           <div
             className="details__title"
-            title={activeSession?.title ?? 'No scene loaded'}
+            title={activeScene?.title ?? 'No scene loaded'}
           >
-            {activeSession?.title ?? 'No scene loaded'}
+            {activeScene?.title ?? 'No scene loaded'}
           </div>
         </div>
       </div>
@@ -112,9 +112,9 @@ export function DetailsPanel({
           type="button"
           className="details__action-button details__action-button--full-width details__summary-button"
           onClick={onOpenSummary}
-          disabled={!activeSession}
+          disabled={!activeScene}
         >
-          {activeSessionSummary?.trim() ? 'View Current Summary' : 'View Summary'}
+          {activeSceneSummary?.trim() ? 'View Current Summary' : 'View Summary'}
         </button>
         <div className="details__card">
           <div className="details__card-header">
@@ -122,13 +122,13 @@ export function DetailsPanel({
             <button
               type="button"
               className="details__action-button"
-              onClick={onOpenSessionCharacters}
-              disabled={!activeSession}
+              onClick={onOpenSceneCharacters}
+              disabled={!activeScene}
             >
               Manage
             </button>
           </div>
-          {!activeSession ? (
+          {!activeScene ? (
             <div className="details__card-placeholder">Select a scene to review its active cast.</div>
           ) : activeCharacters.length > 0 ? (
             <div className="details__stack">
