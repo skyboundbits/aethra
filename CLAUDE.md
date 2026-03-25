@@ -23,7 +23,7 @@ npm run build    # production build (user runs this)
 |------|---------|
 | `src/types/index.ts` | All shared TypeScript types |
 | `src/App.tsx` | Root component & state |
-| `src/components/Sidebar.tsx` | Left panel — session list |
+| `src/components/Sidebar.tsx` | Left panel — scene list |
 | `src/components/ChatArea.tsx` | Centre panel — message feed |
 | `src/components/InputBar.tsx` | Centre panel — composer |
 | `src/components/DetailsPanel.tsx` | Right panel — details |

@@ -1,11 +1,11 @@
-# Campaigns & Sessions
+# Campaigns & Scenes
 
-This guide covers campaign structure, session management, and rolling summaries in detail.
+This guide covers campaign structure, scene management, and rolling summaries in detail.
 
 ## Campaign Structure
 
 A **campaign** is the top-level container for your roleplay narrative. It includes:
-- Multiple **sessions** (conversation threads)
+- Multiple **scenes** (conversation threads)
 - **Characters** (profiles for any entity)
 - Metadata (name, description, creation date)
 
@@ -17,9 +17,9 @@ Campaigns are stored as JSON files in the app's user data directory:
 <userData>/campaigns/
 ├── my-campaign-uuid/
 │   ├── campaign.json          # Main campaign file
-│   ├── sessions/
-│   │   ├── session-uuid-1.json
-│   │   ├── session-uuid-2.json
+│   ├── scenes/
+│   │   ├── scene-uuid-1.json
+│   │   ├── scene-uuid-2.json
 │   │   └── ...
 │   └── characters/
 │       ├── character-uuid-1/
@@ -35,7 +35,7 @@ Campaigns are stored as JSON files in the app's user data directory:
   "id": "unique-uuid",
   "name": "Dragon's Quest",
   "description": "A party of adventurers seeks an ancient artifact.",
-  "sessions": [ {...}, {...} ],
+  "scenes": [ {...}, {...} ],
   "createdAt": 1705000000000,
   "updatedAt": 1705100000000
 }
@@ -45,18 +45,18 @@ Campaigns are stored as JSON files in the app's user data directory:
 - `id`: Unique identifier (auto-generated)
 - `name`: Display name in UI
 - `description`: Short summary
-- `sessions`: Array of Session objects
+- `scenes`: Array of Scene objects
 - `createdAt`, `updatedAt`: Unix timestamps (milliseconds)
 
-## Sessions
+## Scenes
 
-A **session** is a single conversation thread. You can have multiple sessions per campaign to represent:
+A **scene** is a single conversation thread. You can have multiple scenes per campaign to represent:
 - Different scenes or chapters
 - Alternate timelines or "what-if" branches
 - Different groups of characters
 - Separate narrative arcs
 
-### Session JSON Format
+### Scene JSON Format
 
 ```json
 {
@@ -78,22 +78,22 @@ A **session** is a single conversation thread. You can have multiple sessions pe
 - `summarizedMessageCount`: How many messages have been compressed into the summary
 - `createdAt`, `updatedAt`: Unix timestamps
 
-### Creating Sessions
+### Creating Scenes
 
 #### In the UI
-1. Click **+ New Session** in the sidebar
-2. A new session is created with an auto-generated title
+1. Click **+ New Scene** in the sidebar
+2. A new scene is created with an auto-generated title
 3. Start typing to send the first message
-4. Right-click to rename the session
+4. Right-click to rename the scene
 
 #### Via Menu
 1. Click **Menu (≡)** at the top
-2. Select **New Session**
+2. Select **New Scene**
 3. Same as above
 
 ### Message Structure
 
-Each message in a session has this structure:
+Each message in a scene has this structure:
 
 ```json
 {
@@ -120,28 +120,28 @@ Each message in a session has this structure:
 
 **Note**: Character snapshots are frozen at send time, so changing a character profile doesn't affect past messages.
 
-## Managing Sessions
+## Managing Scenes
 
-### Renaming a Session
-1. Right-click a session in the sidebar
+### Renaming a Scene
+1. Right-click a scene in the sidebar
 2. Select **Rename**
 3. Type the new title
 4. Press Enter
 
-### Deleting a Session
-1. Right-click a session
-2. Select **Delete Session**
+### Deleting a Scene
+1. Right-click a scene
+2. Select **Delete Scene**
 3. Confirm ⚠️ (deletion is permanent)
 
-### Exporting a Session
-1. Right-click a session
-2. Select **Export Session**
+### Exporting a Scene
+1. Right-click a scene
+2. Select **Export Scene**
 3. Choose a location to save the JSON file
-4. The session can be imported into another campaign (not yet supported in UI)
+4. The scene can be imported into another campaign (not yet supported in UI)
 
-### Viewing Session Info
+### Viewing Scene Info
 In the **Details Panel** (right side), you see:
-- Session title
+- Scene title
 - Message count
 - Creation date
 - Current character
@@ -152,7 +152,7 @@ A **rolling summary** automatically compresses older messages to keep the AI con
 
 ### How Rolling Summaries Work
 
-When you have many messages in a session (>20), Aethra periodically:
+When you have many messages in a scene (>20), Aethra periodically:
 
 1. **Identifies summarizable messages**: The oldest unsummarized messages
 2. **Generates a recap**: Sends those messages to the AI with a prompt like:
@@ -168,7 +168,7 @@ When you have many messages in a session (>20), Aethra periodically:
 ### Costs
 - **Slight delays**: Summary generation adds 1–2 seconds of idle processing
 - **Context loss**: Very old plot points may be oversimplified in the summary
-- **Not ideal for short campaigns**: Unnecessary overhead for <100 message sessions
+- **Not ideal for short campaigns**: Unnecessary overhead for <100 message scenes
 
 ### Enabling/Disabling
 
@@ -182,7 +182,7 @@ Once enabled, summaries are generated automatically in the background.
 ### Rolling Summary Behavior
 
 **Summarization triggers when**:
-- The session is idle for >1.5 seconds
+- The scene is idle for >1.5 seconds
 - There are >20 unsummarized messages
 - The recent message window hasn't been fully summarized yet
 
@@ -197,10 +197,10 @@ Once enabled, summaries are generated automatically in the background.
 
 ### Example Rolling Summary Lifecycle
 
-**Session with 50 messages**:
+**Scene with 50 messages**:
 
 ```
-Session start:
+Scene start:
   - Messages 1–50 all in prompt
   - rollingSummary: "" (empty)
   - summarizedMessageCount: 0
@@ -225,8 +225,8 @@ After 10 minutes (>20 unsummarized):
 You can manually view and rebuild the rolling summary:
 
 #### Viewing the Current Summary
-1. Open a session with a rolling summary
-2. Click **View Summary** in the session details or ribbon
+1. Open a scene with a rolling summary
+2. Click **View Summary** in the scene details or ribbon
 3. A modal appears showing the current summary text
 4. Review it to understand what context the AI is using
 
@@ -239,7 +239,7 @@ If the summary becomes outdated or inaccurate:
 
 #### Advanced Control
 If you need more control, you can:
-- **View the summary** in the session JSON (open the campaign file in a text editor)
+- **View the summary** in the scene JSON (open the campaign file in a text editor)
 - **Clear the summary** by editing the campaign JSON directly (set `rollingSummary: ""` and `summarizedMessageCount: 0`)
 - **Disable summaries** in Settings if they're too aggressive
 
@@ -248,7 +248,7 @@ If you need more control, you can:
 ### Export a Campaign
 1. Click **Menu (≡)** > **Export Campaign**
 2. Choose a destination folder
-3. A copy of the entire campaign (with all sessions and characters) is saved as JSON
+3. A copy of the entire campaign (with all scenes and characters) is saved as JSON
 4. Perfect for backup or sharing
 
 ### Import a Campaign
@@ -262,28 +262,28 @@ From the Campaign Launcher:
 ## Best Practices
 
 ### Campaign Organization
-1. **One campaign per narrative arc**: Keep related sessions together
+1. **One campaign per narrative arc**: Keep related scenes together
 2. **Use clear names**: "Dragon Quest Act 1" is better than "Campaign 1"
 3. **Write descriptions**: Helps you remember what a campaign is about
 
-### Session Naming
+### Scene Naming
 1. **Name by scene or chapter**: "The Dragon's Lair", "City of Shadows", "Return Home"
-2. **Use timestamps if episodic**: "Session 1 - 2025-03", "Session 2 - 2025-04"
+2. **Use timestamps if episodic**: "Scene 1 - 2025-03", "Scene 2 - 2025-04"
 3. **Rename as you play**: Update the title to reflect what actually happened
 
 ### Backups
-1. **Export your campaign** after each major session
+1. **Export your campaign** after each major scene
 2. **Store exports in cloud storage** (Google Drive, Dropbox, OneDrive)
 3. **Keep local copies** on your machine
 
 ### Performance
-1. **Archive old sessions** by exporting and deleting them if a campaign gets huge (1000+ messages)
-2. **Use rolling summaries** for campaigns >200 messages per session
+1. **Archive old scenes** by exporting and deleting them if a campaign gets huge (1000+ messages)
+2. **Use rolling summaries** for campaigns >200 messages per scene
 3. **Close unused campaigns** to free app memory
 
 ## Troubleshooting
 
-### Session won't save
+### Scene won't save
 - Check that you have write permissions in the app's data directory
 - Try exporting the campaign and re-importing it
 - Check available disk space

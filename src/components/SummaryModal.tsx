@@ -1,6 +1,6 @@
 /**
  * src/components/SummaryModal.tsx
- * Modal dialog for viewing and rebuilding the active session's rolling summary.
+ * Modal dialog for viewing and rebuilding the active scene's rolling summary.
  * Rebuilding always generates a relationship-focused narrative summary alongside it.
  */
 
@@ -30,7 +30,7 @@ interface SummaryModalProps {
 
 /**
  * SummaryModal
- * Displays rolling session summary and relationship narrative.
+ * Displays rolling scene summary and relationship narrative.
  * Rebuilding always generates both summaries together.
  */
 export function SummaryModal({
@@ -56,13 +56,13 @@ export function SummaryModal({
               </div>
             ) : null}
 
-            {/* Session Summary Section */}
+            {/* Scene Summary Section */}
             <div className="summary-modal__section">
-              <h3 className="summary-modal__section-heading">Session Summary</h3>
+              <h3 className="summary-modal__section-heading">Scene Summary</h3>
               {summary.trim().length > 0 ? (
                 <p className="summary-modal__text">{summary}</p>
               ) : (
-                <p className="summary-modal__empty">No rolling summary has been generated for this session yet.</p>
+                <p className="summary-modal__empty">No rolling summary has been generated for this scene yet.</p>
               )}
             </div>
 

@@ -110,8 +110,8 @@ Once a campaign is loaded, you'll see the main interface:
 ```
 
 ### Left Panel — Sidebar
-- **Sessions List**: Click to switch between conversations within the campaign
-- **+ New Session**: Create a new conversation thread
+- **Scenes List**: Click to switch between conversations within the campaign
+- **+ New Scene**: Create a new conversation thread
 - **Settings** (⚙️): Configure servers, models, system prompt, and theme
 
 ### Center Panel — Chat Area & Input
@@ -122,7 +122,7 @@ Once a campaign is loaded, you'll see the main interface:
 ### Right Panel — Details
 - **Character Avatar**: Circular profile image of the current character
 - **Character Info**: Role, gender, pronouns, description
-- **Current Session**: Session title and message count
+- **Current Scene**: Scene title and message count
 - **AI Status**: Whether the server is connected and ready
 
 ## Sending Your First Message
@@ -152,10 +152,10 @@ Once a campaign is loaded, you'll see the main interface:
 - **🔴 Red dot**: AI server is not connected or model is not loaded
 - **⏳ Hourglass**: Waiting for an AI response to complete
 
-### Sidebar Session Items
-- **Bold text**: Currently active session
-- **Timestamp**: Shows when the session was last updated
-- **Message count**: Number of messages in that session
+### Sidebar Scene Items
+- **Bold text**: Currently active scene
+- **Timestamp**: Shows when the scene was last updated
+- **Message count**: Number of messages in that scene
 
 ## Next Steps
 

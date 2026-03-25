@@ -1,12 +1,12 @@
 /**
  * src/components/Sidebar.tsx
- * Left panel component that renders the list of roleplay sessions.
- * Allows the user to switch between sessions and create new ones.
+ * Left panel component that renders the list of roleplay scenes.
+ * Allows the user to switch between scenes and create new ones.
  */
 
 import '../styles/sidebar.css'
 import { Trash2Icon } from './icons'
-import type { Session } from '../types'
+import type { Scene } from '../types'
 
 /** Props accepted by the Sidebar component. */
 interface SidebarProps {
@@ -24,28 +24,26 @@ interface SidebarProps {
   remainingTokens: number | null
   /** Whether the remaining token count is based on exact API usage. */
   remainingTokensIsExact: boolean
-  /** All available sessions. */
-  sessions: Session[]
-  /** ID of the currently active session, or null if none selected. */
-  activeSessionId: string | null
-  /** Active session summary text, or null when no session is selected. */
-  activeSessionSummary: string | null
-  /** Called when the user clicks a session item. */
-  onSelectSession: (id: string) => void
-  /** Called when the user requests deletion of a session. */
-  onDeleteSession: (id: string) => void
-  /** Called when the user clicks the "New Session" button. */
-  onNewSession: () => void
-  /** Called when the user wants to inspect the current summary. */
-  onOpenSummary: () => void
-  /** True while session actions should be temporarily blocked. */
+  /** All available scenes. */
+  scenes: Scene[]
+  /** ID of the currently active scene, or null if none selected. */
+  activeSceneId: string | null
+  /** Active scene summary text, or null when no scene is selected. */
+  activeSceneSummary: string | null
+  /** Called when the user clicks a scene item. */
+  onSelectScene: (id: string) => void
+  /** Called when the user requests deletion of a scene. */
+  onDeleteScene: (id: string) => void
+  /** Called when the user clicks the "New Scene" button. */
+  onNewScene: () => void
+  /** True while scene actions should be temporarily blocked. */
   isBusy?: boolean
 }
 
 /**
  * Sidebar
- * Renders the session list panel with a header, new-session button, and
- * scrollable list of session items.
+ * Renders the scene list panel with a header and scrollable list of
+ * scene items, including a top-level new-scene action.
  */
 export function Sidebar({
   campaignName,
@@ -55,13 +53,11 @@ export function Sidebar({
   totalContextTokens,
   remainingTokens,
   remainingTokensIsExact,
-  sessions,
-  activeSessionId,
-  activeSessionSummary,
-  onSelectSession,
-  onDeleteSession,
-  onNewSession,
-  onOpenSummary,
+  scenes,
+  activeSceneId,
+  onSelectScene,
+  onDeleteScene,
+  onNewScene,
   isBusy = false,
 }: SidebarProps) {
   return (
@@ -70,45 +66,39 @@ export function Sidebar({
       <div className="sidebar__header">
         <div className="sidebar__heading">
           <span className="sidebar__eyebrow">Campaign</span>
-          <span className="sidebar__title">{campaignName}</span>
+          <span className="sidebar__title" title={campaignName}>{campaignName}</span>
         </div>
-        <button
-          className="sidebar__new-btn"
-          onClick={onNewSession}
-          title="New session"
-          aria-label="Create new session"
-        >
-          +
-        </button>
       </div>
 
-      {/* ── Session list ─────────────────────────────────────────────── */}
+      {/* ── Scene list ─────────────────────────────────────────────── */}
       <div className="sidebar__list" role="list">
-        {sessions.length === 0 ? (
-          <p className="sidebar__empty">No sessions yet. Click + to start.</p>
+        <button
+          type="button"
+          className="sidebar__new-scene-button"
+          onClick={onNewScene}
+          aria-label="Create new scene"
+        >
+          New Scene
+        </button>
+        {scenes.length === 0 ? (
+          <p className="sidebar__empty">No scenes yet. Click New Scene to start.</p>
         ) : (
-          sessions.map((session) => (
-            <SessionItem
-              key={session.id}
-              session={session}
-              isActive={session.id === activeSessionId}
-              onClick={() => onSelectSession(session.id)}
-              onDelete={() => onDeleteSession(session.id)}
-              isBusy={isBusy}
-            />
-          ))
+          <div className="sidebar__scene-list">
+            {scenes.map((scene) => (
+              <SceneItem
+                key={scene.id}
+                scene={scene}
+                isActive={scene.id === activeSceneId}
+                onClick={() => onSelectScene(scene.id)}
+                onDelete={() => onDeleteScene(scene.id)}
+                isBusy={isBusy}
+              />
+            ))}
+          </div>
         )}
       </div>
 
       <div className="sidebar__footer">
-        <button
-          type="button"
-          className="sidebar__summary-btn"
-          onClick={onOpenSummary}
-          disabled={!activeSessionId}
-        >
-          {activeSessionSummary?.trim() ? 'View Current Summary' : 'View Summary'}
-        </button>
         <div className="sidebar__footer-eyebrow">Context Budget</div>
         <div className="sidebar__footer-model">{activeModelName ?? 'No model selected'}</div>
         <div className="sidebar__footer-stats">
@@ -130,9 +120,9 @@ export function Sidebar({
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-/** Props for the individual session list item. */
-interface SessionItemProps {
-  session: Session
+/** Props for the individual scene list item. */
+interface SceneItemProps {
+  scene: Scene
   isActive: boolean
   onClick: () => void
   onDelete: () => void
@@ -140,11 +130,11 @@ interface SessionItemProps {
 }
 
 /**
- * SessionItem
- * Renders a single clickable entry in the session list.
- * Displays the session title and a human-readable relative timestamp.
+ * SceneItem
+ * Renders a single clickable entry in the scene list.
+ * Displays the scene title and a human-readable relative timestamp.
  */
-function SessionItem({ session, isActive, onClick, onDelete, isBusy }: SessionItemProps) {
+function SceneItem({ scene, isActive, onClick, onDelete, isBusy }: SceneItemProps) {
   /** Format a Unix ms timestamp as a short relative string (e.g. "2h ago"). */
   function formatRelativeTime(ts: number): string {
     const diffMs = Date.now() - ts
@@ -159,24 +149,24 @@ function SessionItem({ session, isActive, onClick, onDelete, isBusy }: SessionIt
   return (
     <div
       role="listitem"
-      className={`session-item${isActive ? ' session-item--active' : ''}`}
+      className={`scene-item${isActive ? ' scene-item--active' : ''}`}
       onClick={onClick}
       aria-current={isActive ? 'true' : undefined}
     >
-      <div className="session-item__content">
-        <div className="session-item__title">{session.title}</div>
-        <div className="session-item__meta">
-          {formatRelativeTime(session.updatedAt)}
+      <div className="scene-item__content">
+        <div className="scene-item__title">{scene.title}</div>
+        <div className="scene-item__meta">
+          {formatRelativeTime(scene.updatedAt)}
         </div>
       </div>
       <button
         type="button"
-        className="session-item__delete"
+        className="scene-item__delete"
         onClick={(event) => {
           event.stopPropagation()
           onDelete()
         }}
-        aria-label={`Delete ${session.title}`}
+        aria-label={`Delete ${scene.title}`}
         title="Delete chat"
         disabled={isBusy}
       >

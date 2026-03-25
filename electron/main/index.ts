@@ -51,7 +51,7 @@ import type {
   RelationshipGraph,
   ServerKind,
   ServerProfile,
-  Session,
+  Scene,
   TokenUsage,
   ThemeDefinition,
   WindowControlsState,
@@ -230,14 +230,14 @@ interface PartialMessageRecord {
 }
 
 /**
- * Lightweight session shape used to validate campaign files from disk.
+ * Lightweight scene shape used to validate campaign files from disk.
  */
 interface PartialSessionRecord {
   id?: unknown
   title?: unknown
   sceneSetup?: unknown
   openingNotes?: unknown
-  continuitySourceSessionId?: unknown
+  continuitySourceSceneId?: unknown
   continuitySummary?: unknown
   activeCharacterIds?: unknown
   disabledCharacterIds?: unknown
@@ -1734,13 +1734,13 @@ function normalizeMessage(raw: PartialMessageRecord, fallbackTimestamp: number) 
 }
 
 /**
- * Normalize a raw session loaded from disk into a safe Session shape.
+ * Normalize a raw scene loaded from disk into a safe Scene shape.
  *
  * @param raw - Parsed JSON candidate.
  * @param fallbackTimestamp - Timestamp to use when metadata is missing.
- * @returns Normalized session.
+ * @returns Normalized scene.
  */
-function normalizeSession(raw: PartialSessionRecord, fallbackTimestamp: number): Session {
+function normalizeSession(raw: PartialSessionRecord, fallbackTimestamp: number): Scene {
   const createdAt = isFiniteNumber(raw.createdAt) ? raw.createdAt : fallbackTimestamp
   const updatedAt = isFiniteNumber(raw.updatedAt) ? raw.updatedAt : createdAt
   const activeCharacterIds = Array.isArray(raw.activeCharacterIds)
@@ -1766,9 +1766,9 @@ function normalizeSession(raw: PartialSessionRecord, fallbackTimestamp: number):
     title: typeof raw.title === 'string' && raw.title.trim().length > 0 ? raw.title.trim() : 'New Chat',
     sceneSetup: typeof raw.sceneSetup === 'string' ? raw.sceneSetup.trim() : '',
     openingNotes: typeof raw.openingNotes === 'string' ? raw.openingNotes.trim() : '',
-    continuitySourceSessionId:
-      typeof raw.continuitySourceSessionId === 'string' && raw.continuitySourceSessionId.trim().length > 0
-        ? raw.continuitySourceSessionId.trim()
+    continuitySourceSceneId:
+      typeof raw.continuitySourceSceneId === 'string' && raw.continuitySourceSceneId.trim().length > 0
+        ? raw.continuitySourceSceneId.trim()
         : undefined,
     continuitySummary: typeof raw.continuitySummary === 'string' ? raw.continuitySummary.trim() : '',
     activeCharacterIds,
@@ -1788,7 +1788,7 @@ function normalizeSession(raw: PartialSessionRecord, fallbackTimestamp: number):
 }
 
 /**
- * Normalize a lightweight session-to-file index record.
+ * Normalize a lightweight scene-to-file index record.
  *
  * @param raw - Parsed JSON candidate.
  * @returns Normalized file reference, or null when invalid.
@@ -1843,8 +1843,8 @@ function normalizeCampaign(raw: unknown, fallbackName: string): Campaign {
   const sessions = Array.isArray(raw.sessions)
     ? raw.sessions
       .filter(isRecord)
-      .map((session, index) =>
-        normalizeSession(session as PartialSessionRecord, createdAt + index),
+      .map((scene, index) =>
+        normalizeSession(scene as PartialSessionRecord, createdAt + index),
       )
     : []
 
@@ -1865,7 +1865,7 @@ function normalizeCampaign(raw: unknown, fallbackName: string): Campaign {
  *
  * @param raw - Parsed JSON candidate.
  * @param fallbackName - Name inferred from the folder when missing.
- * @returns Normalized campaign metadata plus session file references.
+ * @returns Normalized campaign metadata plus scene file references.
  */
 function normalizeCampaignRecord(
   raw: unknown,
@@ -1880,8 +1880,8 @@ function normalizeCampaignRecord(
   const sessionRefs = Array.isArray(raw.sessions)
     ? raw.sessions
       .filter(isRecord)
-      .map((session) => normalizeSessionIndexRecord(session as PartialSessionIndexRecord))
-      .filter((session): session is { id: string, fileName: string } => session !== null)
+      .map((scene) => normalizeSessionIndexRecord(scene as PartialSessionIndexRecord))
+      .filter((scene): scene is { id: string, fileName: string } => scene !== null)
     : []
 
   return {
@@ -1961,7 +1961,7 @@ function characterFilePath(folderPath: string, folderName: string): string {
 /**
  * Build a timestamp-based chat filename.
  *
- * @param timestamp - Session creation timestamp.
+ * @param timestamp - Scene creation timestamp.
  * @returns Timestamp-derived JSON filename.
  */
 function buildSessionFileName(timestamp: number): string {
@@ -1983,12 +1983,12 @@ function buildSessionFileName(timestamp: number): string {
  * Pick a unique chat filename within a campaign folder.
  *
  * @param folderPath - Absolute campaign folder path.
- * @param session - Session being persisted.
+ * @param scene - Scene being persisted.
  * @returns Unique JSON filename for the chat file.
  */
-function allocateSessionFileName(folderPath: string, session: Session): string {
+function allocateSessionFileName(folderPath: string, scene: Scene): string {
   const chatsPath = campaignChatsPath(folderPath)
-  const baseName = buildSessionFileName(session.createdAt)
+  const baseName = buildSessionFileName(scene.createdAt)
   let candidate = baseName
   let index = 1
 
@@ -2282,8 +2282,8 @@ function loadStoredCharactersWithProgress(
     message: totalCharacters > 0
       ? `Loading characters 0 of ${totalCharacters}…`
       : 'No stored characters found. Finalizing campaign…',
-    sessionsLoaded: 0,
-    totalSessions: totalCharacters,
+    scenesLoaded: 0,
+    totalScenes: totalCharacters,
   })
 
   folders.forEach((folderName, index) => {
@@ -2303,8 +2303,8 @@ function loadStoredCharactersWithProgress(
       message: totalCharacters > 0
         ? `Loading characters ${loadedCount} of ${totalCharacters}…`
         : 'No stored characters found. Finalizing campaign…',
-      sessionsLoaded: loadedCount,
-      totalSessions: totalCharacters,
+      scenesLoaded: loadedCount,
+      totalScenes: totalCharacters,
     })
   })
 
@@ -2399,16 +2399,16 @@ function saveCampaign(folderPath: string, campaign: Campaign): void {
     : null
 
   const existingIndex = new Map(
-    (existingMetadata?.sessions ?? []).map((session) => [session.id, session.fileName]),
+    (existingMetadata?.sessions ?? []).map((scene) => [scene.id, scene.fileName]),
   )
 
-  const nextIndex = campaign.sessions.map((session) => {
-    const fileName = existingIndex.get(session.id) ?? allocateSessionFileName(folderPath, session)
-    writeFileSync(join(chatsPath, fileName), JSON.stringify(session, null, 2), 'utf-8')
-    existingIndex.delete(session.id)
+  const nextIndex = campaign.sessions.map((scene) => {
+    const fileName = existingIndex.get(scene.id) ?? allocateSessionFileName(folderPath, scene)
+    writeFileSync(join(chatsPath, fileName), JSON.stringify(scene, null, 2), 'utf-8')
+    existingIndex.delete(scene.id)
 
     return {
-      id: session.id,
+      id: scene.id,
       fileName,
     }
   })
@@ -2447,8 +2447,8 @@ function loadCampaignFile(
     status: 'reading-metadata',
     percent: 6,
     message: 'Reading campaign overview…',
-    sessionsLoaded: 0,
-    totalSessions: 0,
+    scenesLoaded: 0,
+    totalScenes: 0,
   })
   const rawText = readFileSync(campaignFilePath(folderPath), 'utf-8')
 
@@ -2458,23 +2458,23 @@ function loadCampaignFile(
   try {
     const campaignRecord = normalizeCampaignRecord(JSON.parse(rawText) as unknown, fallbackName)
     const chatsPath = campaignChatsPath(folderPath)
-    const totalSessions = campaignRecord.sessions.length
-    const progressPercent = (sessionsLoaded: number): number => {
-      if (totalSessions <= 0) {
+    const totalScenes = campaignRecord.sessions.length
+    const progressPercent = (scenesLoaded: number): number => {
+      if (totalScenes <= 0) {
         return 82
       }
 
-      return Math.round(12 + (sessionsLoaded / totalSessions) * 70)
+      return Math.round(12 + (scenesLoaded / totalScenes) * 70)
     }
 
     onProgress?.({
       status: 'loading-chats',
       percent: progressPercent(0),
-      message: totalSessions > 0
-        ? `Loading chats 0 of ${totalSessions}…`
+      message: totalScenes > 0
+        ? `Loading chats 0 of ${totalScenes}…`
         : 'No stored chats found. Skipping transcript load…',
-      sessionsLoaded: 0,
-      totalSessions,
+      scenesLoaded: 0,
+      totalScenes,
     })
 
     const sessions = campaignRecord.sessions.flatMap((sessionRef, index) => {
@@ -2486,15 +2486,15 @@ function loadCampaignFile(
       } catch {
         return []
       } finally {
-        const sessionsLoaded = index + 1
+        const scenesLoaded = index + 1
         onProgress?.({
           status: 'loading-chats',
-          percent: progressPercent(sessionsLoaded),
-          message: totalSessions > 0
-            ? `Loading chats ${sessionsLoaded} of ${totalSessions}…`
+          percent: progressPercent(scenesLoaded),
+          message: totalScenes > 0
+            ? `Loading chats ${scenesLoaded} of ${totalScenes}…`
             : 'No stored chats found. Skipping transcript load…',
-          sessionsLoaded,
-          totalSessions,
+          scenesLoaded,
+          totalScenes,
         })
       }
     })
@@ -2513,8 +2513,8 @@ function loadCampaignFile(
     status: 'complete',
     percent: 100,
     message: 'Campaign data is ready.',
-    sessionsLoaded: characters?.length ?? 0,
-    totalSessions: characters?.length ?? 0,
+    scenesLoaded: characters?.length ?? 0,
+    totalScenes: characters?.length ?? 0,
   })
 
   return { path: folderPath, campaign, characters }
@@ -2541,7 +2541,7 @@ function listStoredCampaigns(): CampaignSummary[] {
           description: campaign.description,
           path: folderPath,
           updatedAt: campaign.updatedAt,
-          sessionCount: campaign.sessions.length,
+          sceneCount: campaign.sessions.length,
         }]
       } catch {
         return []
@@ -4901,13 +4901,13 @@ function isTransientErrorMessage(content: string): boolean {
 }
 
 /**
- * Remove hidden placeholder markers from a relationship transcript session.
+ * Remove hidden placeholder markers from a relationship transcript scene.
  *
- * @param session - Session whose transcript will be inspected.
+ * @param scene - Scene whose transcript will be inspected.
  * @returns Prompt-visible messages only.
  */
-function getRelationshipVisibleMessages(session: Session): Session['messages'] {
-  return session.messages.filter((message) =>
+function getRelationshipVisibleMessages(scene: Scene): Scene['messages'] {
+  return scene.messages.filter((message) =>
     !isAwaitingPlayerActionMarker(message.content) && !isTransientErrorMessage(message.content),
   )
 }
@@ -5138,22 +5138,22 @@ const VALID_AFFINITY_LABELS = new Set<AffinityLabel>([
 ])
 
 /**
- * Assemble all session transcripts (oldest first) into a single string
+ * Assemble all scene transcripts (oldest first) into a single string
  * for the relationship refresh prompt. Prepends rolling summaries where present.
  *
  * @param sessions - All campaign sessions.
  * @returns Formatted transcript string.
  */
-function buildRelationshipTranscript(sessions: Session[]): string {
+function buildRelationshipTranscript(sessions: Scene[]): string {
   return sessions
-    .map((session) => {
-      const lines: string[] = [`--- Session: ${session.title || 'Untitled'} ---`]
-      const visibleMessages = getRelationshipVisibleMessages(session)
-      const summarizedCount = session.rollingSummary.trim().length > 0
-        ? Math.max(0, Math.min(Math.floor(session.summarizedMessageCount), visibleMessages.length))
+    .map((scene) => {
+      const lines: string[] = [`--- Scene: ${scene.title || 'Untitled'} ---`]
+      const visibleMessages = getRelationshipVisibleMessages(scene)
+      const summarizedCount = scene.rollingSummary.trim().length > 0
+        ? Math.max(0, Math.min(Math.floor(scene.summarizedMessageCount), visibleMessages.length))
         : 0
-      if (session.rollingSummary.trim().length > 0) {
-        lines.push(`Summary of earlier events:\n${session.rollingSummary.trim()}`)
+      if (scene.rollingSummary.trim().length > 0) {
+        lines.push(`Summary of earlier events:\n${scene.rollingSummary.trim()}`)
       }
       visibleMessages.slice(summarizedCount).forEach((message) => {
         if (message.role === 'assistant' || message.role === 'user') {
@@ -5371,14 +5371,22 @@ ipcMain.handle('appContent:get', async () => {
     const avatarsPath = join(resourcesPath, 'app-avatars.json')
     if (existsSync(avatarsPath)) {
       const avatarsData = JSON.parse(readFileSync(avatarsPath, 'utf-8'))
-      avatars = avatarsData.avatars || []
+      avatars = Array.isArray(avatarsData)
+        ? avatarsData
+        : Array.isArray(avatarsData?.avatars)
+          ? avatarsData.avatars
+          : []
     }
 
     // Load characters
     const charactersPath = join(resourcesPath, 'app-characters.json')
     if (existsSync(charactersPath)) {
       const charactersData = JSON.parse(readFileSync(charactersPath, 'utf-8'))
-      characters = charactersData.characters || []
+      characters = Array.isArray(charactersData)
+        ? charactersData
+        : Array.isArray(charactersData?.characters)
+          ? charactersData.characters
+          : []
     }
 
     return { avatars, characters }
@@ -5638,8 +5646,8 @@ ipcMain.handle('campaign:open', async (_event, path: string): Promise<CampaignFi
       status: 'error',
       percent: 0,
       message: error instanceof Error ? error.message : 'Could not load campaign.',
-      sessionsLoaded: 0,
-      totalSessions: 0,
+      scenesLoaded: 0,
+      totalScenes: 0,
     })
     throw error
   }
@@ -5719,7 +5727,7 @@ ipcMain.handle('relationships:set', (_event, campaignPath: string, graph: Relati
 
 /**
  * Relationships: generate narrative summary only (Pass 1).
- * Used when rebuilding session summary to optionally add relationship context.
+ * Used when rebuilding scene summary to optionally add relationship context.
  * Does not generate structured relationship entries or save anything.
  */
 ipcMain.handle(
@@ -5729,7 +5737,7 @@ ipcMain.handle(
     campaignPath: string,
     campaignId: string,
     characters: CharacterProfile[],
-    sessions: Session[],
+    sessions: Scene[],
   ): Promise<string> => {
     const settings = loadSettings()
     const server = settings.servers.find((s) => s.id === settings.activeServerId)
@@ -5760,7 +5768,7 @@ ipcMain.handle(
 
     debug('info', 'relationships.narrative.start', {
       characterCount: characters.length,
-      sessionCount: sessions.length,
+      sceneCount: sessions.length,
       transcriptLength: transcript.length,
       contextWindowTokens,
     })
@@ -5819,7 +5827,7 @@ ipcMain.handle(
     campaignPath: string,
     campaignId: string,
     characters: CharacterProfile[],
-    sessions: Session[],
+    sessions: Scene[],
   ): Promise<RelationshipGraph> => {
     const settings = loadSettings()
     const server = settings.servers.find((s) => s.id === settings.activeServerId)
@@ -5851,7 +5859,7 @@ ipcMain.handle(
 
     debug('info', 'relationships.refresh.start', {
       characterCount: characters.length,
-      sessionCount: sessions.length,
+      sceneCount: sessions.length,
       transcriptLength: transcript.length,
       contextWindowTokens,
     })

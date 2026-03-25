@@ -3,8 +3,8 @@
  * Root application component for Aethra.
  *
  * Owns all top-level state:
- *   - sessions      : list of roleplay sessions
- *   - activeSession : which session is currently open
+ *   - scenes      : list of roleplay scenes
+ *   - activeScene : which scene is currently open
  *   - inputValue    : current text in the composer
  *   - isStreaming   : true while an AI response is in-flight
  *   - activeTab     : which ribbon nav tab is selected
@@ -28,12 +28,14 @@ import { CampaignLauncher } from './components/CampaignLauncher'
 import { CreateCampaignModal } from './components/CreateCampaignModal'
 import { CampaignModal } from './components/CampaignModal'
 import { CharactersModal } from './components/CharactersModal'
+import { ScenesModal } from './components/ScenesModal'
+import { LoreBookModal } from './components/LoreBookModal'
 import { AiDebugModal } from './components/AiDebugModal'
 import { ModelLoaderModal } from './components/ModelLoaderModal'
 import { ModelParametersModal } from './components/ModelParametersModal'
 import { Modal } from './components/Modal'
-import { NewSessionModal } from './components/NewSessionModal'
-import { SessionCharactersModal } from './components/SessionCharactersModal'
+import { NewSceneModal } from './components/NewSceneModal'
+import { SceneCharactersModal } from './components/SceneCharactersModal'
 import { ConfirmModal } from './components/ConfirmModal'
 import { SummaryModal } from './components/SummaryModal'
 import { RelationshipReviewModal } from './components/RelationshipReviewModal'
@@ -76,7 +78,7 @@ import type {
   ReusableCharacterBundleCharacter,
   ReusableCharacterRelationshipBundle,
   ReusableCharacter,
-  Session,
+  Scene,
   TokenUsage,
 } from './types'
 
@@ -191,7 +193,7 @@ function isDirectorMessage(message: Message): boolean {
 }
 
 /**
- * Remove hidden placeholder markers from a session transcript.
+ * Remove hidden placeholder markers from a scene transcript.
  *
  * @param messages - Internal message list.
  * @returns Only prompt-visible messages.
@@ -209,19 +211,19 @@ function getVisiblePromptMessages(messages: Message[]): Message[] {
  * the latest recap window so no context is dropped while a background summary
  * job is still catching up.
  *
- * @param session - Session whose prompt window is being computed.
+ * @param scene - Scene whose prompt window is being computed.
  * @param useRollingSummary - Whether summary-backed context is active.
- * @param pendingMessages - Optional messages not yet committed to session state.
+ * @param pendingMessages - Optional messages not yet committed to scene state.
  * @returns Messages to include verbatim in the outbound prompt.
  */
 function getPromptWindowMessages(
-  session: Session,
+  scene: Scene,
   useRollingSummary: boolean,
   recentMessagesWindow: number,
   pendingMessages: Message[] = [],
   forceRecentWindowOnly = false,
 ): Message[] {
-  const visibleMessages = getVisiblePromptMessages([...session.messages, ...pendingMessages])
+  const visibleMessages = getVisiblePromptMessages([...scene.messages, ...pendingMessages])
   const lastVisibleMessage = visibleMessages[visibleMessages.length - 1] ?? null
   const allowTrailingDirectorMessage = lastVisibleMessage !== null && isDirectorMessage(lastVisibleMessage)
   const livePromptMessages = visibleMessages.filter((message, index) => {
@@ -245,8 +247,8 @@ function getPromptWindowMessages(
     return livePromptMessages.slice(recentStartIndex)
   }
 
-  const summarizedCount = session.rollingSummary.trim().length > 0
-    ? Math.max(0, Math.floor(session.summarizedMessageCount))
+  const summarizedCount = scene.rollingSummary.trim().length > 0
+    ? Math.max(0, Math.floor(scene.summarizedMessageCount))
     : 0
   const windowStartIndex = Math.min(summarizedCount, recentStartIndex)
 
@@ -256,16 +258,16 @@ function getPromptWindowMessages(
 /**
  * Build the scene summary section for the prompt, when enabled.
  *
- * @param session - Active session.
+ * @param scene - Active scene.
  * @param useRollingSummary - Whether summary-backed context is active.
  * @returns Summary text or null when no summary should be sent.
  */
-function getPromptSceneSummary(session: Session, useRollingSummary: boolean): string | null {
-  if (!useRollingSummary || session.summarizedMessageCount <= 0) {
+function getPromptSceneSummary(scene: Scene, useRollingSummary: boolean): string | null {
+  if (!useRollingSummary || scene.summarizedMessageCount <= 0) {
     return null
   }
 
-  const normalizedSummary = session.rollingSummary.trim()
+  const normalizedSummary = scene.rollingSummary.trim()
   return normalizedSummary.length > 0 ? normalizedSummary : null
 }
 
@@ -311,7 +313,7 @@ function formatDirectorContent(content: string): string {
  * Returns null when no qualifying relationship entries exist.
  *
  * @param character - Character whose perspective to render.
- * @param activeCharacterIds - IDs of all characters enabled in the current session.
+ * @param activeCharacterIds - IDs of all characters enabled in the current scene.
  * @param characterNamesById - Lookup map from character ID to display name.
  * @param graph - Campaign relationship graph, or null when unavailable.
  * @returns Formatted "Relationships:\n→ ..." block, or null.
@@ -345,17 +347,17 @@ function buildCharacterRelationshipBlock(
  *
  * @param campaign - Active campaign metadata.
  * @param characters - Characters available in the active campaign.
- * @param session - Session-specific setup and continuity metadata.
+ * @param scene - Scene-specific setup and continuity metadata.
  * @param campaignBasePrompt - Persisted base prompt template for campaign play.
  * @param formattingRules - Persisted formatting rules appended after the base prompt.
  * @param customSystemPrompt - User-configured system prompt text.
- * @param sceneSummary - Rolling scene summary, if one exists for the session.
+ * @param sceneSummary - Rolling scene summary, if one exists for the scene.
  * @param relationshipGraph - Campaign relationship graph, if available.
  */
 function buildSystemContext(
   campaign: Campaign,
   characters: CharacterProfile[],
-  session: Session,
+  scene: Scene,
   campaignBasePrompt: string,
   formattingRules: string,
   customSystemPrompt: string,
@@ -380,43 +382,43 @@ function buildSystemContext(
     role: 'system',
     content: `Campaign: ${campaign.name}. Setting: ${campaign.description || 'No campaign setting provided.'}`,
   }
-  const normalizedSessionTitle =
-    typeof session.title === 'string' && session.title.trim().length > 0
-      ? session.title.trim()
+  const normalizedSceneTitle =
+    typeof scene.title === 'string' && scene.title.trim().length > 0
+      ? scene.title.trim()
       : 'New Chat'
   const normalizedSceneSetup =
-    typeof session.sceneSetup === 'string'
-      ? session.sceneSetup.trim()
+    typeof scene.sceneSetup === 'string'
+      ? scene.sceneSetup.trim()
       : ''
   const normalizedOpeningNotes =
-    typeof session.openingNotes === 'string'
-      ? session.openingNotes.trim()
+    typeof scene.openingNotes === 'string'
+      ? scene.openingNotes.trim()
       : ''
   const normalizedContinuitySummary =
-    typeof session.continuitySummary === 'string'
-      ? session.continuitySummary.trim()
+    typeof scene.continuitySummary === 'string'
+      ? scene.continuitySummary.trim()
       : ''
-  const sessionContextSections = [`Session Title: ${normalizedSessionTitle}`]
+  const sceneContextSections = [`Scene Title: ${normalizedSceneTitle}`]
 
   if (normalizedSceneSetup) {
-    sessionContextSections.push(`Scene Setup:\n${normalizedSceneSetup}`)
+    sceneContextSections.push(`Scene Setup:\n${normalizedSceneSetup}`)
   }
 
   if (normalizedOpeningNotes) {
-    sessionContextSections.push(`Opening Notes:\n${normalizedOpeningNotes}`)
+    sceneContextSections.push(`Opening Notes:\n${normalizedOpeningNotes}`)
   }
 
   if (normalizedContinuitySummary) {
-    sessionContextSections.push(`Continuity From Previous Session:\n${normalizedContinuitySummary}`)
+    sceneContextSections.push(`Continuity From Previous Scene:\n${normalizedContinuitySummary}`)
   }
 
-  sessionContextSections.push(
-    'Continuity Rules:\nTreat Session Setup as the starting frame for this session. Treat any previous-session continuity and rolling scene summary as canon context. If the recent transcript conflicts with older context, the recent transcript wins.',
+  sceneContextSections.push(
+    'Continuity Rules:\nTreat Scene Setup as the starting frame for this scene. Treat any previous-scene continuity and rolling scene summary as canon context. If the recent transcript conflicts with older context, the recent transcript wins.',
   )
 
-  const sessionContext: ChatMessage = {
+  const sceneContext: ChatMessage = {
     role: 'system',
-    content: sessionContextSections.join('\n\n'),
+    content: sceneContextSections.join('\n\n'),
   }
 
   // Precompute for relationship injection — hoist outside the map loop
@@ -481,7 +483,7 @@ function buildSystemContext(
       baseInstruction.content,
       customInstruction,
       campaignContext.content,
-      sessionContext.content,
+      sceneContext.content,
       charactersContext.content,
       summaryContext,
     ].filter((section): section is string => Boolean(section)).join('\n\n'),
@@ -489,81 +491,81 @@ function buildSystemContext(
 }
 
 /**
- * Read the explicitly active character list for one session as a stable
+ * Read the explicitly active character list for one scene as a stable
  * de-duplicated array when available.
  *
- * @param session - Session whose disabled character list should be read.
+ * @param scene - Scene whose disabled character list should be read.
  * @returns Stable array of active character IDs, or null when no explicit list exists.
  */
-function getSessionActiveCharacterIds(session: Session | null): string[] | null {
-  if (!session?.activeCharacterIds) {
+function getSessionActiveCharacterIds(scene: Scene | null): string[] | null {
+  if (!scene?.activeCharacterIds) {
     return null
   }
 
-  return [...new Set(session.activeCharacterIds.filter((characterId) => characterId.trim().length > 0))]
+  return [...new Set(scene.activeCharacterIds.filter((characterId) => characterId.trim().length > 0))]
 }
 
 /**
- * Read the disabled character list for one session as a stable de-duplicated
+ * Read the disabled character list for one scene as a stable de-duplicated
  * array. Missing data is treated as "all campaign characters enabled".
  *
- * @param session - Session whose disabled character list should be read.
+ * @param scene - Scene whose disabled character list should be read.
  * @returns Stable array of disabled character IDs.
  */
-function getSessionDisabledCharacterIds(session: Session | null): string[] {
-  if (!session?.disabledCharacterIds) {
+function getSessionDisabledCharacterIds(scene: Scene | null): string[] {
+  if (!scene?.disabledCharacterIds) {
     return []
   }
 
-  return [...new Set(session.disabledCharacterIds.filter((characterId) => characterId.trim().length > 0))]
+  return [...new Set(scene.disabledCharacterIds.filter((characterId) => characterId.trim().length > 0))]
 }
 
 /**
- * Return the campaign characters currently enabled for a specific session.
+ * Return the campaign characters currently enabled for a specific scene.
  *
- * @param session - Active session, if any.
+ * @param scene - Active scene, if any.
  * @param characters - Campaign roster.
- * @returns Characters enabled for that session.
+ * @returns Characters enabled for that scene.
  */
 function getEnabledSessionCharacters(
-  session: Session | null,
+  scene: Scene | null,
   characters: CharacterProfile[],
 ): CharacterProfile[] {
-  const activeCharacterIds = getSessionActiveCharacterIds(session)
+  const activeCharacterIds = getSessionActiveCharacterIds(scene)
   if (activeCharacterIds) {
     const enabledCharacterIds = new Set(activeCharacterIds)
     return characters.filter((character) => enabledCharacterIds.has(character.id))
   }
 
-  const disabledCharacterIds = new Set(getSessionDisabledCharacterIds(session))
+  const disabledCharacterIds = new Set(getSessionDisabledCharacterIds(scene))
   return characters.filter((character) => !disabledCharacterIds.has(character.id))
 }
 
 /**
  * Mark one newly added campaign character as inactive in every existing
- * session so session membership stays opt-in.
+ * scene so scene membership stays opt-in.
  *
- * @param campaign - Campaign whose sessions should be updated.
+ * @param campaign - Campaign whose scenes should be updated.
  * @param characterId - Campaign character ID that was just introduced.
- * @returns Campaign copy with existing sessions updated when needed.
+ * @returns Campaign copy with existing scenes updated when needed.
  */
 function disableCharacterInExistingSessions(campaign: Campaign, characterId: string): Campaign {
   let didChange = false
-  const nextSessions = campaign.sessions.map((session) => {
-    const activeCharacterIds = getSessionActiveCharacterIds(session)
+  const nextSessions = campaign.scenes.map((scene) => {
+    const activeCharacterIds = getSessionActiveCharacterIds(scene)
     if (activeCharacterIds) {
-      return session
+      return scene
     }
 
-    const disabledCharacterIds = new Set(getSessionDisabledCharacterIds(session))
+    const disabledCharacterIds = new Set(getSessionDisabledCharacterIds(scene))
     if (disabledCharacterIds.has(characterId)) {
-      return session
+      return scene
     }
 
     didChange = true
     disabledCharacterIds.add(characterId)
     return {
-      ...session,
+      ...scene,
       disabledCharacterIds: [...disabledCharacterIds],
       updatedAt: Date.now(),
     }
@@ -572,21 +574,21 @@ function disableCharacterInExistingSessions(campaign: Campaign, characterId: str
   return didChange
     ? {
       ...campaign,
-      sessions: nextSessions,
+      scenes: nextSessions,
     }
     : campaign
 }
 
 /**
- * Determine whether a character appears anywhere in a session transcript.
+ * Determine whether a character appears anywhere in a scene transcript.
  *
- * @param session - Session to inspect.
+ * @param scene - Scene to inspect.
  * @param character - Campaign character to match.
- * @returns True when the character appears in that session.
+ * @returns True when the character appears in that scene.
  */
-function hasCharacterAppearedInSession(session: Session, character: CharacterProfile): boolean {
+function hasCharacterAppearedInSession(scene: Scene, character: CharacterProfile): boolean {
   const normalizedCharacterName = character.name.trim().toLocaleLowerCase()
-  return session.messages.some((message) => (
+  return scene.messages.some((message) => (
     message.characterId === character.id ||
     message.characterName?.trim().toLocaleLowerCase() === normalizedCharacterName
   ))
@@ -608,7 +610,7 @@ function estimateTokenCount(messages: ChatMessage[]): number {
 
 /** Snapshot of a pending background summary update. */
 interface SessionSummarySnapshot {
-  /** Session being summarized. */
+  /** Scene being summarized. */
   sessionId: string
   /** Existing summary text, if any. */
   previousSummary: string
@@ -631,20 +633,20 @@ interface CampaignLauncherLoadingState {
 }
 
 /**
- * Build the outbound prompt payload for a session.
+ * Build the outbound prompt payload for a scene.
  *
  * @param campaign - Active campaign metadata.
  * @param characters - Characters available in the campaign.
  * @param settings - Current persisted app settings.
- * @param session - Session being sent to the model.
- * @param pendingMessages - Optional messages not yet written into session state.
+ * @param scene - Scene being sent to the model.
+ * @param pendingMessages - Optional messages not yet written into scene state.
  * @returns Full chat payload for the model.
  */
 function buildRequestMessages(
   campaign: Campaign,
   characters: CharacterProfile[],
   settings: AppSettings,
-  session: Session,
+  scene: Scene,
   pendingMessages: Message[] = [],
   trailingInstructions: ChatMessage[] = [],
   relationshipGraph: RelationshipGraph | null = null,
@@ -654,16 +656,16 @@ function buildRequestMessages(
     ...buildSystemContext(
       campaign,
       characters,
-      session,
+      scene,
       settings.campaignBasePrompt,
       settings.formattingRules,
       settings.systemPrompt,
-      getPromptSceneSummary(session, settings.enableRollingSummaries),
+      getPromptSceneSummary(scene, settings.enableRollingSummaries),
       relationshipGraph,
     ),
     ...toApiMessages(
       getPromptWindowMessages(
-        session,
+        scene,
         settings.enableRollingSummaries,
         settings.recentMessagesWindow,
         pendingMessages,
@@ -675,24 +677,24 @@ function buildRequestMessages(
 }
 
 /**
- * Determine whether a session currently has enough archived content to summarize.
+ * Determine whether a scene currently has enough archived content to summarize.
  *
- * @param session - Session candidate.
+ * @param scene - Scene candidate.
  * @returns Snapshot describing the next summary pass, or null when no work is needed.
  */
 function createSessionSummarySnapshot(
-  session: Session,
+  scene: Scene,
   recentMessagesWindow: number,
 ): SessionSummarySnapshot | null {
-  const visibleMessages = getVisiblePromptMessages(session.messages)
+  const visibleMessages = getVisiblePromptMessages(scene.messages)
   const normalizedRecentMessagesWindow = Math.max(
     RECENT_MESSAGES_WINDOW_RANGE.min,
     Math.floor(recentMessagesWindow || DEFAULT_RECENT_MESSAGES_WINDOW),
   )
   const nextSummarizedCount = Math.max(visibleMessages.length - normalizedRecentMessagesWindow, 0)
-  const currentSummary = session.rollingSummary.trim()
+  const currentSummary = scene.rollingSummary.trim()
   const baseSummarizedCount = currentSummary.length > 0
-    ? Math.max(0, Math.min(session.summarizedMessageCount, nextSummarizedCount))
+    ? Math.max(0, Math.min(scene.summarizedMessageCount, nextSummarizedCount))
     : 0
 
   if (nextSummarizedCount <= baseSummarizedCount) {
@@ -705,7 +707,7 @@ function createSessionSummarySnapshot(
   }
 
   return {
-    sessionId: session.id,
+    sessionId: scene.id,
     previousSummary: currentSummary,
     baseSummarizedCount,
     nextSummarizedCount,
@@ -877,15 +879,15 @@ function findSummaryChunkEnd(
 }
 
 /**
- * Rebuild a session summary from the full visible transcript, chunking requests
+ * Rebuild a scene summary from the full visible transcript, chunking requests
  * to fit within the current model context window when necessary.
  *
- * @param session - Session whose transcript should be rebuilt.
+ * @param scene - Scene whose transcript should be rebuilt.
  * @param onProgress - Optional callback notified before each rebuild pass.
  * @returns Rebuilt summary text plus the covered visible-message count.
  */
 async function rebuildSessionSummaryFromTranscript(
-  session: Session,
+  scene: Scene,
   rollingSummarySystemPrompt: string,
   activeModelContextWindowTokens: number | null,
   onProgress?: (passNumber: number, startIndex: number, endIndex: number, totalCount: number) => void,
@@ -894,7 +896,7 @@ async function rebuildSessionSummaryFromTranscript(
   summarizedMessageCount: number
   passCount: number
 }> {
-  const visibleMessages = getVisiblePromptMessages(session.messages)
+  const visibleMessages = getVisiblePromptMessages(scene.messages)
   if (visibleMessages.length === 0) {
     throw new Error('No conversation history is available to summarize.')
   }
@@ -1185,10 +1187,10 @@ function hydrateMessageCharacterId(
 }
 
 /**
- * Reattach character IDs and session character toggle state using the active
+ * Reattach character IDs and scene character toggle state using the active
  * campaign character roster.
  *
- * @param campaign - Campaign whose session messages should be hydrated.
+ * @param campaign - Campaign whose scene messages should be hydrated.
  * @param characters - Character roster available for matching.
  * @returns Campaign copy with message character IDs filled where possible.
  */
@@ -1199,41 +1201,41 @@ function hydrateCampaignMessageCharacterIds(campaign: Campaign, characters: Char
   )
 
   let didChange = false
-  const nextSessions = campaign.sessions.map((session) => {
+  const nextSessions = campaign.scenes.map((scene) => {
     let sessionChanged = false
-    const storedActiveCharacterIds = getSessionActiveCharacterIds(session)
+    const storedActiveCharacterIds = getSessionActiveCharacterIds(scene)
     const nextActiveCharacterIds = storedActiveCharacterIds
       ? storedActiveCharacterIds
       : characters
-        .filter((character) => !getSessionDisabledCharacterIds(session).includes(character.id))
+        .filter((character) => !getSessionDisabledCharacterIds(scene).includes(character.id))
         .map((character) => character.id)
-    const nextDisabledCharacterIds = getSessionDisabledCharacterIds(session)
+    const nextDisabledCharacterIds = getSessionDisabledCharacterIds(scene)
     const activeIdsChanged =
-      !session.activeCharacterIds ||
-      nextActiveCharacterIds.length !== session.activeCharacterIds.length ||
-      nextActiveCharacterIds.some((characterId, index) => characterId !== session.activeCharacterIds?.[index])
+      !scene.activeCharacterIds ||
+      nextActiveCharacterIds.length !== scene.activeCharacterIds.length ||
+      nextActiveCharacterIds.some((characterId, index) => characterId !== scene.activeCharacterIds?.[index])
     const disabledIdsChanged =
-      !session.disabledCharacterIds ||
-      nextDisabledCharacterIds.length !== session.disabledCharacterIds.length ||
-      nextDisabledCharacterIds.some((characterId, index) => characterId !== session.disabledCharacterIds?.[index])
+      !scene.disabledCharacterIds ||
+      nextDisabledCharacterIds.length !== scene.disabledCharacterIds.length ||
+      nextDisabledCharacterIds.some((characterId, index) => characterId !== scene.disabledCharacterIds?.[index])
 
     const nextMessages = characters.length > 0
-      ? session.messages.map((message) => {
+      ? scene.messages.map((message) => {
         const nextMessage = hydrateMessageCharacterId(message, charactersById, charactersByName)
         if (nextMessage !== message) {
           sessionChanged = true
         }
         return nextMessage
       })
-      : session.messages
+      : scene.messages
 
     if (!sessionChanged && !activeIdsChanged && !disabledIdsChanged) {
-      return session
+      return scene
     }
 
     didChange = true
     return {
-      ...session,
+      ...scene,
       activeCharacterIds: nextActiveCharacterIds,
       disabledCharacterIds: nextDisabledCharacterIds,
       messages: nextMessages,
@@ -1243,7 +1245,7 @@ function hydrateCampaignMessageCharacterIds(campaign: Campaign, characters: Char
   return didChange
     ? {
       ...campaign,
-      sessions: nextSessions,
+      scenes: nextSessions,
     }
     : campaign
 }
@@ -1256,22 +1258,22 @@ function hydrateCampaignMessageCharacterIds(campaign: Campaign, characters: Char
  */
 function toCampaignLauncherLoadingState(progress: CampaignLoadProgress): CampaignLauncherLoadingState {
   if (progress.status === 'loading-chats') {
-    const chatLabel = progress.totalSessions === 1 ? 'chat' : 'chats'
+    const chatLabel = progress.totalScenes === 1 ? 'chat' : 'chats'
     return {
-      title: progress.totalSessions > 0 ? 'Loading Chats' : 'Loading Campaign',
-      detail: progress.totalSessions > 0
-        ? `Loading ${chatLabel} ${progress.sessionsLoaded} of ${progress.totalSessions}…`
+      title: progress.totalScenes > 0 ? 'Loading Chats' : 'Loading Campaign',
+      detail: progress.totalScenes > 0
+        ? `Loading ${chatLabel} ${progress.scenesLoaded} of ${progress.totalScenes}…`
         : 'Reading campaign data from disk…',
       percent: progress.percent,
     }
   }
 
   if (progress.status === 'loading-characters') {
-    const characterLabel = progress.totalSessions === 1 ? 'character' : 'characters'
+    const characterLabel = progress.totalScenes === 1 ? 'character' : 'characters'
     return {
-      title: progress.totalSessions > 0 ? 'Loading Characters' : 'Finalizing Campaign',
-      detail: progress.totalSessions > 0
-        ? `Loading ${characterLabel} ${progress.sessionsLoaded} of ${progress.totalSessions}…`
+      title: progress.totalScenes > 0 ? 'Loading Characters' : 'Finalizing Campaign',
+      detail: progress.totalScenes > 0
+        ? `Loading ${characterLabel} ${progress.scenesLoaded} of ${progress.totalScenes}…`
         : 'No stored characters found. Finalizing campaign…',
       percent: progress.percent,
     }
@@ -1358,11 +1360,11 @@ export default function App() {
 
   const { confirm, confirmState } = useConfirm()
 
-  /** ID of the session currently displayed in the chat area. */
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
-  /** ID of the session currently highlighted in the sidebar. */
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  /** True while the chat panel is switching to a different session transcript. */
+  /** ID of the scene currently displayed in the chat area. */
+  const [activeSceneId, setActiveSessionId] = useState<string | null>(null)
+  /** ID of the scene currently highlighted in the sidebar. */
+  const [selectedSceneId, setSelectedSessionId] = useState<string | null>(null)
+  /** True while the chat panel is switching to a different scene transcript. */
   const [isChatLoading, setIsChatLoading] = useState(false)
 
   /** Controlled value for the message composer textarea. */
@@ -1399,18 +1401,18 @@ export default function App() {
   const skipNextCharacterRefreshRef = useRef(false)
   /** Tracks whether any modal or confirmation dialog was open in the previous render. */
   const wasModalOpenRef = useRef(false)
-  /** Per-session delayed summary timers. */
+  /** Per-scene delayed summary timers. */
   const summaryTimeoutsRef = useRef<Record<string, number | undefined>>({})
-  /** Per-session rolling-summary jobs currently executing. */
+  /** Per-scene rolling-summary jobs currently executing. */
   const summaryPromisesRef = useRef<Record<string, Promise<void> | undefined>>({})
   /** Sessions currently being summarized in the background. */
   const summaryInFlightRef = useRef<Set<string>>(new Set())
   /** Sessions that should be summarized again after the current pass finishes. */
   const summaryRerunRef = useRef<Set<string>>(new Set())
   /** Sessions whose transcript edits require a full summary rebuild before reuse. */
-  const summaryDirtySessionsRef = useRef<Set<string>>(new Set())
-  /** Pending animation-frame handles used to stage session switches. */
-  const sessionSwitchFrameRef = useRef<number | null>(null)
+  const summaryDirtyScenesRef = useRef<Set<string>>(new Set())
+  /** Pending animation-frame handles used to stage scene switches. */
+  const sceneSwitchFrameRef = useRef<number | null>(null)
   /** Timestamp marking when the current chat-loading overlay became visible. */
   const chatLoadingStartedAtRef = useRef<number | null>(null)
   /** Pending timeout used to keep the loading overlay visible long enough to register visually. */
@@ -1452,12 +1454,16 @@ export default function App() {
 
   /** True while the settings modal is open. */
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  /** True while the scenes workspace modal is open. */
+  const [isScenesOpen, setIsScenesOpen] = useState(false)
+  /** True while the lore book workspace modal is open. */
+  const [isLoreBookOpen, setIsLoreBookOpen] = useState(false)
 
   /** True while the system prompt editor modal is open. */
   const [isCharactersOpen, setIsCharactersOpen] = useState(false)
-  /** True while the session character management modal is open. */
-  const [isSessionCharactersOpen, setIsSessionCharactersOpen] = useState(false)
-  /** True while the current session summary modal is open. */
+  /** True while the scene character management modal is open. */
+  const [isSceneCharactersOpen, setIsSessionCharactersOpen] = useState(false)
+  /** True while the current scene summary modal is open. */
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false)
   /** True while the current summary is being rebuilt manually. */
   const [isRebuildingSummary, setIsRebuildingSummary] = useState(false)
@@ -1509,8 +1515,8 @@ export default function App() {
 
   /** Message currently awaiting delete confirmation. */
   const [pendingDeleteMessageId, setPendingDeleteMessageId] = useState<string | null>(null)
-  /** Session currently awaiting delete confirmation. */
-  const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
+  /** Scene currently awaiting delete confirmation. */
+  const [pendingDeleteSceneId, setPendingDeleteSessionId] = useState<string | null>(null)
 
   /** Status message shown in the characters modal. */
   const [charactersStatusMessage, setCharactersStatusMessage] = useState<string | null>(null)
@@ -1532,12 +1538,12 @@ export default function App() {
   const [characterLibraryStatusKind, setCharacterLibraryStatusKind] = useState<'error' | 'success' | null>(null)
   /** True while a reusable character operation is in progress. */
   const [isCharacterLibraryBusy, setIsCharacterLibraryBusy] = useState(false)
-  /** Status message shown in the new-session character picker. */
-  const [newSessionStatusMessage, setNewSessionStatusMessage] = useState<string | null>(null)
-  /** Visual state of the new-session status message. */
-  const [newSessionStatusKind, setNewSessionStatusKind] = useState<'error' | 'success' | null>(null)
-  /** True while importing characters and creating a new session. */
-  const [isStartingSession, setIsStartingSession] = useState(false)
+  /** Status message shown in the new-scene character picker. */
+  const [newSceneStatusMessage, setNewSessionStatusMessage] = useState<string | null>(null)
+  /** Visual state of the new-scene status message. */
+  const [newSceneStatusKind, setNewSessionStatusKind] = useState<'error' | 'success' | null>(null)
+  /** True while importing characters and creating a new scene. */
+  const [isStartingScene, setIsStartingSession] = useState(false)
 
   /** True while the create campaign modal is open. */
   const [isCreateCampaignOpen, setIsCreateCampaignOpen] = useState(false)
@@ -1545,8 +1551,8 @@ export default function App() {
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false)
   /** True while the model loader modal is open. */
   const [isModelLoaderOpen, setIsModelLoaderOpen] = useState(false)
-  /** True while the new-session character picker modal is open. */
-  const [isNewSessionModalOpen, setIsNewSessionModalOpen] = useState(false)
+  /** True while the new-scene character picker modal is open. */
+  const [isNewSceneModalOpen, setIsNewSceneModalOpen] = useState(false)
   /** Server/source currently selected in the model loader modal. */
   const [modelLoaderServerId, setModelLoaderServerId] = useState<string | null>(null)
   /** True while the runtime model parameters modal is open. */
@@ -1805,19 +1811,21 @@ export default function App() {
 
   /* ── Derived values ─────────────────────────────────────────────────── */
 
-  /** All roleplay sessions available in the sidebar. */
-  const sessions = campaign?.sessions ?? []
+  /** All roleplay scenes available in the sidebar. */
+  const scenes = campaign?.scenes ?? []
 
-  /** The full session object for the active session (or null). */
-  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null
+  /** The full scene object for the active scene (or null). */
+  const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null
   /** True while a campaign switch is showing the dedicated full-screen loading state. */
   const isCampaignSwitchLoading = campaignLauncherLoadingState !== null
   /** True when any modal or confirmation dialog is currently covering the workspace. */
   const isAnyModalOpen =
     isSettingsOpen ||
+    isScenesOpen ||
+    isLoreBookOpen ||
     isCharactersOpen ||
-    isNewSessionModalOpen ||
-    isSessionCharactersOpen ||
+    isNewSceneModalOpen ||
+    isSceneCharactersOpen ||
     isSummaryModalOpen ||
     isCreateCampaignOpen ||
     isCampaignModalOpen ||
@@ -1825,7 +1833,7 @@ export default function App() {
     isModelParametersOpen ||
     isAiDebugOpen ||
     pendingDeleteMessageId !== null ||
-    pendingDeleteSessionId !== null
+    pendingDeleteSceneId !== null
 
   /**
    * Restore composer focus once the last open modal or confirmation dialog closes.
@@ -1838,19 +1846,19 @@ export default function App() {
     wasModalOpenRef.current = isAnyModalOpen
   }, [isAnyModalOpen])
 
-  /** Messages belonging to the active session. */
-  const messages: Message[] = activeSession?.messages ?? []
-  /** Campaign characters currently enabled for the active session. */
+  /** Messages belonging to the active scene. */
+  const messages: Message[] = activeScene?.messages ?? []
+  /** Campaign characters currently enabled for the active scene. */
   /**
-   * Cancel any scheduled session activation that has not executed yet.
+   * Cancel any scheduled scene activation that has not executed yet.
    */
   function clearScheduledSessionSwitch(): void {
-    if (sessionSwitchFrameRef.current == null) {
+    if (sceneSwitchFrameRef.current == null) {
       return
     }
 
-    window.cancelAnimationFrame(sessionSwitchFrameRef.current)
-    sessionSwitchFrameRef.current = null
+    window.cancelAnimationFrame(sceneSwitchFrameRef.current)
+    sceneSwitchFrameRef.current = null
   }
 
   /**
@@ -1866,13 +1874,13 @@ export default function App() {
   }
 
   /**
-   * Stage a session switch so the loading affordance can paint before a large
+   * Stage a scene switch so the loading affordance can paint before a large
    * transcript render blocks the renderer for a moment.
    *
-   * @param nextSessionId - Session to activate.
+   * @param nextSessionId - Scene to activate.
    */
   function scheduleSessionActivation(nextSessionId: string): void {
-    if (nextSessionId === activeSessionId) {
+    if (nextSessionId === activeSceneId) {
       clearScheduledChatReveal()
       chatLoadingStartedAtRef.current = null
       setSelectedSessionId(nextSessionId)
@@ -1886,22 +1894,22 @@ export default function App() {
     chatLoadingStartedAtRef.current = Date.now()
     setIsChatLoading(true)
 
-    sessionSwitchFrameRef.current = window.requestAnimationFrame(() => {
-      sessionSwitchFrameRef.current = window.requestAnimationFrame(() => {
-        sessionSwitchFrameRef.current = null
+    sceneSwitchFrameRef.current = window.requestAnimationFrame(() => {
+      sceneSwitchFrameRef.current = window.requestAnimationFrame(() => {
+        sceneSwitchFrameRef.current = null
         setActiveSessionId(nextSessionId)
       })
     })
   }
 
-  const enabledSessionCharacters = useMemo(
-    () => getEnabledSessionCharacters(activeSession, characters),
-    [activeSession, characters],
+  const enabledSceneCharacters = useMemo(
+    () => getEnabledSessionCharacters(activeScene, characters),
+    [activeScene, characters],
   )
 
   /** The character currently selected for the next outgoing user message. */
   const composerCharacter =
-    enabledSessionCharacters.find((character) => character.id === composerCharacterId) ?? null
+    enabledSceneCharacters.find((character) => character.id === composerCharacterId) ?? null
   const isDirectorComposerSelected = composerCharacterId === DIRECTOR_COMPOSER_ID
 
   /** The currently selected AI server from persisted settings. */
@@ -2022,45 +2030,45 @@ export default function App() {
 
   /** Stable system-context payload for the active campaign. */
   const systemContextMessages = useMemo(() => {
-    if (!campaign || !activeSession) {
+    if (!campaign || !activeScene) {
       return []
     }
 
     return buildSystemContext(
       campaign,
-      enabledSessionCharacters,
-      activeSession,
+      enabledSceneCharacters,
+      activeScene,
       appSettings.campaignBasePrompt,
       appSettings.formattingRules,
       appSettings.systemPrompt,
-      getPromptSceneSummary(activeSession, appSettings.enableRollingSummaries),
+      getPromptSceneSummary(activeScene, appSettings.enableRollingSummaries),
       relationshipGraph,
     )
   }, [
-    activeSession,
+    activeScene,
     appSettings.campaignBasePrompt,
     appSettings.enableRollingSummaries,
     appSettings.formattingRules,
     appSettings.systemPrompt,
     relationshipGraph,
     campaign,
-    enabledSessionCharacters,
+    enabledSceneCharacters,
   ])
 
-  /** Stable chat-history payload for the active session. */
+  /** Stable chat-history payload for the active scene. */
   const apiMessages = useMemo(() => {
-    if (!activeSession) {
+    if (!activeScene) {
       return []
     }
 
     return toApiMessages(
       getPromptWindowMessages(
-        activeSession,
+        activeScene,
         appSettings.enableRollingSummaries,
         appSettings.recentMessagesWindow,
       ),
     )
-  }, [activeSession, appSettings.enableRollingSummaries, appSettings.recentMessagesWindow])
+  }, [activeScene, appSettings.enableRollingSummaries, appSettings.recentMessagesWindow])
 
   /** Approximate tokens used by the current outbound prompt. */
   const estimatedPromptTokens = useMemo(
@@ -2120,7 +2128,7 @@ export default function App() {
    */
   useEffect(() => {
     setLastTokenUsage(null)
-  }, [activeSessionId, activeSession?.disabledCharacterIds, campaignPath, activeModel?.id, campaign?.id, characters])
+  }, [activeSceneId, activeScene?.disabledCharacterIds, campaignPath, activeModel?.id, campaign?.id, characters])
 
   /**
    * Cancel delayed summary work whenever rolling summaries are disabled.
@@ -2159,28 +2167,28 @@ export default function App() {
       return
     }
 
-    if (enabledSessionCharacters.length === 0) {
+    if (enabledSceneCharacters.length === 0) {
       if (composerCharacterId !== null) {
         setComposerCharacterId(null)
       }
       return
     }
 
-    const stillExists = enabledSessionCharacters.some((character) => character.id === composerCharacterId)
+    const stillExists = enabledSceneCharacters.some((character) => character.id === composerCharacterId)
     if (stillExists) {
       return
     }
 
     const defaultCharacter =
-      enabledSessionCharacters.find((character) => character.controlledBy === 'user') ??
-      enabledSessionCharacters[0] ??
+      enabledSceneCharacters.find((character) => character.controlledBy === 'user') ??
+      enabledSceneCharacters[0] ??
       null
 
     setComposerCharacterId(defaultCharacter?.id ?? null)
-  }, [composerCharacterId, enabledSessionCharacters])
+  }, [composerCharacterId, enabledSceneCharacters])
 
   /**
-   * Keep the active session selection valid whenever the campaign changes.
+   * Keep the active scene selection valid whenever the campaign changes.
    */
   useEffect(() => {
     return () => {
@@ -2191,41 +2199,41 @@ export default function App() {
 
   useEffect(() => {
     if (!campaign) {
-      if (activeSessionId !== null) {
+      if (activeSceneId !== null) {
         setActiveSessionId(null)
       }
-      if (selectedSessionId !== null) {
+      if (selectedSceneId !== null) {
         setSelectedSessionId(null)
       }
       return
     }
 
-    if (campaign.sessions.length === 0) {
-      if (activeSessionId !== null) {
+    if (campaign.scenes.length === 0) {
+      if (activeSceneId !== null) {
         setActiveSessionId(null)
       }
-      if (selectedSessionId !== null) {
+      if (selectedSceneId !== null) {
         setSelectedSessionId(null)
       }
       return
     }
 
-    const hasActiveSession = campaign.sessions.some((session) => session.id === activeSessionId)
+    const hasActiveSession = campaign.scenes.some((scene) => scene.id === activeSceneId)
     if (!hasActiveSession) {
-      setActiveSessionId(campaign.sessions[0].id)
+      setActiveSessionId(campaign.scenes[0].id)
     }
 
-    const hasSelectedSession = campaign.sessions.some((session) => session.id === selectedSessionId)
+    const hasSelectedSession = campaign.scenes.some((scene) => scene.id === selectedSceneId)
     if (!hasSelectedSession) {
-      setSelectedSessionId(hasActiveSession ? activeSessionId : campaign.sessions[0].id)
+      setSelectedSessionId(hasActiveSession ? activeSceneId : campaign.scenes[0].id)
     }
-  }, [activeSessionId, campaign, selectedSessionId])
+  }, [activeSceneId, campaign, selectedSceneId])
 
   /**
-   * Rebuild missing character IDs whenever a session is opened for display.
+   * Rebuild missing character IDs whenever a scene is opened for display.
    */
   useEffect(() => {
-    if (!campaign || !activeSessionId || characters.length === 0) {
+    if (!campaign || !activeSceneId || characters.length === 0) {
       return
     }
 
@@ -2237,7 +2245,7 @@ export default function App() {
       const nextCampaign = hydrateCampaignMessageCharacterIds(prev, characters)
       return nextCampaign
     })
-  }, [activeSessionId, campaign, characters])
+  }, [activeSceneId, campaign, characters])
 
   /**
    * Autosave the active campaign whenever its contents change after load.
@@ -2335,17 +2343,17 @@ export default function App() {
   }
 
   /**
-   * Append or update a message inside a specific session.
+   * Append or update a message inside a specific scene.
    * If a message with `msg.id` already exists it is replaced; otherwise appended.
    * New messages are summarized incrementally by the background rolling-summary
-   * worker, so only destructive transcript edits should mark a session dirty.
-   * @param sessionId - Target session.
+   * worker, so only destructive transcript edits should mark a scene dirty.
+   * @param sessionId - Target scene.
    * @param msg       - Message to upsert.
    */
   function upsertMessage(sessionId: string, msg: Message): void {
     updateCampaign((prev) => ({
       ...prev,
-      sessions: prev.sessions.map((s) => {
+      scenes: prev.scenes.map((s) => {
         if (s.id !== sessionId) return s
         const exists = s.messages.some((m) => m.id === msg.id)
         const messages = exists
@@ -2359,7 +2367,7 @@ export default function App() {
   /**
    * Replace the current streamed assistant bubble set with the latest segments.
    *
-   * @param sessionId - Target session receiving the assistant reply.
+   * @param sessionId - Target scene receiving the assistant reply.
    * @param messageIds - Stable IDs allocated for the streamed assistant bubbles.
    * @param contents - Bubble text content in visual order.
    * @param timestamp - Timestamp applied to all streamed assistant bubbles.
@@ -2372,12 +2380,12 @@ function syncStreamedAssistantMessages(
   ): void {
       updateCampaign((prev) => ({
         ...prev,
-        sessions: prev.sessions.map((session) => {
-        if (session.id !== sessionId) {
-          return session
+        scenes: prev.scenes.map((scene) => {
+        if (scene.id !== sessionId) {
+          return scene
         }
 
-        const keepMessages = session.messages.filter((message) => !messageIds.includes(message.id))
+        const keepMessages = scene.messages.filter((message) => !messageIds.includes(message.id))
         const streamedMessages = bubbles.map((bubble, index) => {
           const matchedCharacter = bubble.characterName
             ? characters.find((character) => character.name.trim().toLocaleLowerCase() === bubble.characterName?.trim().toLocaleLowerCase()) ?? null
@@ -2393,7 +2401,7 @@ function syncStreamedAssistantMessages(
         })
 
         return {
-          ...session,
+          ...scene,
           messages: [...keepMessages, ...streamedMessages],
           updatedAt: Date.now(),
         }
@@ -2403,38 +2411,38 @@ function syncStreamedAssistantMessages(
     }
 
   /**
-   * Ensure there is an active session to receive messages.
+   * Ensure there is an active scene to receive messages.
    *
-   * When no session is active, require the normal session-creation flow so
+   * When no scene is active, require the normal scene-creation flow so
    * active characters are selected explicitly and persisted correctly.
    *
-   * @returns Active session ID, or null when the user must create one first.
+   * @returns Active scene ID, or null when the user must create one first.
    */
   function ensureActiveSession(): string | null {
-    if (activeSessionId) {
-      return activeSessionId
+    if (activeSceneId) {
+      return activeSceneId
     }
 
     setNewSessionStatusKind('error')
-    setNewSessionStatusMessage('Start a session and choose its active characters before sending messages.')
-    setIsNewSessionModalOpen(true)
+    setNewSessionStatusMessage('Start a scene and choose its active characters before sending messages.')
+    setIsNewSceneModalOpen(true)
     return null
   }
 
   /* ── Handlers ───────────────────────────────────────────────────────── */
 
   /**
-   * Create a new empty session, add it to the list, and make it active.
+   * Create a new empty scene, add it to the list, and make it active.
    */
   function handleNewSession(): void {
     setNewSessionStatusKind(null)
     setNewSessionStatusMessage(null)
-    setIsNewSessionModalOpen(true)
+    setIsNewSceneModalOpen(true)
   }
 
   /**
-   * Switch the active session.
-   * @param id - ID of the session to activate.
+   * Switch the active scene.
+   * @param id - ID of the scene to activate.
    */
   function handleSelectSession(id: string) {
     scheduleSessionActivation(id)
@@ -2467,7 +2475,7 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Enable or disable one campaign character for the active session.
+   * Enable or disable one campaign character for the active scene.
    *
    * If the character has already appeared in the transcript, disabling them
    * requires confirmation because it can change continuity.
@@ -2475,7 +2483,7 @@ function syncStreamedAssistantMessages(
    * @param characterId - Character being toggled.
    */
   async function handleToggleSessionCharacter(characterId: string): Promise<void> {
-    if (!activeSession || !campaign) {
+    if (!activeScene || !campaign) {
       return
     }
 
@@ -2485,14 +2493,14 @@ function syncStreamedAssistantMessages(
     }
 
     const activeCharacterIds = new Set(
-      getSessionActiveCharacterIds(activeSession) ?? characters.map((candidate) => candidate.id),
+      getSessionActiveCharacterIds(activeScene) ?? characters.map((candidate) => candidate.id),
     )
-    const disabledCharacterIds = new Set(getSessionDisabledCharacterIds(activeSession))
+    const disabledCharacterIds = new Set(getSessionDisabledCharacterIds(activeScene))
     const isCurrentlyEnabled = activeCharacterIds.has(characterId)
 
     if (isCurrentlyEnabled) {
       const normalizedCharacterName = character.name.trim().toLocaleLowerCase()
-      const appearsInSession = activeSession.messages.some((message) => (
+      const appearsInSession = activeScene.messages.some((message) => (
         message.characterId === characterId ||
         message.characterName?.trim().toLocaleLowerCase() === normalizedCharacterName
       ))
@@ -2500,7 +2508,7 @@ function syncStreamedAssistantMessages(
       if (appearsInSession) {
         const confirmed = await confirm({
           title: 'Turn Off Character',
-          message: `${character.name} already appears in this session's chat history. Turning them off may affect continuity and the flow of the session. Continue?`,
+          message: `${character.name} already appears in this scene's chat history. Turning them off may affect continuity and the flow of the scene. Continue?`,
           confirmLabel: 'Turn Off',
         })
 
@@ -2520,17 +2528,17 @@ function syncStreamedAssistantMessages(
     const nextCampaign: Campaign = {
       ...campaign,
       updatedAt: now,
-      sessions: campaign.sessions.map((session) => (
-        session.id === activeSession.id
+      scenes: campaign.scenes.map((scene) => (
+        scene.id === activeScene.id
           ? {
-            ...session,
+            ...scene,
             activeCharacterIds: characters
               .filter((candidate) => activeCharacterIds.has(candidate.id))
               .map((candidate) => candidate.id),
             disabledCharacterIds: [...disabledCharacterIds],
             updatedAt: now,
           }
-          : session
+          : scene
       )),
     }
 
@@ -2541,23 +2549,23 @@ function syncStreamedAssistantMessages(
           lastSavedCampaignRef.current = nextCampaign
         })
         .catch((err) => {
-          console.error('[Aethra] Could not save session character changes:', err)
-          setCampaignStatusMessage('Could not save the active session cast.')
+          console.error('[Aethra] Could not save scene character changes:', err)
+          setCampaignStatusMessage('Could not save the active scene cast.')
         })
     }
   }
 
   /**
-   * Delete a session after explicit user confirmation.
+   * Delete a scene after explicit user confirmation.
    *
-   * @param sessionId - ID of the session to remove.
+   * @param sessionId - ID of the scene to remove.
    */
   function handleDeleteSession(sessionId: string): void {
     if (!campaign || isStreaming) {
       return
     }
 
-    const sessionIndex = campaign.sessions.findIndex((session) => session.id === sessionId)
+    const sessionIndex = campaign.scenes.findIndex((scene) => scene.id === sessionId)
     if (sessionIndex === -1) {
       return
     }
@@ -2566,7 +2574,7 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Close the session deletion confirmation dialog.
+   * Close the scene deletion confirmation dialog.
    */
   function handleCancelDeleteSession(): void {
     setPendingDeleteSessionId(null)
@@ -2574,30 +2582,30 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Permanently delete the currently selected session.
+   * Permanently delete the currently selected scene.
    */
   function handleConfirmDeleteSession(): void {
-    if (!campaign || !pendingDeleteSessionId || isStreaming) {
+    if (!campaign || !pendingDeleteSceneId || isStreaming) {
       return
     }
 
-    const sessionIndex = campaign.sessions.findIndex((session) => session.id === pendingDeleteSessionId)
+    const sessionIndex = campaign.scenes.findIndex((scene) => scene.id === pendingDeleteSceneId)
     if (sessionIndex === -1) {
       setPendingDeleteSessionId(null)
       return
     }
 
-    const remainingSessions = campaign.sessions.filter((candidate) => candidate.id !== pendingDeleteSessionId)
-    clearSummaryTimer(pendingDeleteSessionId)
-    summaryInFlightRef.current.delete(pendingDeleteSessionId)
-    summaryRerunRef.current.delete(pendingDeleteSessionId)
+    const remainingSessions = campaign.scenes.filter((candidate) => candidate.id !== pendingDeleteSceneId)
+    clearSummaryTimer(pendingDeleteSceneId)
+    summaryInFlightRef.current.delete(pendingDeleteSceneId)
+    summaryRerunRef.current.delete(pendingDeleteSceneId)
 
     updateCampaign((prev) => ({
       ...prev,
-      sessions: prev.sessions.filter((candidate) => candidate.id !== pendingDeleteSessionId),
+      scenes: prev.scenes.filter((candidate) => candidate.id !== pendingDeleteSceneId),
     }))
 
-    if (activeSessionId === pendingDeleteSessionId) {
+    if (activeSceneId === pendingDeleteSceneId) {
       const nextSession = remainingSessions[sessionIndex] ?? remainingSessions[sessionIndex - 1] ?? null
       setActiveSessionId(nextSession?.id ?? null)
       setSelectedSessionId(nextSession?.id ?? null)
@@ -2608,16 +2616,16 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Delete a single message from the active session after explicit confirmation.
+   * Delete a single message from the active scene after explicit confirmation.
    *
    * @param messageId - ID of the message to remove.
    */
   function handleDeleteMessage(messageId: string): void {
-    if (!activeSession || isStreaming) {
+    if (!activeScene || isStreaming) {
       return
     }
 
-    const message = activeSession.messages.find((candidate) => candidate.id === messageId)
+    const message = activeScene.messages.find((candidate) => candidate.id === messageId)
     if (!message) {
       return
     }
@@ -2637,22 +2645,22 @@ function syncStreamedAssistantMessages(
    * Permanently remove the currently selected message.
    */
   function handleConfirmDeleteMessage(): void {
-    if (!activeSession || !pendingDeleteMessageId) {
+    if (!activeScene || !pendingDeleteMessageId) {
       return
     }
 
     const messageId = pendingDeleteMessageId
-    resetRollingSummary(activeSession.id)
+    resetRollingSummary(activeScene.id)
     updateCampaign((prev) => ({
       ...prev,
-      sessions: prev.sessions.map((session) => {
-        if (session.id !== activeSession.id) {
-          return session
+      scenes: prev.scenes.map((scene) => {
+        if (scene.id !== activeScene.id) {
+          return scene
         }
 
-        const nextMessages = session.messages.filter((candidate) => candidate.id !== messageId)
+        const nextMessages = scene.messages.filter((candidate) => candidate.id !== messageId)
         return {
-          ...session,
+          ...scene,
           messages: nextMessages,
           updatedAt: Date.now(),
         }
@@ -2694,8 +2702,8 @@ function syncStreamedAssistantMessages(
       setActiveCharacterId(nextCharacters[0]?.id ?? null)
       setCampaign(hydratedCampaign)
       setCampaignPath(created.path)
-      setActiveSessionId(hydratedCampaign.sessions[0]?.id ?? null)
-      setSelectedSessionId(hydratedCampaign.sessions[0]?.id ?? null)
+      setActiveSessionId(hydratedCampaign.scenes[0]?.id ?? null)
+      setSelectedSessionId(hydratedCampaign.scenes[0]?.id ?? null)
       lastSavedCampaignRef.current = hydratedCampaign
       setIsCampaignModalOpen(false)
       setIsCreateCampaignOpen(false)
@@ -2746,8 +2754,8 @@ function syncStreamedAssistantMessages(
       setActiveCharacterId(nextCharacters[0]?.id ?? null)
       setCampaign(hydratedCampaign)
       setCampaignPath(opened.path)
-      setActiveSessionId(hydratedCampaign.sessions[0]?.id ?? null)
-      setSelectedSessionId(hydratedCampaign.sessions[0]?.id ?? null)
+      setActiveSessionId(hydratedCampaign.scenes[0]?.id ?? null)
+      setSelectedSessionId(hydratedCampaign.scenes[0]?.id ?? null)
       lastSavedCampaignRef.current = hydratedCampaign
       setCampaignLauncherLoadingState(null)
 
@@ -2821,12 +2829,74 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Trigger an LLM relationship refresh for the active session.
+   * Leave the active campaign workspace and return to the launcher screen.
+   * Keeps persisted data intact while clearing campaign-scoped UI state.
+   */
+  async function handleExitCampaign(): Promise<void> {
+    if (isStreaming || isCampaignBusy || isStartingScene) {
+      return
+    }
+
+    const confirmed = await confirm({
+      title: 'Exit Campaign',
+      message: 'This will close the current campaign workspace and return to the home screen.',
+      warning: 'Your campaign data will remain on disk. This does not delete the campaign.',
+      confirmLabel: 'Exit Campaign',
+      cancelLabel: 'Stay Here',
+    })
+
+    if (!confirmed) {
+      return
+    }
+
+    for (const sessionId of Object.keys(summaryTimeoutsRef.current)) {
+      clearSummaryTimer(sessionId)
+    }
+    summaryInFlightRef.current.clear()
+    summaryRerunRef.current.clear()
+    summaryDirtyScenesRef.current.clear()
+    setCampaign(null)
+    setCampaignPath(null)
+    setCharacters([])
+    setRelationshipGraph(null)
+    setPendingRelationshipGraph(null)
+    setRefreshRelationshipsError(null)
+    setRefreshStartedAt(0)
+    setActiveSessionId(null)
+    setSelectedSessionId(null)
+    setActiveCharacterId(null)
+    setComposerCharacterId(null)
+    setInputValue('')
+    setLastTokenUsage(null)
+    setCampaignStatusMessage(null)
+    setCampaignLoadProgress(null)
+    setCampaignLauncherLoadingState(null)
+    setPendingDeleteMessageId(null)
+    setPendingDeleteSessionId(null)
+    setIsSettingsOpen(false)
+    setIsScenesOpen(false)
+    setIsLoreBookOpen(false)
+    setIsCharactersOpen(false)
+    setIsSessionCharactersOpen(false)
+    setIsSummaryModalOpen(false)
+    setIsCreateCampaignOpen(false)
+    setIsCampaignModalOpen(false)
+    setIsModelLoaderOpen(false)
+    setIsNewSceneModalOpen(false)
+    setIsModelParametersOpen(false)
+    setIsAiDebugOpen(false)
+    setActiveTab('')
+    lastSavedCampaignRef.current = null
+    setComposerFocusRequestKey((prev) => prev + 1)
+  }
+
+  /**
+   * Trigger an LLM relationship refresh for the active scene.
    * On success, opens the RelationshipReviewModal with the merged graph.
-   * Only analyzes characters active in the current session and its messages.
+   * Only analyzes characters active in the current scene and its messages.
    */
   async function handleRefreshRelationships(): Promise<void> {
-    if (!campaign || !campaignPath || !activeSession || characters.length < 2 || isRefreshingRelationships) return
+    if (!campaign || !campaignPath || !activeScene || characters.length < 2 || isRefreshingRelationships) return
     setIsRefreshingRelationships(true)
     setRefreshRelationshipsError(null)
     // Record the dispatch timestamp BEFORE the async call so entries updated
@@ -2835,12 +2905,12 @@ function syncStreamedAssistantMessages(
     refreshStartedAtRef.current = startedAt
     setRefreshStartedAt(startedAt)
     try {
-      const sessionCharacters = getEnabledSessionCharacters(activeSession, characters)
+      const sessionCharacters = getEnabledSessionCharacters(activeScene, characters)
       const merged = await window.api.refreshRelationships(
         campaignPath,
         campaign.id,
         sessionCharacters,
-        [activeSession],
+        [activeScene],
       )
       setPendingRelationshipGraph(merged)
     } catch (err: unknown) {
@@ -2929,6 +2999,16 @@ function syncStreamedAssistantMessages(
       return
     }
 
+    if (tabId === 'scenes') {
+      setIsScenesOpen(true)
+      return
+    }
+
+    if (tabId === 'lore-book') {
+      setIsLoreBookOpen(true)
+      return
+    }
+
     setActiveTab(tabId)
   }
 
@@ -2951,27 +3031,27 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Close the new-session character picker modal.
+   * Close the new-scene character picker modal.
    */
-  function handleCloseNewSessionModal(): void {
-    if (isStartingSession) {
+  function handleCloseNewSceneModal(): void {
+    if (isStartingScene) {
       return
     }
 
-    setIsNewSessionModalOpen(false)
+    setIsNewSceneModalOpen(false)
     setNewSessionStatusKind(null)
     setNewSessionStatusMessage(null)
   }
 
   /**
-   * Open the session character management modal.
+   * Open the scene character management modal.
    */
   function handleOpenSessionCharacters(): void {
     setIsSessionCharactersOpen(true)
   }
 
   /**
-   * Close the session character management modal.
+   * Close the scene character management modal.
    */
   function handleCloseSessionCharacters(): void {
     setIsSessionCharactersOpen(false)
@@ -2979,7 +3059,7 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Open the current session summary modal.
+   * Open the current scene summary modal.
    */
   function handleOpenSummaryModal(): void {
     setSummaryModalStatusKind(null)
@@ -2988,7 +3068,7 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Close the current session summary modal.
+   * Close the current scene summary modal.
    */
   function handleCloseSummaryModal(): void {
     setIsSummaryModalOpen(false)
@@ -2996,24 +3076,24 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Rebuild the active session summary from as much raw transcript as the
+   * Rebuild the active scene summary from as much raw transcript as the
    * current model context should allow in one request.
    * Also generates a relationship-focused narrative summary after rebuild completes.
    */
   async function handleRebuildSummary(): Promise<void> {
-    if (!activeSession || isRebuildingSummary) {
+    if (!activeScene || isRebuildingSummary) {
       return
     }
 
-    clearSummaryTimer(activeSession.id)
-    summaryRerunRef.current.delete(activeSession.id)
+    clearSummaryTimer(activeScene.id)
+    summaryRerunRef.current.delete(activeScene.id)
     setIsRebuildingSummary(true)
     setSummaryModalStatusKind(null)
     setSummaryModalStatusMessage('Rebuilding summary...')
 
     try {
       const { summary, summarizedMessageCount, passCount } = await rebuildSessionSummaryFromTranscript(
-        activeSession,
+        activeScene,
         appSettingsRef.current.rollingSummarySystemPrompt,
         activeModel?.contextWindowTokens ?? null,
         (passNumber, startIndex, endIndex, totalCount) => {
@@ -3027,18 +3107,18 @@ function syncStreamedAssistantMessages(
 
       updateCampaign((prev) => ({
         ...prev,
-        sessions: prev.sessions.map((session) =>
-          session.id === activeSession.id
+        scenes: prev.scenes.map((scene) =>
+          scene.id === activeScene.id
             ? {
-              ...session,
+              ...scene,
               rollingSummary: summary,
               summarizedMessageCount,
               updatedAt: Date.now(),
             }
-            : session,
+            : scene,
         ),
       }))
-      summaryDirtySessionsRef.current.delete(activeSession.id)
+      summaryDirtyScenesRef.current.delete(activeScene.id)
 
       setSummaryModalStatusKind('success')
 
@@ -3046,24 +3126,24 @@ function syncStreamedAssistantMessages(
       if (appSettingsRef.current.enableRollingRelationshipSummaries && campaign && campaignPath) {
         try {
           setSummaryModalStatusMessage('Generating relationship summary...')
-          const sessionCharacters = getEnabledSessionCharacters(activeSession, characters)
+          const sessionCharacters = getEnabledSessionCharacters(activeScene, characters)
           const narrative = await window.api.generateRelationshipNarrative(
             campaignPath,
             campaign.id,
             sessionCharacters,
-            [activeSession],
+            [activeScene],
           )
-          // Save narrative to the session
+          // Save narrative to the scene
           updateCampaign((prev) => ({
             ...prev,
-            sessions: prev.sessions.map((session) =>
-              session.id === activeSession.id
+            scenes: prev.scenes.map((scene) =>
+              scene.id === activeScene.id
                 ? {
-                  ...session,
+                  ...scene,
                   relationshipNarrativeSummary: narrative,
                   updatedAt: Date.now(),
                 }
-                : session,
+                : scene,
             ),
           }))
           setSummaryModalStatusMessage('Summary and relationship narrative complete.')
@@ -3081,10 +3161,10 @@ function syncStreamedAssistantMessages(
         )
       }
     } catch (err) {
-      console.error('[Aethra] Could not rebuild session summary:', err)
+      console.error('[Aethra] Could not rebuild scene summary:', err)
       setSummaryModalStatusKind('error')
       setSummaryModalStatusMessage(
-        err instanceof Error ? err.message : 'Could not rebuild the session summary.',
+        err instanceof Error ? err.message : 'Could not rebuild the scene summary.',
       )
     } finally {
       setIsRebuildingSummary(false)
@@ -3191,9 +3271,9 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Clear any delayed summary timer for a session.
+   * Clear any delayed summary timer for a scene.
    *
-   * @param sessionId - Target session.
+   * @param sessionId - Target scene.
    */
   function clearSummaryTimer(sessionId: string): void {
     const timerId = summaryTimeoutsRef.current[sessionId]
@@ -3204,9 +3284,9 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Start a background refresh of the rolling summary for a session.
+   * Start a background refresh of the rolling summary for a scene.
    *
-   * @param sessionId - Target session.
+   * @param sessionId - Target scene.
    */
   async function performRollingSummary(
     sessionId: string,
@@ -3228,19 +3308,19 @@ function syncStreamedAssistantMessages(
     }
 
     const currentCampaign = campaignRef.current
-    const session = currentCampaign?.sessions.find((candidate) => candidate.id === sessionId) ?? null
-    if (!session) {
+    const scene = currentCampaign?.scenes.find((candidate) => candidate.id === sessionId) ?? null
+    if (!scene) {
       return
     }
 
-    const isDirty = summaryDirtySessionsRef.current.has(sessionId)
-    const visibleMessages = getVisiblePromptMessages(session.messages)
+    const isDirty = summaryDirtyScenesRef.current.has(sessionId)
+    const visibleMessages = getVisiblePromptMessages(scene.messages)
     if (isDirty && visibleMessages.length <= settings.recentMessagesWindow) {
-      summaryDirtySessionsRef.current.delete(sessionId)
+      summaryDirtyScenesRef.current.delete(sessionId)
       return
     }
 
-    const snapshot = createSessionSummarySnapshot(session, settings.recentMessagesWindow)
+    const snapshot = createSessionSummarySnapshot(scene, settings.recentMessagesWindow)
     if (!isDirty && !snapshot) {
       return
     }
@@ -3249,7 +3329,7 @@ function syncStreamedAssistantMessages(
     try {
       const summaryResult = isDirty
         ? await rebuildSessionSummaryFromTranscript(
-          session,
+          scene,
           appSettingsRef.current.rollingSummarySystemPrompt,
           activeModel?.contextWindowTokens ?? null,
         )
@@ -3269,7 +3349,7 @@ function syncStreamedAssistantMessages(
 
       updateCampaign((prev) => ({
         ...prev,
-        sessions: prev.sessions.map((candidate) => {
+        scenes: prev.scenes.map((candidate) => {
           if (candidate.id !== sessionId) {
             return candidate
           }
@@ -3286,7 +3366,7 @@ function syncStreamedAssistantMessages(
           }
         }),
       }))
-      summaryDirtySessionsRef.current.delete(sessionId)
+      summaryDirtyScenesRef.current.delete(sessionId)
     } catch (err) {
       console.error('[Aethra] Could not refresh rolling summary:', err)
     } finally {
@@ -3299,9 +3379,9 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Start or join a rolling-summary refresh for a session.
+   * Start or join a rolling-summary refresh for a scene.
    *
-   * @param sessionId - Target session.
+   * @param sessionId - Target scene.
    * @param options - Execution options for the current caller.
    * @returns Promise resolving when the active summary pass completes.
    */
@@ -3327,7 +3407,7 @@ function syncStreamedAssistantMessages(
   /**
    * Queue a delayed rolling-summary refresh so live play can continue first.
    *
-   * @param sessionId - Target session.
+   * @param sessionId - Target scene.
    */
   function scheduleRollingSummary(sessionId: string): void {
     if (!appSettingsRef.current.enableRollingSummaries) {
@@ -3342,58 +3422,58 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Refresh a session summary until all pre-send archived transcript has been
+   * Refresh a scene summary until all pre-send archived transcript has been
    * folded into the rolling summary.
    *
-   * @param sessionId - Target session.
-   * @returns Latest session snapshot after catch-up completes.
+   * @param sessionId - Target scene.
+   * @returns Latest scene snapshot after catch-up completes.
    */
-  async function catchUpRollingSummaryBeforeSend(sessionId: string): Promise<Session | null> {
+  async function catchUpRollingSummaryBeforeSend(sessionId: string): Promise<Scene | null> {
     const recentMessagesWindow = appSettingsRef.current.recentMessagesWindow
     if (!appSettingsRef.current.enableRollingSummaries) {
-      return campaignRef.current?.sessions.find((session) => session.id === sessionId) ?? null
+      return campaignRef.current?.scenes.find((scene) => scene.id === sessionId) ?? null
     }
 
     while (true) {
-      const session = campaignRef.current?.sessions.find((candidate) => candidate.id === sessionId) ?? null
-      if (!session) {
+      const scene = campaignRef.current?.scenes.find((candidate) => candidate.id === sessionId) ?? null
+      if (!scene) {
         return null
       }
 
-      if (summaryDirtySessionsRef.current.has(sessionId) && getVisiblePromptMessages(session.messages).length <= recentMessagesWindow) {
-        summaryDirtySessionsRef.current.delete(sessionId)
-        return session
+      if (summaryDirtyScenesRef.current.has(sessionId) && getVisiblePromptMessages(scene.messages).length <= recentMessagesWindow) {
+        summaryDirtyScenesRef.current.delete(sessionId)
+        return scene
       }
 
-      if (summaryDirtySessionsRef.current.has(sessionId) || createSessionSummarySnapshot(session, recentMessagesWindow)) {
+      if (summaryDirtyScenesRef.current.has(sessionId) || createSessionSummarySnapshot(scene, recentMessagesWindow)) {
         clearSummaryTimer(sessionId)
         await runRollingSummary(sessionId, { allowDuringStreaming: true })
         continue
       }
 
-      if (!createSessionSummarySnapshot(session, recentMessagesWindow)) {
-        return session
+      if (!createSessionSummarySnapshot(scene, recentMessagesWindow)) {
+        return scene
       }
     }
   }
 
   /**
-   * Reset a session summary when the transcript is edited in a way that can
+   * Reset a scene summary when the transcript is edited in a way that can
    * invalidate archived continuity.
    *
-   * @param sessionId - Target session.
+   * @param sessionId - Target scene.
    */
   function resetRollingSummary(sessionId: string): void {
     clearSummaryTimer(sessionId)
     summaryRerunRef.current.delete(sessionId)
-    summaryDirtySessionsRef.current.add(sessionId)
+    summaryDirtyScenesRef.current.add(sessionId)
 
     updateCampaign((prev) => ({
       ...prev,
-      sessions: prev.sessions.map((session) =>
-        session.id === sessionId
-          ? { ...session, rollingSummary: '', summarizedMessageCount: 0, updatedAt: Date.now() }
-          : session,
+      scenes: prev.scenes.map((scene) =>
+        scene.id === sessionId
+          ? { ...scene, rollingSummary: '', summarizedMessageCount: 0, updatedAt: Date.now() }
+          : scene,
       ),
     }))
   }
@@ -3584,11 +3664,11 @@ function syncStreamedAssistantMessages(
 
     try {
       await persistSettings(nextSettings)
-      if (!enabled && activeSession) {
-        clearSummaryTimer(activeSession.id)
+      if (!enabled && activeScene) {
+        clearSummaryTimer(activeScene.id)
       }
-      if (enabled && activeSession) {
-        scheduleRollingSummary(activeSession.id)
+      if (enabled && activeScene) {
+        scheduleRollingSummary(activeScene.id)
       }
       setSettingsStatusKind('success')
       setSettingsStatusMessage(
@@ -3604,7 +3684,7 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Enable or disable rolling relationship summaries for session analysis.
+   * Enable or disable rolling relationship summaries for scene analysis.
    *
    * @param enabled - Whether relationship summaries should refresh automatically.
    */
@@ -4589,12 +4669,12 @@ function syncStreamedAssistantMessages(
       return
     }
 
-    const affectedSessions = campaign.sessions.filter((session) => hasCharacterAppearedInSession(session, characterToDelete))
+    const affectedSessions = campaign.scenes.filter((scene) => hasCharacterAppearedInSession(scene, characterToDelete))
     const confirmed = await confirm({
       title: `Delete ${characterToDelete.name}?`,
       message: `Delete ${characterToDelete.name} from this campaign?`,
       warning: affectedSessions.length > 0
-        ? `This character appears in ${affectedSessions.length} session${affectedSessions.length === 1 ? '' : 's'}. Deleting the character will also permanently delete those session${affectedSessions.length === 1 ? '' : 's'}.`
+        ? `This character appears in ${affectedSessions.length} scene${affectedSessions.length === 1 ? '' : 's'}. Deleting the character will also permanently delete those scene${affectedSessions.length === 1 ? '' : 's'}.`
         : undefined,
       confirmLabel: 'Delete',
     })
@@ -4616,21 +4696,21 @@ function syncStreamedAssistantMessages(
           ),
         }
         : null
-      const removedSessionIds = new Set(affectedSessions.map((session) => session.id))
+      const removedSessionIds = new Set(affectedSessions.map((scene) => scene.id))
       if (nextRelationshipGraph) {
         await handleSaveRelationships(nextRelationshipGraph)
       }
       if (removedSessionIds.size > 0) {
         updateCampaign((prev) => ({
           ...prev,
-          sessions: prev.sessions.filter((session) => !removedSessionIds.has(session.id)),
+          scenes: prev.scenes.filter((scene) => !removedSessionIds.has(scene.id)),
         }))
       }
       setCharacters(nextCharacters)
       setActiveCharacterId(nextCharacters[0]?.id ?? null)
       setComposerCharacterId((prev) => prev === characterId ? null : prev)
       if (removedSessionIds.size > 0) {
-        const survivingSessions = campaign.sessions.filter((session) => !removedSessionIds.has(session.id))
+        const survivingSessions = campaign.scenes.filter((scene) => !removedSessionIds.has(scene.id))
         const nextSessionId = survivingSessions[0]?.id ?? null
         setActiveSessionId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSessionId)
         setSelectedSessionId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSessionId)
@@ -4638,7 +4718,7 @@ function syncStreamedAssistantMessages(
       setCharactersStatusKind('success')
       setCharactersStatusMessage(
         removedSessionIds.size > 0
-          ? `Character deleted from this campaign along with ${removedSessionIds.size} affected session${removedSessionIds.size === 1 ? '' : 's'}.`
+          ? `Character deleted from this campaign along with ${removedSessionIds.size} affected scene${removedSessionIds.size === 1 ? '' : 's'}.`
           : 'Character deleted from this campaign.',
       )
     } catch (err) {
@@ -4678,7 +4758,9 @@ function syncStreamedAssistantMessages(
       }
 
       // Save to campaign using existing handler
-      await handleSaveCharacter(character)
+      const savedCharacter = await handleSaveCharacter(character)
+      setCharactersStatusKind('success')
+      setCharactersStatusMessage(`Added ${savedCharacter.name} to Campaign.`)
     } catch (error) {
       console.error('[Aethra] Failed to copy app character:', error)
       setCharactersStatusKind('error')
@@ -4985,7 +5067,7 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Create a session from the selected campaign and global characters.
+   * Create a scene from the selected campaign and global characters.
    *
    * @param selectedCampaignCharacterIds - Existing campaign characters to keep active.
    * @param selectedReusableCharacterIds - Global characters to import and activate.
@@ -4995,12 +5077,12 @@ function syncStreamedAssistantMessages(
     selectedReusableCharacterIds: string[],
     title: string,
     sceneSetup: string,
-    continuitySourceSessionId: string | null,
+    continuitySourceSceneId: string | null,
     openingNotes: string,
   ): Promise<void> {
     if (!campaign) {
       setNewSessionStatusKind('error')
-      setNewSessionStatusMessage('Open a campaign before starting a session.')
+      setNewSessionStatusMessage('Open a campaign before starting a scene.')
       return
     }
 
@@ -5012,17 +5094,17 @@ function syncStreamedAssistantMessages(
     )
     if (!hasSelectedCampaignPlayer && !hasSelectedReusablePlayer) {
       setNewSessionStatusKind('error')
-      setNewSessionStatusMessage('Select at least one player character before starting a session.')
+      setNewSessionStatusMessage('Select at least one player character before starting a scene.')
       return
     }
     if (title.trim().length === 0) {
       setNewSessionStatusKind('error')
-      setNewSessionStatusMessage('Enter a session name before starting the session.')
+      setNewSessionStatusMessage('Enter a scene name before starting the scene.')
       return
     }
     if (sceneSetup.trim().length === 0) {
       setNewSessionStatusKind('error')
-      setNewSessionStatusMessage('Write a scene setup before starting the session.')
+      setNewSessionStatusMessage('Write a scene setup before starting the scene.')
       return
     }
 
@@ -5051,16 +5133,16 @@ function syncStreamedAssistantMessages(
         .map((character) => character.id)
 
       const now = Date.now()
-      const selectedContinuitySession = continuitySourceSessionId
-        ? sessions.find((session) => session.id === continuitySourceSessionId) ?? null
+      const selectedContinuityScene = continuitySourceSceneId
+        ? scenes.find((scene) => scene.id === continuitySourceSceneId) ?? null
         : null
-      const newSession: Session = {
+      const newScene: Scene = {
         id: uid(),
         title,
         sceneSetup,
         openingNotes,
-        continuitySourceSessionId: selectedContinuitySession?.id,
-        continuitySummary: selectedContinuitySession?.rollingSummary.trim() ?? '',
+        continuitySourceSceneId: selectedContinuityScene?.id,
+        continuitySummary: selectedContinuityScene?.rollingSummary.trim() ?? '',
         activeCharacterIds: [...selectedCharacterIds],
         disabledCharacterIds,
         messages: [],
@@ -5072,33 +5154,33 @@ function syncStreamedAssistantMessages(
 
       updateCampaign((prev) => ({
         ...prev,
-        sessions: [newSession, ...prev.sessions],
+        scenes: [newScene, ...prev.scenes],
       }))
-      setActiveSessionId(newSession.id)
-      setSelectedSessionId(newSession.id)
-      setIsNewSessionModalOpen(false)
+      setActiveSceneId(newScene.id)
+      setSelectedSceneId(newScene.id)
+      setIsNewSceneModalOpen(false)
       setComposerFocusRequestKey((prev) => prev + 1)
-      setNewSessionStatusKind(null)
-      setNewSessionStatusMessage(null)
+      setNewSceneStatusKind(null)
+      setNewSceneStatusMessage(null)
     } catch (err) {
-      console.error('[Aethra] Could not start session:', err)
-      setNewSessionStatusKind('error')
-      setNewSessionStatusMessage(err instanceof Error ? err.message : 'Could not start session.')
+      console.error('[Aethra] Could not start scene:', err)
+      setNewSceneStatusKind('error')
+      setNewSceneStatusMessage(err instanceof Error ? err.message : 'Could not start scene.')
     } finally {
-      setIsStartingSession(false)
+      setIsStartingScene(false)
     }
   }
 
   /**
    * Append one user message, then stream the AI response using the latest
-   * active session state or an explicit session override.
+   * active scene state or an explicit scene override.
    *
-   * @param options - Message content plus optional session and speaker overrides.
+   * @param options - Message content plus optional scene and speaker overrides.
    */
   async function sendUserMessage(options: {
     content: string
-    sessionId?: string
-    sessionOverride?: Session | null
+    sceneId?: string
+    sceneOverride?: Scene | null
     characterId?: string
     characterName?: string
     clearComposer?: boolean
@@ -5116,12 +5198,12 @@ function syncStreamedAssistantMessages(
 
     const isContinueShortcut = trimmedInput === '***'
     const normalizedInput = isContinueShortcut ? '*continue*' : trimmedInput
-    const sessionId = options.sessionId ?? ensureActiveSession()
-    if (!sessionId) {
+    const sceneId = options.sceneId ?? ensureActiveScene()
+    if (!sceneId) {
       return
     }
     const targetSession = options.sessionOverride
-      ?? currentCampaign.sessions.find((session) => session.id === sessionId)
+      ?? currentCampaign.scenes.find((scene) => scene.id === sessionId)
       ?? null
 
     const shouldSendAsDirector = isContinueShortcut || isDirectorComposerSelected
@@ -5142,7 +5224,7 @@ function syncStreamedAssistantMessages(
 
     // Snapshot the message history *before* appending the user message so we
     // can build the API payload without relying on stale state.
-    const sessionForPrompt: Session = targetSession ?? {
+    const sessionForPrompt: Scene = targetSession ?? {
       id: sessionId,
       title: 'New Chat',
       sceneSetup: '',
@@ -5200,17 +5282,17 @@ function syncStreamedAssistantMessages(
             sessionCharacters,
             [latestSessionForPrompt],
           )
-          // Update session with relationship narrative
+          // Update scene with relationship narrative
           updateCampaign((prev) => ({
             ...prev,
-            sessions: prev.sessions.map((session) =>
-              session.id === sessionId
+            scenes: prev.scenes.map((scene) =>
+              scene.id === sessionId
                 ? {
-                  ...session,
+                  ...scene,
                   relationshipNarrativeSummary: relationshipNarrative,
                   updatedAt: Date.now(),
                 }
-                : session,
+                : scene,
             ),
           }))
         } catch (err) {
@@ -5221,14 +5303,14 @@ function syncStreamedAssistantMessages(
       console.error('[Aethra] Could not prepare AI request before streaming:', err)
       updateCampaign((prev) => ({
         ...prev,
-        sessions: prev.sessions.map((session) => {
-          if (session.id !== sessionId) {
-            return session
+        scenes: prev.scenes.map((scene) => {
+          if (scene.id !== sessionId) {
+            return scene
           }
 
           return {
-            ...session,
-            messages: session.messages.map((message) => (
+            ...scene,
+            messages: scene.messages.map((message) => (
               message.id === assistantMessage.id
                 ? {
                   ...message,
@@ -5255,7 +5337,7 @@ function syncStreamedAssistantMessages(
     let requestSession = latestSessionForPrompt
     let baseHistorySnapshot = buildRequestMessages(
       currentCampaign,
-      enabledSessionCharacters,
+      enabledSceneCharacters,
       appSettingsRef.current,
       requestSession,
       [userMessage],
@@ -5264,7 +5346,7 @@ function syncStreamedAssistantMessages(
       options.forceRecentWindowOnly === true,
     )
     const playerControlledNames = new Set(
-      enabledSessionCharacters
+      enabledSceneCharacters
         .filter((character) => character.controlledBy === 'user')
         .map((character) => character.name.trim().toLocaleLowerCase())
         .filter((name) => name.length > 0),
@@ -5410,7 +5492,7 @@ function syncStreamedAssistantMessages(
         ? baseHistorySnapshot
         : buildRequestMessages(
           currentCampaign,
-          enabledSessionCharacters,
+          enabledSceneCharacters,
           appSettingsRef.current,
           requestSession,
           [userMessage],
@@ -5454,15 +5536,15 @@ function syncStreamedAssistantMessages(
           console.error('[Aethra] AI stream error:', err)
           updateCampaign((prev) => ({
             ...prev,
-            sessions: prev.sessions.map((session) => {
-              if (session.id !== sessionId) {
-                return session
+            scenes: prev.scenes.map((scene) => {
+              if (scene.id !== sessionId) {
+                return scene
               }
 
               return {
-                ...session,
+                ...scene,
                 messages: [
-                  ...session.messages.filter((message) => !assistantIds.includes(message.id)),
+                  ...scene.messages.filter((message) => !assistantIds.includes(message.id)),
                   {
                     ...assistantMessage,
                     content: `${TRANSIENT_ERROR_MARKER} Could not reach the selected AI server. Check that it is running and the server address is correct.`,
@@ -5502,28 +5584,28 @@ function syncStreamedAssistantMessages(
 
   /**
    * Delete the selected user message and every later message, then resend the
-   * selected message after forcing the session summary to rebuild.
+   * selected message after forcing the scene summary to rebuild.
    *
    * @param messageId - User message that should become the new branch point.
    */
   async function handleReplayFromMessage(messageId: string): Promise<void> {
-    if (!activeSession || isStreaming) {
+    if (!activeScene || isStreaming) {
       return
     }
 
-    const messageIndex = activeSession.messages.findIndex((candidate) => candidate.id === messageId)
+    const messageIndex = activeScene.messages.findIndex((candidate) => candidate.id === messageId)
     if (messageIndex === -1) {
       return
     }
 
-    const message = activeSession.messages[messageIndex]
+    const message = activeScene.messages[messageIndex]
     if (message.role !== 'user') {
       return
     }
 
     const confirmed = await confirm({
       title: 'Replay From This Message',
-      message: 'This will delete this message and every message after it, rebuild the session summary, and resend this message using the current model settings.',
+      message: 'This will delete this message and every message after it, rebuild the scene summary, and resend this message using the current model settings.',
       warning: 'This permanently replaces the later transcript branch in the current chat.',
       confirmLabel: 'Replay Message',
       cancelLabel: 'Keep Chat',
@@ -5533,13 +5615,13 @@ function syncStreamedAssistantMessages(
       return
     }
 
-    clearSummaryTimer(activeSession.id)
-    summaryRerunRef.current.delete(activeSession.id)
-    summaryDirtySessionsRef.current.add(activeSession.id)
+    clearSummaryTimer(activeScene.id)
+    summaryRerunRef.current.delete(activeScene.id)
+    summaryDirtyScenesRef.current.add(activeScene.id)
 
-    const nextSession: Session = {
-      ...activeSession,
-      messages: activeSession.messages.slice(0, messageIndex),
+    const nextSession: Scene = {
+      ...activeScene,
+      messages: activeScene.messages.slice(0, messageIndex),
       rollingSummary: '',
       summarizedMessageCount: 0,
       updatedAt: Date.now(),
@@ -5547,16 +5629,16 @@ function syncStreamedAssistantMessages(
 
     updateCampaign((prev) => ({
       ...prev,
-      sessions: prev.sessions.map((session) => (
-        session.id === activeSession.id
+      scenes: prev.scenes.map((scene) => (
+        scene.id === activeScene.id
           ? nextSession
-          : session
+          : scene
       )),
     }))
 
     await sendUserMessage({
       content: message.content,
-      sessionId: activeSession.id,
+      sessionId: activeScene.id,
       sessionOverride: nextSession,
       characterId: message.characterId,
       characterName: message.characterName,
@@ -5579,6 +5661,10 @@ function syncStreamedAssistantMessages(
           onOpenAiDebug={handleOpenAiDebug}
           onOpenModelParameters={handleOpenModelParameters}
           canEditModelParameters={canEditModelParameters}
+          onExitCampaign={() => {
+            void handleExitCampaign()
+          }}
+          canExitCampaign={!isStreaming && !isCampaignBusy && !isStartingScene}
         />
       ) : null}
 
@@ -5598,7 +5684,7 @@ function syncStreamedAssistantMessages(
         />
       ) : campaign ? (
         <div className="app-layout">
-          {/* Left column: session navigator */}
+          {/* Left column: scene navigator */}
           <Sidebar
             campaignName={campaign.name}
             activeModelName={activeModel?.name ?? null}
@@ -5607,20 +5693,18 @@ function syncStreamedAssistantMessages(
             totalContextTokens={totalContextTokens}
             remainingTokens={remainingTokens}
             remainingTokensIsExact={remainingTokensIsExact}
-            sessions={sessions}
-            activeSessionId={selectedSessionId}
-            activeSessionSummary={activeSession?.rollingSummary ?? null}
-            onSelectSession={handleSelectSession}
-            onDeleteSession={handleDeleteSession}
-            onNewSession={handleNewSession}
-            onOpenSummary={handleOpenSummaryModal}
-            isBusy={isStreaming || isStartingSession}
+            scenes={scenes}
+            activeSceneId={selectedSceneId}
+            onSelectScene={handleSelectSession}
+            onDeleteScene={handleDeleteSession}
+            onNewScene={handleNewSession}
+            isBusy={isStreaming || isStartingScene}
           />
 
           {/* Centre column: chat feed + composer */}
           <main className="panel panel--chat">
             <ChatArea
-              activeSessionId={activeSessionId}
+              activeSceneId={activeSceneId}
               messages={messages}
               characters={characters}
               textSize={appSettings.chatTextSize}
@@ -5637,7 +5721,7 @@ function syncStreamedAssistantMessages(
             {isChatModelReady ? (
               <InputBar
                 value={inputValue}
-                characters={enabledSessionCharacters}
+                characters={enabledSceneCharacters}
                 selectedCharacterId={composerCharacterId}
                 onChange={setInputValue}
                 onSelectCharacter={setComposerCharacterId}
@@ -5650,7 +5734,7 @@ function syncStreamedAssistantMessages(
                 <div className="chat-model-warning__copy">
                   <div className="chat-model-warning__title">No model loaded</div>
                   <div className="chat-model-warning__text">
-                    Load a model to begin chatting in this session.
+                    Load a model to begin chatting in this scene.
                   </div>
                 </div>
                 <button
@@ -5665,11 +5749,13 @@ function syncStreamedAssistantMessages(
             )}
           </main>
 
-          {/* Right column: session details */}
+          {/* Right column: scene details */}
           <DetailsPanel
-            activeSession={activeSession}
-            activeCharacters={enabledSessionCharacters}
+            activeScene={activeScene}
+            activeSceneSummary={activeScene?.rollingSummary ?? null}
+            activeCharacters={enabledSceneCharacters}
             totalCharacterCount={characters.length}
+            onOpenSummary={handleOpenSummaryModal}
             onOpenSessionCharacters={handleOpenSessionCharacters}
             onRefreshRelationships={() => { void handleRefreshRelationships() }}
             isRefreshingRelationships={isRefreshingRelationships}
@@ -5781,6 +5867,14 @@ function syncStreamedAssistantMessages(
         />
       ) : null}
 
+      {!isCampaignSwitchLoading && isScenesOpen ? (
+        <ScenesModal onClose={() => setIsScenesOpen(false)} />
+      ) : null}
+
+      {!isCampaignSwitchLoading && isLoreBookOpen ? (
+        <LoreBookModal onClose={() => setIsLoreBookOpen(false)} />
+      ) : null}
+
       {!isCampaignSwitchLoading && isAiDebugOpen ? (
         <AiDebugModal
           entries={aiDebugEntries}
@@ -5880,29 +5974,29 @@ function syncStreamedAssistantMessages(
           onUseAppCharacter={handleUseAppCharacter}
         />
       ) : null}
-      {!isCampaignSwitchLoading && isNewSessionModalOpen ? (
-        <NewSessionModal
-          sessions={sessions}
+      {!isCampaignSwitchLoading && isNewSceneModalOpen ? (
+        <NewSceneModal
+          scenes={scenes}
           campaignCharacters={characters}
           reusableCharacters={reusableCharacters}
-          statusMessage={newSessionStatusMessage}
-          statusKind={newSessionStatusKind}
-          isBusy={isStartingSession}
-          onClose={handleCloseNewSessionModal}
-          onStartSession={(campaignCharacterIds, reusableCharacterIds, title, sceneSetup, continuitySourceSessionId, openingNotes) =>
+          statusMessage={newSceneStatusMessage}
+          statusKind={newSceneStatusKind}
+          isBusy={isStartingScene}
+          onClose={handleCloseNewSceneModal}
+          onStartSession={(campaignCharacterIds, reusableCharacterIds, title, sceneSetup, continuitySourceSceneId, openingNotes) =>
             handleStartNewSession(
               campaignCharacterIds,
               reusableCharacterIds,
               title,
               sceneSetup,
-              continuitySourceSessionId,
+              continuitySourceSceneId,
               openingNotes,
             )}
         />
       ) : null}
-      {!isCampaignSwitchLoading && isSessionCharactersOpen ? (
-        <SessionCharactersModal
-          activeSession={activeSession}
+      {!isCampaignSwitchLoading && isSceneCharactersOpen ? (
+        <SceneCharactersModal
+          activeScene={activeScene}
           characters={characters}
           onToggleCharacter={handleToggleSessionCharacter}
           onClose={handleCloseSessionCharacters}
@@ -5910,8 +6004,8 @@ function syncStreamedAssistantMessages(
       ) : null}
       {!isCampaignSwitchLoading && isSummaryModalOpen ? (
         <SummaryModal
-          summary={activeSession?.rollingSummary ?? ''}
-          relationshipNarrativeSummary={activeSession?.relationshipNarrativeSummary ?? null}
+          summary={activeScene?.rollingSummary ?? ''}
+          relationshipNarrativeSummary={activeScene?.relationshipNarrativeSummary ?? null}
           isRebuilding={isRebuildingSummary}
           isRefreshingRelationships={false}
           statusMessage={summaryModalStatusMessage}
@@ -5971,7 +6065,7 @@ function syncStreamedAssistantMessages(
           onClose={handleCancelDeleteMessage}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <p>This will permanently remove the chat bubble from the current session.</p>
+            <p>This will permanently remove the chat bubble from the current scene.</p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
               <button type="button" className="characters-modal__footer-btn" onClick={handleCancelDeleteMessage}>
                 Cancel
@@ -5987,7 +6081,7 @@ function syncStreamedAssistantMessages(
           </div>
         </Modal>
       ) : null}
-      {!isCampaignSwitchLoading && pendingDeleteSessionId ? (
+      {!isCampaignSwitchLoading && pendingDeleteSceneId ? (
         <ConfirmModal
           title="Delete Chat"
           message="This will permanently remove the selected chat and its full message history."

@@ -325,6 +325,36 @@ select.characters-modal__input {
   font-size: var(--font-size-label);
 }
 
+.characters-modal__search {
+  position: relative;
+}
+
+.characters-modal__search-input {
+  padding-right: 44px;
+}
+
+.characters-modal__search-clear {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background-color: transparent;
+  color: var(--text-color-secondary);
+  transform: translateY(-50%);
+  transition: background-color var(--motion-base), color var(--motion-base);
+}
+
+.characters-modal__search-clear:hover {
+  background-color: var(--surface-bg-emphasis);
+  color: var(--text-color-primary);
+}
+
 .characters-modal__gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
@@ -552,4 +582,3 @@ select.characters-modal__input {
     grid-template-columns: 1fr;
   }
 }
-

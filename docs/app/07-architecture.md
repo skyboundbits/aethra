@@ -148,8 +148,8 @@ This allows the renderer to call main process functions safely without exposing 
 
 Root React component. Owns all top-level state:
 
-- **sessions**: Array of Session objects
-- **activeSession**: Currently displayed session
+- **scenes**: Array of Scene objects
+- **activeSession**: Currently displayed scene
 - **campaigns**: Loaded campaign data
 - **inputValue**: Text in the message composer
 - **isStreaming**: Whether AI response is in-flight
@@ -158,8 +158,8 @@ Root React component. Owns all top-level state:
 
 Key functions:
 - `handleSend()`: Send a message and stream AI response
-- `handleNewSession()`: Create a session
-- `handleDeleteSession()`: Remove a session
+- `handleNewSession()`: Create a scene
+- `handleDeleteSession()`: Remove a scene
 - `handleStreamChunk()`: Receive token from AI (via IPC)
 - `handleStreamComplete()`: Finalize AI response
 
@@ -177,14 +177,14 @@ Modal UI is split into a low-level shell plus shared layout variants:
 Current usage:
 
 - **Workspace modals**: Settings, Campaign, Characters
-- **Form modals**: Create Campaign, Model Loader, Model Parameters, New Session
+- **Form modals**: Create Campaign, Model Loader, Model Parameters, New Scene
 - **Popup modals**: AI Debug, Raw Message Inspector, Summary Viewer
 
 ### src/types/index.ts
 
 Central type definitions used across app and main process:
 
-- **Message, Session, Campaign**: Chat data structures
+- **Message, Scene, Campaign**: Chat data structures
 - **CharacterProfile, CharacterAvatarCrop**: Character definitions
 - **ServerProfile, ModelPreset, AvailableModel**: AI configuration
 - **AppSettings**: Persisted user preferences
@@ -199,8 +199,8 @@ Aethra uses **React hooks only** — no external state libraries (Redux, Zustand
 State is managed in `App.tsx`:
 
 ```typescript
-// Sessions
-const [sessions, setSessions] = useState<Session[]>([])
+// Scenes
+const [scenes, setSessions] = useState<Scene[]>([])
 const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
 
 // Campaign
@@ -285,7 +285,7 @@ Communication between main and renderer processes uses Electron IPC:
 If the server times out or errors:
 - Main sends: `renderer.send('ai:error', id, 'error message')`
 - React displays error in chat
-- Session remains editable; user can retry
+- Scene remains editable; user can retry
 
 ## Campaign File Storage
 
@@ -295,8 +295,8 @@ Campaigns are persisted as JSON files:
 <userData>/campaigns/
 ├── {campaign-id}/
 │   ├── campaign.json
-│   ├── sessions/
-│   │   ├── {session-id}.json
+│   ├── scenes/
+│   │   ├── {scene-id}.json
 │   │   └── ...
 │   └── characters/
 │       ├── {character-id}/
@@ -307,7 +307,7 @@ Campaigns are persisted as JSON files:
 
 ### Campaign Loading/Saving
 
-1. **On load**: Main reads `campaign.json`, then all sessions and characters
+1. **On load**: Main reads `campaign.json`, then all scenes and characters
 2. **On save**: Each component that modifies state calls the save handler
 3. **Auto-save**: Messages are saved immediately when sent (no manual save button)
 
@@ -527,8 +527,8 @@ App
 2. **Add to App state** (`src/App.tsx`):
    ```typescript
    const togglePinMessage = (messageId: string) => {
-     const session = activeSession
-     const msg = session.messages.find(m => m.id === messageId)
+     const scene = activeSession
+     const msg = scene.messages.find(m => m.id === messageId)
      if (msg) msg.isPinned = !msg.isPinned
      // Save campaign
    }

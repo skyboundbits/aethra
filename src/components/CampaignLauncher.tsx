@@ -142,7 +142,7 @@ export function CampaignLauncher({
                     {campaign.description || 'No description yet.'}
                   </span>
                   <span className="campaign-launcher__campaign-meta">
-                    {campaign.sessionCount} {campaign.sessionCount === 1 ? 'session' : 'sessions'}
+                    {campaign.sceneCount} {campaign.sceneCount === 1 ? 'scene' : 'sessions'}
                   </span>
                 </button>
               ))}

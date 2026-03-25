@@ -1,16 +1,13 @@
 /**
  * src/styles/sidebar.css
  * Styles for the Sidebar component (left panel).
- * Contains the session list, "New Session" button, and panel header.
+ * Contains the scene list, "New Scene" button, and panel header.
  */
 
 /* ─── Panel header ───────────────────────────────────────────────────────── */
 
 .sidebar__header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
   padding: var(--panel-padding);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
@@ -20,6 +17,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
 }
 
 .sidebar__eyebrow {
@@ -38,40 +36,42 @@
   text-overflow: ellipsis;
 }
 
-/* ─── New session button ─────────────────────────────────────────────────── */
-
-.sidebar__new-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  background-color: var(--surface-bg-accent);
-  color: var(--text-color-on-accent);
-  font-size: 18px;
-  line-height: 1;
-  transition: background-color var(--motion-base);
-}
-
-.sidebar__new-btn:hover {
-  background-color: var(--surface-bg-accent-hover);
-}
-
-/* ─── Session list ───────────────────────────────────────────────────────── */
+/* ─── Scene list ───────────────────────────────────────────────────────── */
 
 .sidebar__list {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-2);
+  padding: var(--panel-padding);
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-4);
 }
 
-/* ─── Individual session item ────────────────────────────────────────────── */
+.sidebar__new-scene-button {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--surface-bg-accent);
+  color: var(--text-color-on-accent);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  text-align: center;
+  transition: background-color var(--motion-base);
+}
 
-.session-item {
+.sidebar__new-scene-button:hover {
+  background-color: var(--surface-bg-accent-hover);
+}
+
+.sidebar__scene-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ─── Individual scene item ────────────────────────────────────────────── */
+
+.scene-item {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -82,21 +82,21 @@
   border: 1px solid transparent;
 }
 
-.session-item__content {
+.scene-item__content {
   min-width: 0;
   flex: 1;
 }
 
-.session-item:hover {
+.scene-item:hover {
   background-color: var(--surface-bg-emphasis);
 }
 
-.session-item--active {
+.scene-item--active {
   background-color: var(--surface-bg-selected);
   border-color: var(--border-color-accent);
 }
 
-.session-item__title {
+.scene-item__title {
   font-size: var(--font-size-label);
   font-weight: 500;
   color: var(--text-color-primary);
@@ -105,13 +105,13 @@
   text-overflow: ellipsis;
 }
 
-.session-item__meta {
+.scene-item__meta {
   font-size: var(--font-size-caption);
   color: var(--text-color-muted);
   margin-top: 3px;
 }
 
-.session-item__delete {
+.scene-item__delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -125,17 +125,17 @@
     background-color var(--motion-base);
 }
 
-.session-item__delete svg {
+.scene-item__delete svg {
   width: 16px;
   height: 16px;
 }
 
-.session-item__delete:hover:not(:disabled) {
+.scene-item__delete:hover:not(:disabled) {
   color: var(--text-color-primary);
   background-color: var(--surface-bg-overlay);
 }
 
-.session-item__delete:disabled {
+.scene-item__delete:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }

@@ -6,7 +6,7 @@
  *   .app-root            – full-viewport flex column container
  *     .ribbon-bar        – top navigation ribbon (128px)
  *     .app-layout        – flex row container for the three panels
- *       .panel--sidebar  – left column: session list
+ *       .panel--sidebar  – left column: scene list
  *       .panel--chat     – centre column: chat area + input bar
  *       .panel--details  – right column: character / scene details
  */

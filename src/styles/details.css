@@ -1,7 +1,7 @@
 /**
  * src/styles/details.css
  * Styles for the DetailsPanel component (right panel).
- * Provides a compact session character list with a management action.
+ * Provides a compact scene character list with a management action.
  */
 
 .details__header {
@@ -14,6 +14,11 @@
   gap: var(--space-3);
 }
 
+.details__heading {
+  min-width: 0;
+  flex: 1;
+}
+
 .details__eyebrow {
   font-size: var(--font-size-caption);
   font-weight: 600;
@@ -24,9 +29,12 @@
 }
 
 .details__title {
-  font-size: var(--font-size-title);
+  font-size: var(--font-size-label);
   font-weight: 600;
   color: var(--text-color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .details__body {
@@ -113,6 +121,11 @@
 .details__action-button--full-width {
   width: 100%;
   justify-content: center;
+}
+
+.details__summary-button {
+  min-height: 0;
+  padding: 10px 12px;
 }
 
 .details__active-cast-list {

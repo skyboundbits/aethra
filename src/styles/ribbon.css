@@ -51,8 +51,23 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 4px;
+  gap: 12px;
   flex: 1;
+  min-width: 0;
+}
+
+.ribbon-nav__group {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.ribbon-nav__divider {
+  width: 1px;
+  align-self: stretch;
+  background-color: var(--border-color);
+  opacity: 0.9;
 }
 
 .ribbon-nav__tab {
@@ -108,4 +123,5 @@
   gap: 8px;
   min-width: 96px;
   justify-content: flex-end;
+  margin-left: auto;
 }

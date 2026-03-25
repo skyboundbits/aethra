@@ -223,8 +223,8 @@ export function CampaignModal({
                             {entry.description || 'No description yet.'}
                           </span>
                           <span className="campaign-modal__recent-meta">
-                            {entry.sessionCount}{' '}
-                            {entry.sessionCount === 1 ? 'session' : 'sessions'}
+                            {entry.sceneCount}{' '}
+                            {entry.sceneCount === 1 ? 'scene' : 'scenes'}
                           </span>
                         </button>
                       ))}

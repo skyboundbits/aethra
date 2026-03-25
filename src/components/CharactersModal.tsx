@@ -73,6 +73,49 @@ interface ImportReusableCharacterConfirmModalProps {
   onCancel: () => void
 }
 
+interface LibrarySearchInputProps {
+  value: string
+  placeholder: string
+  onChange: (value: string) => void
+}
+
+function matchesLibrarySearch(searchValue: string, ...fields: Array<string | null | undefined>): boolean {
+  const normalizedSearch = searchValue.trim().toLocaleLowerCase()
+  if (!normalizedSearch) {
+    return true
+  }
+
+  return fields.some((field) => field?.toLocaleLowerCase().includes(normalizedSearch))
+}
+
+function LibrarySearchInput({ value, placeholder, onChange }: LibrarySearchInputProps) {
+  return (
+    <div className="characters-modal__search">
+      <input
+        className="characters-modal__input characters-modal__search-input"
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+      />
+      {value ? (
+        <button
+          type="button"
+          className="characters-modal__search-clear"
+          aria-label="Clear filter"
+          onClick={() => onChange('')}
+        >
+          x
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function getEmptyLibraryMessage(searchValue: string, emptyMessage: string, filteredMessage: string): string {
+  return searchValue.trim() ? filteredMessage : emptyMessage
+}
+
 function SaveReusableCharacterConfirmModal({
   characterName,
   relationshipCount,
@@ -496,7 +539,7 @@ function CharacterRelationshipsPanel({
       <div className="characters-modal__relationships-empty">
         <p>
           {isEditable
-            ? <>No relationship data yet. Use the <strong>Refresh Relationships</strong> button in the session panel to generate relationship data from your campaign transcripts.</>
+            ? <>No relationship data yet. Use the <strong>Refresh Relationships</strong> button in the scene panel to generate relationship data from your campaign transcripts.</>
             : 'No saved relationship data is attached to this global character.'}
         </p>
       </div>
@@ -683,6 +726,7 @@ export function CharactersModal({
   const [savedAvatarDraftSnapshot, setSavedAvatarDraftSnapshot] = useState<string>(() => getAvatarDraftSnapshot(initialAvatarDraft))
   const [selectedCampaignCharacterId, setSelectedCampaignCharacterId] = useState<string | null>(activeCharacterId)
   const [selectedReusableCharacterId, setSelectedReusableCharacterId] = useState<string | null>(null)
+  const [librarySearch, setLibrarySearch] = useState('')
   const [saveReusableConfirmation, setSaveReusableConfirmation] = useState<SaveReusableCharacterConfirmationState | null>(null)
   const [importReusableConfirmation, setImportReusableConfirmation] = useState<ImportReusableCharacterConfirmationState | null>(null)
   const [copyRelationshipsOnSave, setCopyRelationshipsOnSave] = useState(false)
@@ -905,6 +949,34 @@ export function CharactersModal({
     () => [...reusableAvatars].sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' })),
     [reusableAvatars],
   )
+  const sortedAppCharacters = useMemo(
+    () => (appCharacters ? [...appCharacters].sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' })) : []),
+    [appCharacters],
+  )
+  const sortedAppAvatars = useMemo(
+    () => [...appAvatars].sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' })),
+    [appAvatars],
+  )
+  const filteredCampaignCharacters = useMemo(
+    () => sortedCampaignCharacters.filter((character) => matchesLibrarySearch(librarySearch, character.name, character.role, character.description)),
+    [librarySearch, sortedCampaignCharacters],
+  )
+  const filteredReusableCharacters = useMemo(
+    () => sortedReusableCharacters.filter((character) => matchesLibrarySearch(librarySearch, character.name, character.role, character.description)),
+    [librarySearch, sortedReusableCharacters],
+  )
+  const filteredReusableAvatars = useMemo(
+    () => sortedReusableAvatars.filter((avatar) => matchesLibrarySearch(librarySearch, avatar.name)),
+    [librarySearch, sortedReusableAvatars],
+  )
+  const filteredAppCharacters = useMemo(
+    () => sortedAppCharacters.filter((character) => matchesLibrarySearch(librarySearch, character.name, character.role, character.description)),
+    [librarySearch, sortedAppCharacters],
+  )
+  const filteredAppAvatars = useMemo(
+    () => sortedAppAvatars.filter((avatar) => matchesLibrarySearch(librarySearch, avatar.name)),
+    [librarySearch, sortedAppAvatars],
+  )
 
   useEffect(() => {
     setSelectedCampaignCharacterId(activeCharacterId)
@@ -962,20 +1034,20 @@ export function CharactersModal({
       return
     }
 
-    const selectedAvatar = sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
+    const selectedAvatar = filteredReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
     if (selectedAvatar) {
       setAvatarDraft(selectedAvatar)
       setSavedAvatarDraftSnapshot(getAvatarDraftSnapshot(selectedAvatar))
       return
     }
 
-    const firstAvatar = sortedReusableAvatars[0] ?? null
+    const firstAvatar = filteredReusableAvatars[0] ?? null
     setSelectedReusableAvatarId(firstAvatar?.id ?? null)
     if (firstAvatar) {
       setAvatarDraft(firstAvatar)
       setSavedAvatarDraftSnapshot(getAvatarDraftSnapshot(firstAvatar))
     }
-  }, [avatarEditorMode, avatarSection, selectedReusableAvatarId, sortedReusableAvatars])
+  }, [avatarEditorMode, avatarSection, filteredReusableAvatars, selectedReusableAvatarId])
 
   function updateDraftField<K extends keyof CharacterProfile>(field: K, value: CharacterProfile[K]): void {
     setDraft((currentDraft) => ({ ...currentDraft, [field]: value }))
@@ -1011,6 +1083,14 @@ export function CharactersModal({
 
     if (tabId !== 'app-characters') {
       setIsViewingAppCharacter(false)
+    }
+
+    if (tabId === 'existing-characters' && selectedReusableCharacterId === null && filteredReusableCharacters.length > 0) {
+      setSelectedReusableCharacterId(filteredReusableCharacters[0].id)
+    }
+
+    if (tabId === 'app-characters' && selectedAppCharacterId === null && filteredAppCharacters.length > 0) {
+      setSelectedAppCharacterId(filteredAppCharacters[0].id)
     }
 
     setActiveTab(tabId)
@@ -1072,13 +1152,6 @@ export function CharactersModal({
     }
 
     if (isEditingReusableCharacter) {
-      const confirmed = await confirm({
-        title: 'Delete Global Character',
-        message: `Delete ${draft.name || 'this character'} from global characters?`,
-        confirmLabel: 'Delete',
-        cancelLabel: 'Cancel',
-      })
-      if (!confirmed) return
       await onDeleteReusableCharacter(draft.id)
       setSelectedReusableCharacterId(null)
       resetEditorToNewCampaignDraft()
@@ -1086,13 +1159,6 @@ export function CharactersModal({
       return
     }
 
-    const confirmed = await confirm({
-      title: 'Delete Campaign Character',
-      message: `Delete ${draft.name || 'this character'} from this campaign?`,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
-    })
-    if (!confirmed) return
     await onDeleteCharacter(draft.id)
     setSelectedCampaignCharacterId(null)
     resetEditorToNewCampaignDraft()
@@ -1104,32 +1170,12 @@ export function CharactersModal({
       return
     }
 
-    const confirmed = await confirm({
-      title: 'Delete Campaign Character',
-      message: `Delete ${selectedCampaignCharacter.name || 'this character'} from this campaign?`,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
-    })
-    if (!confirmed) {
-      return
-    }
-
     await onDeleteCharacter(selectedCampaignCharacter.id)
     setSelectedCampaignCharacterId(null)
   }
 
   async function handleDeleteSelectedReusableCharacter(): Promise<void> {
     if (!selectedReusableCharacter) {
-      return
-    }
-
-    const confirmed = await confirm({
-      title: 'Delete Global Character',
-      message: `Delete ${selectedReusableCharacter.name || 'this character'} from global characters?`,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
-    })
-    if (!confirmed) {
       return
     }
 
@@ -1186,13 +1232,21 @@ export function CharactersModal({
   }
 
   const selectedCampaignCharacter =
-    sortedCampaignCharacters.find((character) => character.id === selectedCampaignCharacterId) ?? null
+    filteredCampaignCharacters.find((character) => character.id === selectedCampaignCharacterId) ?? null
   const selectedReusableCharacter =
-    sortedReusableCharacters.find((character) => character.id === selectedReusableCharacterId) ?? null
+    filteredReusableCharacters.find((character) => character.id === selectedReusableCharacterId) ?? null
   const selectedAppCharacter =
-    appCharacters?.find((character) => character.id === selectedAppCharacterId) ?? null
+    filteredAppCharacters.find((character) => character.id === selectedAppCharacterId) ?? null
   const selectedReusableAvatar =
-    sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
+    filteredReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
+
+  const searchPlaceholder = activeTab === 'avatars'
+    ? (avatarSection === 'application-avatars' ? 'Search application avatars' : 'Search saved avatars')
+    : activeTab === 'app-characters'
+      ? 'Search app characters'
+      : activeTab === 'existing-campaign-characters'
+        ? 'Search campaign characters'
+        : 'Search global characters'
   const isEditingCampaignCharacter = activeTab === 'existing-campaign-characters' && editorMode === 'edit-campaign'
   const isEditingReusableCharacter = activeTab === 'existing-characters' && editorMode === 'edit-custom'
   const relationshipPanelEntries = editableRelationshipEntries
@@ -1215,6 +1269,55 @@ export function CharactersModal({
       backgroundSize: `${draft.avatarCrop.scale * 100}%`,
     }
     : undefined
+
+  useEffect(() => {
+    if (activeTab === 'existing-campaign-characters' && !isEditingCampaignCharacter) {
+      const selectedCharacter = filteredCampaignCharacters.find((character) => character.id === selectedCampaignCharacterId) ?? null
+      if (!selectedCharacter) {
+        const firstCharacter = filteredCampaignCharacters[0] ?? null
+        setSelectedCampaignCharacterId(firstCharacter?.id ?? null)
+      }
+    }
+
+    if (activeTab === 'existing-characters' && !isEditingReusableCharacter) {
+      const selectedCharacter = filteredReusableCharacters.find((character) => character.id === selectedReusableCharacterId) ?? null
+      if (!selectedCharacter) {
+        const firstCharacter = filteredReusableCharacters[0] ?? null
+        setSelectedReusableCharacterId(firstCharacter?.id ?? null)
+      }
+    }
+
+    if (activeTab === 'app-characters' && !isViewingAppCharacter) {
+      const selectedCharacter = filteredAppCharacters.find((character) => character.id === selectedAppCharacterId) ?? null
+      if (!selectedCharacter) {
+        const firstCharacter = filteredAppCharacters[0] ?? null
+        setSelectedAppCharacterId(firstCharacter?.id ?? null)
+      }
+    }
+
+    if (activeTab === 'avatars' && avatarSection === 'application-avatars' && avatarEditorMode === 'browse') {
+      const selectedAvatar = filteredAppAvatars.find((avatar) => avatar.id === selectedAppAvatarId) ?? null
+      if (!selectedAvatar) {
+        const firstAvatar = filteredAppAvatars[0] ?? null
+        setSelectedAppAvatarId(firstAvatar?.id ?? null)
+      }
+    }
+  }, [
+    activeTab,
+    avatarEditorMode,
+    avatarSection,
+    filteredAppAvatars,
+    filteredAppCharacters,
+    filteredCampaignCharacters,
+    filteredReusableCharacters,
+    isEditingCampaignCharacter,
+    isEditingReusableCharacter,
+    isViewingAppCharacter,
+    selectedAppAvatarId,
+    selectedAppCharacterId,
+    selectedCampaignCharacterId,
+    selectedReusableCharacterId,
+  ])
 
   function resetEditorToNewCampaignDraft(): void {
     const nextDraft = createCampaignCharacterDraft()
@@ -1311,7 +1414,7 @@ export function CharactersModal({
   }
 
   async function handleDeleteSelectedAvatar(): Promise<void> {
-    const selectedAvatar = sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
+    const selectedAvatar = filteredReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
     if (!selectedAvatar) {
       return
     }
@@ -1535,7 +1638,7 @@ export function CharactersModal({
                       </div>
                       {isSelectingAvatarForCharacter && (() => {
                         const selectedAvatar = avatarSection === 'application-avatars'
-                          ? (appAvatars.find(a => a.id === selectedAppAvatarId) ?? null)
+                          ? (filteredAppAvatars.find((avatar) => avatar.id === selectedAppAvatarId) ?? null)
                           : selectedReusableAvatar
                         return selectedAvatar ? (
                           <button
@@ -1548,13 +1651,20 @@ export function CharactersModal({
                         ) : null
                       })()}
                     </div>
+                    <LibrarySearchInput
+                      value={librarySearch}
+                      onChange={setLibrarySearch}
+                      placeholder={searchPlaceholder}
+                    />
                     {avatarSection === 'application-avatars' ? (
-                      appAvatars.length === 0 ? (
-                        <div className="characters-modal__blank">No application avatars available.</div>
+                      filteredAppAvatars.length === 0 ? (
+                        <div className="characters-modal__blank">
+                          {getEmptyLibraryMessage(librarySearch, 'No application avatars available.', 'No application avatars match this filter.')}
+                        </div>
                       ) : (
                         <div className="characters-modal__avatar-browser">
                           <div className="characters-modal__gallery" role="list" aria-label="Application avatars">
-                            {appAvatars.map((avatar) => {
+                            {filteredAppAvatars.map((avatar) => {
                               const avatarOffsetScale = CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
                               const avatarStyle = {
                                 backgroundImage: `url("${avatar.imageData}")`,
@@ -1577,12 +1687,14 @@ export function CharactersModal({
                           </div>
                         </div>
                       )
-                    ) : reusableAvatars.length === 0 ? (
-                      <div className="characters-modal__blank">No saved avatars yet.</div>
+                    ) : filteredReusableAvatars.length === 0 ? (
+                      <div className="characters-modal__blank">
+                        {getEmptyLibraryMessage(librarySearch, 'No saved avatars yet.', 'No saved avatars match this filter.')}
+                      </div>
                     ) : (
                       <div className="characters-modal__avatar-browser">
                         <div className="characters-modal__gallery" role="list" aria-label="Reusable avatars">
-                          {sortedReusableAvatars.map((avatar) => {
+                          {filteredReusableAvatars.map((avatar) => {
                             const avatarOffsetScale = CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
                             const avatarStyle = {
                               backgroundImage: `url("${avatar.imageData}")`,
@@ -1619,11 +1731,18 @@ export function CharactersModal({
                     <h2 className="characters-modal__heading">App Characters</h2>
                     <p className="characters-modal__subheading">Pre-authored characters included with the application.</p>
                   </div>
-                  {(appCharacters?.length ?? 0) === 0 ? (
-                    <div className="characters-modal__blank">No app characters available.</div>
+                  <LibrarySearchInput
+                    value={librarySearch}
+                    onChange={setLibrarySearch}
+                    placeholder={searchPlaceholder}
+                  />
+                  {filteredAppCharacters.length === 0 ? (
+                    <div className="characters-modal__blank">
+                      {getEmptyLibraryMessage(librarySearch, 'No app characters available.', 'No app characters match this filter.')}
+                    </div>
                   ) : (
                     <div className="characters-modal__gallery" role="list" aria-label="App characters">
-                      {appCharacters?.map((character) => {
+                      {filteredAppCharacters.map((character) => {
                         const avatarOffsetScale = CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
                         const avatarStyle = character.avatarImageData
                           ? {
@@ -1640,6 +1759,10 @@ export function CharactersModal({
                             role="listitem"
                             className={`characters-modal__gallery-item${selectedAppCharacterId === character.id ? ' characters-modal__gallery-item--active' : ''}`}
                             onClick={() => setSelectedAppCharacterId(character.id)}
+                            onDoubleClick={() => {
+                              setSelectedAppCharacterId(character.id)
+                              setIsViewingAppCharacter(true)
+                            }}
                           >
                             <div className={`characters-modal__gallery-avatar${avatarStyle ? ' characters-modal__gallery-avatar--image' : ''}`} style={avatarStyle}>
                               {avatarStyle ? null : character.name.slice(0, 2).toUpperCase()}
@@ -1727,11 +1850,18 @@ export function CharactersModal({
                     <h2 className="characters-modal__heading">Campaign Characters</h2>
                     <p className="characters-modal__subheading">Characters already stored inside this campaign.</p>
                   </div>
-                  {sortedCampaignCharacters.length === 0 ? (
-                    <div className="characters-modal__blank">No campaign characters yet.</div>
+                  <LibrarySearchInput
+                    value={librarySearch}
+                    onChange={setLibrarySearch}
+                    placeholder={searchPlaceholder}
+                  />
+                  {filteredCampaignCharacters.length === 0 ? (
+                    <div className="characters-modal__blank">
+                      {getEmptyLibraryMessage(librarySearch, 'No campaign characters yet.', 'No campaign characters match this filter.')}
+                    </div>
                   ) : (
                     <div className="characters-modal__gallery" role="list" aria-label="Campaign characters">
-                      {sortedCampaignCharacters.map((character) => {
+                      {filteredCampaignCharacters.map((character) => {
                         const avatarOffsetScale = CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
                         const avatarStyle = character.avatarImageData
                           ? {
@@ -1774,11 +1904,18 @@ export function CharactersModal({
                     <h2 className="characters-modal__heading">Global Characters</h2>
                     <p className="characters-modal__subheading">Global custom characters that can be reused across campaigns.</p>
                   </div>
-                  {sortedReusableCharacters.length === 0 ? (
-                    <div className="characters-modal__blank">No saved custom characters yet.</div>
+                  <LibrarySearchInput
+                    value={librarySearch}
+                    onChange={setLibrarySearch}
+                    placeholder={searchPlaceholder}
+                  />
+                  {filteredReusableCharacters.length === 0 ? (
+                    <div className="characters-modal__blank">
+                      {getEmptyLibraryMessage(librarySearch, 'No saved custom characters yet.', 'No global characters match this filter.')}
+                    </div>
                   ) : (
                     <div className="characters-modal__gallery" role="list" aria-label="Existing characters">
-                      {sortedReusableCharacters.map((character) => {
+                      {filteredReusableCharacters.map((character) => {
                         const avatarOffsetScale = CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
                         const avatarStyle = character.avatarImageData
                           ? {
@@ -2120,7 +2257,7 @@ export function CharactersModal({
                         className="modal-footer__button modal-footer__button--primary"
                         disabled={!selectedReusableAvatarId || isAvatarLibraryBusy}
                         onClick={() => {
-                          const selectedAvatar = sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
+                          const selectedAvatar = filteredReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
                           if (selectedAvatar) {
                             openExistingAvatarEditor(selectedAvatar)
                           }

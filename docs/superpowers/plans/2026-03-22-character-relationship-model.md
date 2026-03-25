@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a persistent, AI-generated character relationship graph to Aethra — built on demand from session transcripts, stored per campaign, and injected selectively into the AI prompt when both characters in a pair are active.
+**Goal:** Add a persistent, AI-generated character relationship graph to Aethra — built on demand from scene transcripts, stored per campaign, and injected selectively into the AI prompt when both characters in a pair are active.
 
 **Architecture:** Relationships are stored as a flat directed-pair graph in `relationships.json` inside the campaign folder. Three IPC handlers (get/set/refresh) follow the same pattern as existing campaign/character handlers. Prompt injection is an additive change to `buildSystemContext()` in `App.tsx`. Two new UI surfaces: a `RelationshipReviewModal` (post-refresh review before saving) and a Relationships tab in the existing `CharactersModal` (persistent editing).
 
@@ -34,7 +34,7 @@
 
 - [ ] **Step 1: Add types at the end of the `src/types/index.ts` character section (after `CharacterAvatarCrop`)**
 
-Find the comment `/* ── Chat & sessions ──` and add a new section after `CharacterAvatarCrop` (around line 157):
+Find the comment `/* ── Chat & scenes ──` and add a new section after `CharacterAvatarCrop` (around line 157):
 
 ```typescript
 /* ── Relationship graph ───────────────────────────────────────────────── */
@@ -102,13 +102,13 @@ git commit -m "feat: add RelationshipEntry, RelationshipGraph, AffinityLabel typ
 
 - [ ] **Step 1: Add import and declarations to `src/types/electron.d.ts`**
 
-Add `RelationshipGraph, Session, CharacterProfile` to the existing import at the top (these may already be imported — only add what's missing):
+Add `RelationshipGraph, Scene, CharacterProfile` to the existing import at the top (these may already be imported — only add what's missing):
 
 ```typescript
 import type {
   // ... existing imports ...
   RelationshipGraph,
-  Session,
+  Scene,
   CharacterProfile,
 } from './index'
 ```
@@ -137,20 +137,20 @@ saveRelationships: (campaignPath: string, graph: RelationshipGraph) => Promise<v
  * @param campaignPath - Absolute path to the campaign folder.
  * @param campaignId - Campaign.id written into the returned graph.
  * @param characters - Current campaign character roster.
- * @param sessions - All campaign sessions (oldest first).
+ * @param scenes - All campaign scenes (oldest first).
  * @returns Promise resolving to the merged graph ready for review.
  */
 refreshRelationships: (
   campaignPath: string,
   campaignId: string,
   characters: CharacterProfile[],
-  sessions: Session[],
+  scenes: Scene[],
 ) => Promise<RelationshipGraph>
 ```
 
 - [ ] **Step 2: Expose channels in `electron/preload/index.ts`**
 
-Add `RelationshipGraph, Session, CharacterProfile` to the existing import at the top of the file if not already present. Then add these three methods inside the `contextBridge.exposeInMainWorld('api', { ... })` block, after the `deleteCharacter` method:
+Add `RelationshipGraph, Scene, CharacterProfile` to the existing import at the top of the file if not already present. Then add these three methods inside the `contextBridge.exposeInMainWorld('api', { ... })` block, after the `deleteCharacter` method:
 
 ```typescript
 /**
@@ -180,16 +180,16 @@ saveRelationships(campaignPath: string, graph: RelationshipGraph): Promise<void>
  * @param campaignPath - Absolute path to the campaign folder.
  * @param campaignId - Campaign.id written into the returned graph.
  * @param characters - Campaign character roster.
- * @param sessions - All campaign sessions, oldest first.
+ * @param scenes - All campaign scenes, oldest first.
  * @returns Promise resolving to the merged graph for user review.
  */
 refreshRelationships(
   campaignPath: string,
   campaignId: string,
   characters: CharacterProfile[],
-  sessions: Session[],
+  scenes: Scene[],
 ): Promise<RelationshipGraph> {
-  return ipcRenderer.invoke('relationships:refresh', campaignPath, campaignId, characters, sessions) as Promise<RelationshipGraph>
+  return ipcRenderer.invoke('relationships:refresh', campaignPath, campaignId, characters, scenes) as Promise<RelationshipGraph>
 },
 ```
 
@@ -215,7 +215,7 @@ git commit -m "feat: expose relationships IPC channels in preload bridge"
 **Files:**
 - Modify: `electron/main/index.ts`
 
-- [ ] **Step 1: Add `RelationshipGraph, RelationshipEntry, AffinityLabel, CharacterProfile, Session` to the type import at the top of `electron/main/index.ts`**
+- [ ] **Step 1: Add `RelationshipGraph, RelationshipEntry, AffinityLabel, CharacterProfile, Scene` to the type import at the top of `electron/main/index.ts`**
 
 The existing import block starts at line 23. Add the missing types:
 
@@ -228,7 +228,7 @@ import type {
 } from '../../src/types'
 ```
 
-(`CharacterProfile` and `Session` are already imported.)
+(`CharacterProfile` and `Scene` are already imported.)
 
 - [ ] **Step 2: Add helper functions before the `ipcMain.handle` registration block**
 
@@ -288,20 +288,20 @@ const VALID_AFFINITY_LABELS = new Set<AffinityLabel>([
 ])
 
 /**
- * Assemble all session transcripts (oldest first) into a single string
+ * Assemble all scene transcripts (oldest first) into a single string
  * for the relationship refresh prompt. Prepends rolling summaries where present.
  *
- * @param sessions - All campaign sessions.
+ * @param scenes - All campaign scenes.
  * @returns Formatted transcript string.
  */
-function buildRelationshipTranscript(sessions: Session[]): string {
-  return sessions
-    .map((session) => {
-      const lines: string[] = [`--- Session: ${session.title || 'Untitled'} ---`]
-      if (session.rollingSummary.trim().length > 0) {
-        lines.push(`Summary of earlier events:\n${session.rollingSummary.trim()}`)
+function buildRelationshipTranscript(scenes: Scene[]): string {
+  return scenes
+    .map((scene) => {
+      const lines: string[] = [`--- Scene: ${scene.title || 'Untitled'} ---`]
+      if (scene.rollingSummary.trim().length > 0) {
+        lines.push(`Summary of earlier events:\n${scene.rollingSummary.trim()}`)
       }
-      session.messages.forEach((message) => {
+      scene.messages.forEach((message) => {
         if (message.role === 'assistant' || message.role === 'user') {
           const speaker = message.characterName?.trim() ?? (message.role === 'user' ? 'Player' : 'Assistant')
           lines.push(`[${speaker}] ${message.content}`)
@@ -477,11 +477,11 @@ ipcMain.handle(
     campaignPath: string,
     campaignId: string,
     characters: CharacterProfile[],
-    sessions: Session[],
+    scenes: Scene[],
   ): Promise<RelationshipGraph> => {
     const settings = loadSettings()
     const validIds = new Set(characters.map((c) => c.id))
-    const transcript = buildRelationshipTranscript(sessions)
+    const transcript = buildRelationshipTranscript(scenes)
 
     const messages: ChatMessage[] = [
       {
@@ -502,7 +502,7 @@ Output only a valid JSON array. No explanation, no markdown, no wrapper text.`,
       },
       {
         role: 'user',
-        content: `Characters:\n${characters.map((c) => `${c.id}: ${c.name}`).join('\n')}\n\nTranscripts (all sessions, oldest first):\n${transcript}\n\nGenerate relationship entries for all directed pairs where both characters appear in the transcripts.`,
+        content: `Characters:\n${characters.map((c) => `${c.id}: ${c.name}`).join('\n')}\n\nTranscripts (all scenes, oldest first):\n${transcript}\n\nGenerate relationship entries for all directed pairs where both characters appear in the transcripts.`,
       },
     ]
 
@@ -553,7 +553,7 @@ Then update `buildSystemContext()` to add the new parameter and inject relations
 function buildSystemContext(
   campaign: Campaign,
   characters: CharacterProfile[],
-  session: Session,
+  scene: Scene,
   campaignBasePrompt: string,
   formattingRules: string,
   customSystemPrompt: string,
@@ -567,7 +567,7 @@ to:
 function buildSystemContext(
   campaign: Campaign,
   characters: CharacterProfile[],
-  session: Session,
+  scene: Scene,
   campaignBasePrompt: string,
   formattingRules: string,
   customSystemPrompt: string,
@@ -586,7 +586,7 @@ Add a helper function just above `buildSystemContext()`:
  * Returns null when no qualifying relationship entries exist.
  *
  * @param character - Character whose perspective to render.
- * @param activeCharacterIds - IDs of all characters enabled in the current session.
+ * @param activeCharacterIds - IDs of all characters enabled in the current scene.
  * @param characterNamesById - Lookup map from character ID to display name.
  * @param graph - Campaign relationship graph, or null when unavailable.
  * @returns Formatted "Relationships:\n→ ..." block, or null.
@@ -649,11 +649,11 @@ return sections.join('\n')
 ...buildSystemContext(
   campaign,
   characters,
-  session,
+  scene,
   settings.campaignBasePrompt,
   settings.formattingRules,
   settings.systemPrompt,
-  getPromptSceneSummary(session, settings.enableRollingSummaries),
+  getPromptSceneSummary(scene, settings.enableRollingSummaries),
 ),
 ```
 
@@ -663,11 +663,11 @@ to:
 ...buildSystemContext(
   campaign,
   characters,
-  session,
+  scene,
   settings.campaignBasePrompt,
   settings.formattingRules,
   settings.systemPrompt,
-  getPromptSceneSummary(session, settings.enableRollingSummaries),
+  getPromptSceneSummary(scene, settings.enableRollingSummaries),
   relationshipGraph,
 ),
 ```
@@ -679,7 +679,7 @@ function buildRequestMessages(
   campaign: Campaign,
   characters: CharacterProfile[],
   settings: AppSettings,
-  session: Session,
+  scene: Scene,
   pendingMessages: Message[] = [],
   trailingInstructions: ChatMessage[] = [],
   relationshipGraph: RelationshipGraph | null = null,
@@ -803,7 +803,7 @@ async function handleRefreshRelationships(): Promise<void> {
       campaignPath,
       campaign.id,
       characters,
-      sessions,
+      scenes,
     )
     setPendingRelationshipGraph(merged)
   } catch (err: unknown) {
@@ -1570,7 +1570,7 @@ function RelationshipsTabContent({ graph, characters, onSave, onDeletePair }: Re
   if (!graph || graph.entries.length === 0) {
     return (
       <div className="characters-modal__relationships-empty">
-        <p>No relationship data yet. Use the <strong>Refresh Relationships</strong> button in the session panel to generate relationship data from your campaign transcripts.</p>
+        <p>No relationship data yet. Use the <strong>Refresh Relationships</strong> button in the scene panel to generate relationship data from your campaign transcripts.</p>
       </div>
     )
   }
@@ -1829,8 +1829,8 @@ Expected: zero errors.
 - [ ] **Manual smoke test checklist**
 
 Open the app (user runs `npm run dev`), then:
-1. Open or create a campaign with at least 2 characters and some session messages
-2. Select a session — verify "Refresh Relationships" button appears in the right panel under the cast list
+1. Open or create a campaign with at least 2 characters and some scene messages
+2. Select a scene — verify "Refresh Relationships" button appears in the right panel under the cast list
 3. Click "Refresh Relationships" — button shows "Refreshing…", then RelationshipReviewModal opens
 4. Verify pair list shows directed entries with affinity badges; updated entries have "updated" tag
 5. Edit a trust score and manual notes field; verify changes reflect in the list
@@ -1839,7 +1839,7 @@ Open the app (user runs `npm run dev`), then:
 8. Open Characters modal → Relationships tab — verify saved pairs appear; edit a field and blur — verify it saves
 9. Delete a pair using ✕ button — verify both A→B and B→A are removed
 10. Send a chat message with 2+ active characters — verify model receives inline `Relationships:` block in the system prompt (check AI Debug modal)
-11. Disable one character for the session — verify only relationships between remaining active characters are injected
+11. Disable one character for the scene — verify only relationships between remaining active characters are injected
 
 - [ ] **Final commit**
 

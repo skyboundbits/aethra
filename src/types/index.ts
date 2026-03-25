@@ -5,13 +5,13 @@
  * across components, services, and the Electron main process.
  */
 
-/* ── Chat & sessions ──────────────────────────────────────────────────── */
+/* ── Chat & scenes ────────────────────────────────────────────────────── */
 
 /** Identifies who authored a message in the conversation. */
 export type MessageRole = 'user' | 'assistant' | 'system'
 
 /**
- * A single message within a roleplay session.
+ * A single message within a roleplay scene.
  */
 export interface Message {
   /** Unique identifier for the message. */
@@ -29,27 +29,27 @@ export interface Message {
 }
 
 /**
- * A roleplay session, analogous to a conversation thread.
+ * A roleplay scene, analogous to a conversation thread.
  * Contains metadata and the full message history.
  */
-export interface Session {
-  /** Unique identifier for the session. */
+export interface Scene {
+  /** Unique identifier for the scene. */
   id: string
   /** Human-readable title shown in the sidebar. */
   title: string
-  /** User-authored opening scene framing for the session. */
+  /** User-authored opening scene framing for the scene. */
   sceneSetup: string
   /** Optional freeform notes about the intended direction or constraints. */
   openingNotes: string
-  /** ID of the previous session selected as a continuity source, if any. */
-  continuitySourceSessionId?: string
-  /** Frozen continuity snapshot copied from the previous session when linked. */
+  /** ID of the previous scene selected as a continuity source, if any. */
+  continuitySourceSceneId?: string
+  /** Frozen continuity snapshot copied from the previous scene when linked. */
   continuitySummary: string
-  /** Campaign character IDs explicitly active for this session. */
+  /** Campaign character IDs explicitly active for this scene. */
   activeCharacterIds?: string[]
-  /** Campaign character IDs explicitly disabled for this session. */
+  /** Campaign character IDs explicitly disabled for this scene. */
   disabledCharacterIds?: string[]
-  /** Ordered list of messages exchanged in this session. */
+  /** Ordered list of messages exchanged in this scene. */
   messages: Message[]
   /** Rolling continuity summary covering archived messages outside the live prompt window. */
   rollingSummary: string
@@ -57,14 +57,14 @@ export interface Session {
   summarizedMessageCount: number
   /** Relationship-focused narrative summary generated alongside rolling summary rebuild. */
   relationshipNarrativeSummary?: string
-  /** Unix timestamp (ms) when the session was created. */
+  /** Unix timestamp (ms) when the scene was created. */
   createdAt: number
   /** Unix timestamp (ms) of the most recent activity. */
   updatedAt: number
 }
 
 /**
- * A persisted campaign file containing multiple sessions.
+ * A persisted campaign file containing multiple scenes.
  */
 export interface Campaign {
   /** Unique identifier for the campaign. */
@@ -73,8 +73,8 @@ export interface Campaign {
   name: string
   /** Short descriptive summary of the campaign. */
   description: string
-  /** Ordered list of sessions that belong to the campaign. */
-  sessions: Session[]
+  /** Ordered list of scenes that belong to the campaign. */
+  scenes: Scene[]
   /** Unix timestamp (ms) when the campaign was created. */
   createdAt: number
   /** Unix timestamp (ms) of the most recent campaign update. */
@@ -107,8 +107,8 @@ export interface CampaignSummary {
   path: string
   /** Unix timestamp (ms) of the most recent campaign update. */
   updatedAt: number
-  /** Total sessions currently stored in the campaign. */
-  sessionCount: number
+  /** Total scenes currently stored in the campaign. */
+  sceneCount: number
 }
 
 /**
@@ -709,9 +709,9 @@ export interface CampaignLoadProgress {
   /** Human-readable progress text for the launcher. */
   message: string
   /** Number of chat files processed so far. */
-  sessionsLoaded: number
+  scenesLoaded: number
   /** Total chat files expected for this campaign. */
-  totalSessions: number
+  totalScenes: number
 }
 
 /**
@@ -739,7 +739,7 @@ export interface AppSettings {
   relationshipSummarySystemPrompt: string
   /** Whether campaign chats should send a rolling summary plus the most recent messages. */
   enableRollingSummaries: boolean
-  /** Whether sessions should also maintain relationship-focused rolling summaries. */
+  /** Whether scenes should also maintain relationship-focused rolling summaries. */
   enableRollingRelationshipSummaries: boolean
   /** Number of recent prompt-visible messages to keep verbatim when summaries are enabled. */
   recentMessagesWindow: number

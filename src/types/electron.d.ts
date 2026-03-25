@@ -27,7 +27,7 @@ import type {
   ModelPreset,
   RelationshipGraph,
   ReusableCharacter,
-  Session,
+  Scene,
   TokenUsage,
   WindowControlsState,
 } from './index'
@@ -318,19 +318,19 @@ declare global {
        * Run an LLM analysis of campaign transcripts and return the merged relationship graph.
        * Does NOT write to disk — caller saves after user review.
        * Generate a relationship-focused narrative summary (Pass 1 only).
-       * Used when rebuilding session summary to optionally add relationship context.
+       * Used when rebuilding scene summary to optionally add relationship context.
        *
        * @param campaignPath - Absolute path to the campaign folder.
        * @param campaignId - Campaign.id for context (not persisted).
        * @param characters - Campaign character roster.
-       * @param sessions - Campaign sessions to analyze.
+       * @param scenes - Campaign scenes to analyze.
        * @returns Promise resolving to the narrative prose summary.
        */
       generateRelationshipNarrative: (
         campaignPath: string,
         campaignId: string,
         characters: CharacterProfile[],
-        sessions: Session[],
+        scenes: Scene[],
       ) => Promise<string>
 
       /**
@@ -339,14 +339,14 @@ declare global {
        * @param campaignPath - Absolute path to the campaign folder.
        * @param campaignId - Campaign.id written into the returned graph.
        * @param characters - Current campaign character roster.
-       * @param sessions - All campaign sessions (oldest first).
+       * @param scenes - All campaign scenes (oldest first).
        * @returns Promise resolving to the merged graph ready for review.
        */
       refreshRelationships: (
         campaignPath: string,
         campaignId: string,
         characters: CharacterProfile[],
-        sessions: Session[],
+        scenes: Scene[],
       ) => Promise<RelationshipGraph>
 
       /**

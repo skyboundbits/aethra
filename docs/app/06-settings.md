@@ -31,10 +31,10 @@ Changes apply immediately to all messages.
 ### Enable Rolling Summaries
 
 Toggle to enable/disable automatic message compression:
-- **On**: Long sessions use rolling summaries (see [Campaigns & Sessions](./03-campaigns-and-sessions.md#rolling-summaries))
-- **Off**: All messages stay in the prompt (slower for 100+ message sessions)
+- **On**: Long scenes use rolling summaries (see [Campaigns & Scenes](./03-campaigns-and-scenes.md#rolling-summaries))
+- **Off**: All messages stay in the prompt (slower for 100+ message scenes)
 
-**Best for rolling summaries**: Campaigns with 300+ messages per session
+**Best for rolling summaries**: Campaigns with 300+ messages per scene
 **Best without**: Short campaigns or narrative-critical text that mustn't be oversimplified
 
 ## Theme Settings
@@ -126,7 +126,7 @@ Available color tokens in custom themes:
 - **Test contrast**: Ensure text is readable against backgrounds
 - **Use semantic names**: Token names indicate their purpose
 - **Keep consistency**: Use a limited color palette
-- **Preview before saving**: Test the theme in a real session before committing
+- **Preview before saving**: Test the theme in a real scene before committing
 
 ## System Prompt
 
@@ -158,7 +158,7 @@ The **Debug** tab shows detailed logs of AI server communication for troubleshoo
 1. Find the "Request" event for that message
 2. Click to see the full prompt sent to the AI
 3. Check if context is correct, character names are clear, etc.
-4. Adjust system prompt or session context if needed
+4. Adjust system prompt or scene context if needed
 
 **Example: Server connection failed**
 1. Find the most recent "Error" event
@@ -222,7 +222,7 @@ To back up your settings:
 ### For Performance
 
 1. **Close unused campaigns**: Free up app memory
-2. **Use rolling summaries**: Reduces AI processing time for long sessions
+2. **Use rolling summaries**: Reduces AI processing time for long scenes
 3. **Lower text size to Small**: Reduces rendering overhead
 4. **Use a smaller model**: 8B instead of 70B parameters
 5. **Reduce Max Output Tokens**: 256 instead of 512

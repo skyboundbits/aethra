@@ -16,7 +16,7 @@ const CHAT_AVATAR_SIZE = 128
 
 /** Props accepted by the ChatArea component. */
 interface ChatAreaProps {
-  /** Stable ID of the session currently shown in the chat panel. */
+  /** Stable ID of the scene currently shown in the chat panel. */
   activeSessionId: string | null
   /** Ordered list of messages to display. */
   messages: Message[]
@@ -34,7 +34,7 @@ interface ChatAreaProps {
   onReplayFromMessage: (id: string) => void
   /** Called after a newly selected transcript has been positioned and can be revealed. */
   onReady?: () => void
-  /** True while a different session transcript is being swapped in. */
+  /** True while a different scene transcript is being swapped in. */
   isLoading?: boolean
   /** True while message actions should be temporarily blocked. */
   isBusy?: boolean
@@ -98,7 +98,7 @@ export function ChatArea({
   }, [isBusy, messages])
 
   /**
-   * Jump to the latest message when the user switches to a different session.
+   * Jump to the latest message when the user switches to a different scene.
    */
   useEffect(() => {
     if (activeSessionId === null) {
@@ -144,7 +144,7 @@ export function ChatArea({
             <div className="chat-area__empty">
               <div className="chat-area__empty-title">Aethra</div>
               <div className="chat-area__empty-sub">
-                Select a session or create a new one to begin your story.
+                Select a scene or create a new one to begin your story.
               </div>
             </div>
           ) : (

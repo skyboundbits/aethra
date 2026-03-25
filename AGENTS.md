@@ -30,8 +30,8 @@
 **Aethra** is a cross-platform desktop application (Electron) for interactive AI-assisted roleplay and storytelling.
 
 Key features:
-- **Campaigns**: Top-level projects containing multiple sessions and character profiles
-- **Sessions**: Separate conversation threads with full message history and rolling summaries
+- **Campaigns**: Top-level projects containing multiple scenes and character profiles
+- **Scenes**: Separate conversation threads with full message history and rolling summaries
 - **Characters**: Custom profiles with descriptions, avatars, and control type (AI or user)
 - **Multi-server support**: Works with LM Studio, Ollama, llama.cpp, OpenAI-compatible APIs, or cloud services
 - **Local AI runtime**: Integrated llama.cpp with automatic binary download and GPU detection
@@ -39,7 +39,7 @@ Key features:
 - **Themes**: Customizable dark/light themes with semantic color tokens
 - **Rolling summaries**: Automatic compression of old messages to manage context windows
 
-Users create campaigns, add characters, create sessions, and chat with AI. All data is persisted locally.
+Users create campaigns, add characters, create scenes, and chat with AI. All data is persisted locally.
 
 ---
 
@@ -78,13 +78,13 @@ aethra/
 │   ├── main.tsx                         # React app entry
 │   ├── App.tsx                          # Root component & state
 │   ├── types/
-│   │   ├── index.ts                     # Shared types: Message, Session, Campaign, etc.
+│   │   ├── index.ts                     # Shared types: Message, Scene, Campaign, etc.
 │   │   ├── electron.d.ts                # TypeScript for window.api
 │   │   └── vite-env.d.ts                # Vite client types
 │   ├── components/
 │   │   ├── RibbonBar.tsx                # Top navigation and tabs
 │   │   ├── TitleBar.tsx                 # Window chrome
-│   │   ├── Sidebar.tsx                  # Left panel: session list
+│   │   ├── Sidebar.tsx                  # Left panel: scene list
 │   │   ├── ChatArea.tsx                 # Centre: message feed
 │   │   ├── InputBar.tsx                 # Centre: composer
 │   │   ├── DetailsPanel.tsx             # Right panel: character info
@@ -164,7 +164,7 @@ The main app uses a **three-column grid** layout:
 │ Sidebar    │ ChatArea               │ Details    │
 │ (260px)    │ (flex: 1)              │ (280px)    │
 │            │  ┌────────────────┐    │            │
-│ Sessions   │  │ Message feed   │    │ Character  │
+│ Scenes   │  │ Message feed   │    │ Character  │
 │ list       │  │ (scrollable)   │    │ Avatar     │
 │            │  └────────────────┘    │            │
 │            │  ┌────────────────┐    │ Info &     │
@@ -191,15 +191,15 @@ State is managed with **React hooks** in `App.tsx`. Key state:
 | State | Type | Description |
 |-------|------|-------------|
 | `campaign` | `Campaign \| null` | Current campaign |
-| `sessions` | `Session[]` | All sessions in campaign |
-| `activeSessionId` | `string \| null` | Current session |
+| `scenes` | `Scene[]` | All scenes in campaign |
+| `activeSessionId` | `string \| null` | Current scene |
 | `inputValue` | `string` | Composer text |
 | `isStreaming` | `boolean` | AI response in progress |
 | `selectedCharacterId` | `string \| null` | Active character |
 | `settings` | `AppSettings` | User preferences |
 | `activeTab` | `'campaign' \| 'debug' \| 'settings'` | Current ribbon tab |
 
-Derived values (e.g., `activeSession = sessions.find(...)`) are computed inline.
+Derived values (e.g., `activeSession = scenes.find(...)`) are computed inline.
 
 ---
 
@@ -251,9 +251,9 @@ mainWindow.webContents.send('ai:chunk', messageId, 'token text')
 All critical state is managed in `App.tsx` with `useState`:
 
 ```typescript
-// Campaign & sessions
+// Campaign & scenes
 const [campaign, setCampaign] = useState<Campaign | null>(null)
-const [sessions, setSessions] = useState<Session[]>([])
+const [scenes, setSessions] = useState<Scene[]>([])
 const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
 
 // Chat
@@ -275,7 +275,7 @@ const [showSettingsModal, setShowSettingsModal] = useState(false)
 - **Campaigns**: Stored as JSON files in `<userData>/campaigns/`
 - **Settings**: Stored as JSON in `<userData>/settings.json`
 - **Characters**: Stored in `<userData>/campaigns/{id}/characters/`
-- **Sessions**: Stored in `<userData>/campaigns/{id}/sessions/`
+- **Scenes**: Stored in `<userData>/campaigns/{id}/scenes/`
 
 ---
 
@@ -382,12 +382,12 @@ AI is fully integrated with streaming support. The main process handles SSE (Ser
 If the server times out or returns an error:
 - Main sends: `renderer.send('ai:error', messageId, 'error message')`
 - Renderer displays error message in chat
-- Session remains editable; user can retry or continue
+- Scene remains editable; user can retry or continue
 
 ### Model Context Window
 
 The renderer controls which messages are included in the prompt:
-- **Without rolling summaries**: All messages in the session
+- **Without rolling summaries**: All messages in the scene
 - **With rolling summaries**: Old messages → auto-generated summary + recent messages (last 10)
 
 ---
@@ -403,9 +403,9 @@ All user data is stored locally in the app's userData directory.
 ├── settings.json                        # User preferences, servers, models, themes
 ├── campaigns/
 │   ├── {campaign-id}/
-│   │   ├── campaign.json                # Campaign metadata + sessions array
-│   │   ├── sessions/
-│   │   │   ├── {session-id}.json        # Individual session transcripts
+│   │   ├── campaign.json                # Campaign metadata + scenes array
+│   │   ├── scenes/
+│   │   │   ├── {scene-id}.json        # Individual scene transcripts
 │   │   │   └── ...
 │   │   └── characters/
 │   │       ├── {character-id}/
@@ -427,8 +427,8 @@ All user data is stored locally in the app's userData directory.
 
 See `src/types/index.ts` for complete type definitions. Key types:
 
-- **`Campaign`**: `{id, name, description, sessions[], createdAt, updatedAt}`
-- **`Session`**: `{id, title, messages[], rollingSummary, summarizedMessageCount, createdAt, updatedAt}`
+- **`Campaign`**: `{id, name, description, scenes[], createdAt, updatedAt}`
+- **`Scene`**: `{id, title, messages[], rollingSummary, summarizedMessageCount, createdAt, updatedAt}`
 - **`Message`**: `{id, role, content, characterId?, characterName?, characterAvatarImageData?, timestamp}`
 - **`CharacterProfile`**: `{id, name, role, gender, pronouns, description, personality, speakingStyle, goals, avatarImageData?, avatarCrop?, controlledBy, createdAt, updatedAt}`
 - **`AppSettings`**: `{servers[], models[], activeServerId?, activeModelSlug?, systemPrompt, enableRollingSummaries, chatTextSize, activeThemeId, customThemes[]}`

@@ -11,7 +11,7 @@ Start with the section that matches your needs:
 1. **[Overview](./00-overview.md)** — What is Aethra? Core concepts and key files
 2. **[Getting Started](./01-getting-started.md)** — Installation, setup, and creating your first campaign
 3. **[User Guide](./02-user-guide.md)** — UI layout, features, and how to use each part
-4. **[Campaigns & Sessions](./03-campaigns-and-sessions.md)** — Managing campaigns, sessions, and rolling summaries
+4. **[Campaigns & Scenes](./03-campaigns-and-scenes.md)** — Managing campaigns, scenes, and rolling summaries
 5. **[Characters](./04-characters.md)** — Creating character profiles, avatars, and personality traits
 6. **[AI & Models](./05-ai-and-models.md)** — Configuring AI servers, selecting models, fine-tuning parameters
 7. **[Settings](./06-settings.md)** — User preferences, themes, debugging, and optimization
@@ -29,14 +29,14 @@ Start with the section that matches your needs:
 - **First time here?** → [Getting Started](./01-getting-started.md)
 - **How do I use the app?** → [User Guide](./02-user-guide.md)
 - **How do I set up AI?** → [AI & Models](./05-ai-and-models.md)
-- **Where does my data go?** → [Campaigns & Sessions](./03-campaigns-and-sessions.md#campaign-storage)
+- **Where does my data go?** → [Campaigns & Scenes](./03-campaigns-and-scenes.md#campaign-storage)
 - **How do I customize the look?** → [Settings — Themes](./06-settings.md#theme-settings)
 - **What's under the hood?** → [Architecture](./07-architecture.md)
 
 ### Troubleshooting
 
 - **AI server won't connect** → [AI & Models — Troubleshooting](./05-ai-and-models.md#troubleshooting)
-- **Campaign won't load** → [Campaigns — Troubleshooting](./03-campaigns-and-sessions.md#troubleshooting)
+- **Campaign won't load** → [Campaigns — Troubleshooting](./03-campaigns-and-scenes.md#troubleshooting)
 - **Settings won't save** → [Settings — Troubleshooting](./06-settings.md#troubleshooting-settings)
 - **Avatar issues** → [Characters — Avatar Troubleshooting](./04-characters.md#avatar-troubleshooting)
 
@@ -52,9 +52,9 @@ Start with the section that matches your needs:
 ## Key Concepts
 
 ### Campaign
-A top-level project containing multiple sessions and character profiles. Campaigns are stored as JSON files and are portable.
+A top-level project containing multiple scenes and character profiles. Campaigns are stored as JSON files and are portable.
 
-### Session
+### Scene
 A single conversation thread within a campaign. Contain messages, rolling summaries, and character context.
 
 ### Character Profile
@@ -118,15 +118,15 @@ Your data is stored locally:
 ├── settings.json              # User preferences, servers, models, themes
 ├── campaigns/
 │   ├── {campaign-id}/
-│   │   ├── campaign.json      # Campaign metadata and sessions
-│   │   ├── sessions/
-│   │   │   └── *.json         # Individual session transcripts
+│   │   ├── campaign.json      # Campaign metadata and scenes
+│   │   ├── scenes/
+│   │   │   └── *.json         # Individual scene transcripts
 │   │   └── characters/
 │   │       └── {char-id}/     # Character profiles and avatars
 │   └── ...
 ```
 
-For details, see [Campaigns — Campaign Storage](./03-campaigns-and-sessions.md#campaign-storage).
+For details, see [Campaigns — Campaign Storage](./03-campaigns-and-scenes.md#campaign-storage).
 
 ---
 

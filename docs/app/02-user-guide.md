@@ -23,21 +23,21 @@ The top bar contains global navigation and actions:
 
 The sidebar contains:
 
-#### Sessions List
-- **Current session** is highlighted in bold
-- Click any session to switch to it
-- Sessions are ordered by most-recent activity
-- Each session shows:
-  - Session title (auto-named or custom)
+#### Scenes List
+- **Current scene** is highlighted in bold
+- Click any scene to switch to it
+- Scenes are ordered by most-recent activity
+- Each scene shows:
+  - Scene title (auto-named or custom)
   - Last updated timestamp
   - Message count badge
 
-#### Session Actions
-- **+ New Session**: Create a fresh conversation thread
-- Right-click a session for options:
-  - Rename session
-  - Delete session
-  - Export session as JSON
+#### Scene Actions
+- **+ New Scene**: Create a fresh conversation thread
+- Right-click a scene for options:
+  - Rename scene
+  - Delete scene
+  - Export scene as JSON
 
 #### Settings & Tools
 - **⚙️ Settings**: Open the Settings modal (server, models, theme, system prompt)
@@ -60,7 +60,7 @@ Each message shows:
 Hover over any message to reveal action buttons:
 - **Copy icon (📋)**: Copy message text to clipboard
 - **Raw icon (≡)**: View the raw, unformatted message content (includes metadata like role, timestamp)
-- **Delete icon (🗑️)**: Remove message (permanent for current session)
+- **Delete icon (🗑️)**: Remove message (permanent for current scene)
 
 **Message Styling**:
 - **User messages**: Light blue/gray background with character avatar on left
@@ -88,7 +88,7 @@ Below the composer:
 
 ### Details Panel (Right, 280px)
 
-The right panel shows context for the current session:
+The right panel shows context for the current scene:
 
 #### Character Avatar
 - **Large circular crop** of the selected character's avatar image
@@ -104,10 +104,10 @@ The right panel shows context for the current session:
 - **Speaking Style**: How the character talks
 - **Goals**: Current objectives and motivations
 
-#### Session Info
-- **Session Title**: Name of the current conversation
-- **Messages Count**: Total messages in the session
-- **Created**: Date the session was created
+#### Scene Info
+- **Scene Title**: Name of the current conversation
+- **Messages Count**: Total messages in the scene
+- **Created**: Date the scene was created
 - **View Summary**: If rolling summaries are enabled, a button appears to view and rebuild the summary
 
 #### Model/Server Status
@@ -138,27 +138,27 @@ From the Campaign Launcher:
 2. Choose a location to save the JSON file
 3. The file can be shared, backed up, or moved to another system
 
-### Creating & Managing Sessions
+### Creating & Managing Scenes
 
-A session is a separate conversation thread within a campaign.
+A scene is a separate conversation thread within a campaign.
 
-#### New Session
-1. Click **+ New Session** in the sidebar
-2. Or use **Menu (≡)** > **New Session**
+#### New Scene
+1. Click **+ New Scene** in the sidebar
+2. Or use **Menu (≡)** > **New Scene**
 3. A new conversation thread is created and becomes active
 4. Give it a title by right-clicking and selecting "Rename"
 
-#### Switching Sessions
-- Click any session in the sidebar to view its transcript
-- The Details panel updates to show the new session's character and info
+#### Switching Scenes
+- Click any scene in the sidebar to view its transcript
+- The Details panel updates to show the new scene's character and info
 
-#### Deleting a Session
-1. Right-click a session in the sidebar
-2. Select **Delete Session**
+#### Deleting a Scene
+1. Right-click a scene in the sidebar
+2. Select **Delete Scene**
 3. Confirm deletion (⚠️ this is permanent)
 
-#### Renaming a Session
-1. Right-click a session
+#### Renaming a Scene
+1. Right-click a scene
 2. Select **Rename**
 3. Enter a new title
 4. Press Enter to save
@@ -181,14 +181,14 @@ When you send a message, Aethra fetches a response from the AI server:
    - Message is finalized and saved
    - Ready for your next input
 
-> **Note**: If the AI server times out or crashes, an error message appears and the session remains editable. You can retry or move on.
+> **Note**: If the AI server times out or crashes, an error message appears and the scene remains editable. You can retry or move on.
 
 ### Rolling Summaries (Optional)
 
 A **rolling summary** automatically compresses older messages to keep the AI context window under control:
 
 #### How it Works
-1. When you have >20 messages in a session, the background job starts
+1. When you have >20 messages in a scene, the background job starts
 2. Every 1.5 seconds of idle time, the oldest messages are:
    - Summarized into a recap paragraph
    - Hidden from the chat (but preserved in the JSON)
@@ -209,7 +209,7 @@ When rolling summaries are enabled, you can:
 3. **Rebuild Summary**: Click "Rebuild Summary" to regenerate it from scratch if it becomes outdated
 4. **Track Coverage**: See how many messages have been compressed into the summary
 
-> **Best for**: Long campaigns with 100+ messages per session
+> **Best for**: Long campaigns with 100+ messages per scene
 > **Best against**: Short campaigns (summaries can oversimplify context)
 
 ## Keyboard Shortcuts
@@ -218,7 +218,7 @@ When rolling summaries are enabled, you can:
 |----------|--------|
 | **Enter** | Send message (from composer) |
 | **Shift+Enter** | Line break (from composer) |
-| **Ctrl+N** / **Cmd+N** | New Session |
+| **Ctrl+N** / **Cmd+N** | New Scene |
 | **Escape** | Close modal or clear focus |
 
 ## UI Themes & Customization
@@ -266,7 +266,7 @@ Available tokens for custom themes:
 ### Keyboard Navigation
 - Tab through buttons and form fields
 - Enter to activate buttons
-- Arrow keys to navigate lists (sessions, models)
+- Arrow keys to navigate lists (scenes, models)
 
 ### High Contrast
 - All text meets WCAG AA contrast ratios
@@ -284,14 +284,14 @@ Available tokens for custom themes:
 1. **Save character snapshots** in messages (use character selector)
 2. **Use distinct speaking styles** per character in system prompt
 3. **Pause and summarize** manually if AI loses direction
-4. **Use separate sessions** for different scenes or time periods
+4. **Use separate scenes** for different scenes or time periods
 
 ### For Performance
-1. **Close unused sessions** to reduce app memory
+1. **Close unused scenes** to reduce app memory
 2. **Export and delete old campaigns** after completion
 3. **Keep models under 30B parameters** for fast responses on consumer hardware
 4. **Monitor hardware** in Settings > Debug Console
 
 ---
 
-Next: Learn about [Campaigns & Sessions](./03-campaigns-and-sessions.md) in detail, or jump to [Characters](./04-characters.md) to set up character profiles.
+Next: Learn about [Campaigns & Scenes](./03-campaigns-and-scenes.md) in detail, or jump to [Characters](./04-characters.md) to set up character profiles.

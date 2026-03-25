@@ -1,6 +1,6 @@
 # Aethra — AI-Powered Roleplay Application
 
-**Aethra** is an Electron-based desktop application for interactive AI-assisted storytelling and roleplay. Create campaigns with multiple characters and sessions, interact with AI-controlled characters, and manage an entire roleplay narrative with persistent campaign data.
+**Aethra** is an Electron-based desktop application for interactive AI-assisted storytelling and roleplay. Create campaigns with multiple characters and scenes, interact with AI-controlled characters, and manage an entire roleplay narrative with persistent campaign data.
 
 ## At a Glance
 
@@ -14,13 +14,13 @@
 ## Core Concepts
 
 ### Campaign
-A top-level project containing multiple sessions and character profiles. Campaigns are stored as JSON files in the app's data directory, making them portable and shareable. Each campaign has:
-- **Sessions**: Separate conversation threads within the campaign
+A top-level project containing multiple scenes and character profiles. Campaigns are stored as JSON files in the app's data directory, making them portable and shareable. Each campaign has:
+- **Scenes**: Separate conversation threads within the campaign
 - **Characters**: Custom character profiles with descriptions, personalities, and avatars
 - **Settings**: Campaign-specific AI configuration
 
-### Session
-A single conversation thread within a campaign. Sessions contain:
+### Scene
+A single conversation thread within a campaign. Scenes contain:
 - **Messages**: A transcript of user/AI exchanges
 - **Rolling Summary**: An automatic recap of older messages to keep context under control
 - **Character Context**: Optional snapshots of which character was "speaking"
@@ -55,7 +55,7 @@ For detailed setup instructions, see [Getting Started](./01-getting-started.md).
 |---------|---------|
 | [Getting Started](./01-getting-started.md) | How to install, launch, and create your first campaign |
 | [User Guide](./02-user-guide.md) | Features, UI layout, and how to use each component |
-| [Campaigns & Sessions](./03-campaigns-and-sessions.md) | Creating campaigns, managing sessions, using rolling summaries |
+| [Campaigns & Scenes](./03-campaigns-and-scenes.md) | Creating campaigns, managing scenes, using rolling summaries |
 | [Characters](./04-characters.md) | Creating character profiles, uploading avatars, managing roles |
 | [AI & Models](./05-ai-and-models.md) | Configuring AI servers, managing models, model parameters |
 | [Settings](./06-settings.md) | System prompts, themes, text sizes, debugging |

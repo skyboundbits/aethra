@@ -169,7 +169,7 @@ export const DEFAULT_RELATIONSHIP_SUMMARY_SYSTEM_PROMPT = `You analyse roleplay 
 For each pair of characters that interact, describe:
 - The current state of their relationship (trust, tension, warmth, hostility)
 - Key events or exchanges that shaped how they feel about each other
-- Any notable shifts in trust or affinity during this session
+- Any notable shifts in trust or affinity during this scene
 
 Write in clear prose. Cover all character pairs that appear together. Be specific about events — name what happened, not just the outcome. Do not add commentary, headers, or structure beyond the per-pair narrative.`
 

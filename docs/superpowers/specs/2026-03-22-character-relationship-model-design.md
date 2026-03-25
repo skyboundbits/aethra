@@ -7,7 +7,7 @@
 
 ## Overview
 
-Add a persistent, AI-generated character relationship model to Aethra. Relationships are built on demand by analysing campaign session transcripts, stored at campaign level, and injected selectively into the AI prompt only when both characters in a pair are active in the current session. Users can review and edit relationship data after each refresh via a dedicated modal.
+Add a persistent, AI-generated character relationship model to Aethra. Relationships are built on demand by analysing campaign scene transcripts, stored at campaign level, and injected selectively into the AI prompt only when both characters in a pair are active in the current scene. Users can review and edit relationship data after each refresh via a dedicated modal.
 
 ---
 
@@ -33,7 +33,7 @@ type AffinityLabel = 'hostile' | 'wary' | 'neutral' | 'friendly' | 'allied' | 'd
 
 Relationships are **asymmetric**: Mira→Kael and Kael→Mira are separate entries with independent scores, labels, and summaries.
 
-`lastAiRefreshedAt` strictly reflects when the AI last generated data for this entry. Manual edits to `trustScore`, `affinityLabel`, or `manualNotes` do not update this timestamp. This field is for display only (e.g. "Last refreshed 3 sessions ago") — it does not affect injection or refresh logic.
+`lastAiRefreshedAt` strictly reflects when the AI last generated data for this entry. Manual edits to `trustScore`, `affinityLabel`, or `manualNotes` do not update this timestamp. This field is for display only (e.g. "Last refreshed 3 scenes ago") — it does not affect injection or refresh logic.
 
 ### `RelationshipGraph`
 
@@ -49,7 +49,7 @@ interface RelationshipGraph {
 
 ### Storage
 
-Persisted to `<campaignFolderPath>/relationships.json` — where `campaignFolderPath` is the absolute path of the campaign's folder on disk (the same path already used for `campaign.json`, `sessions/`, and `characters/`).
+Persisted to `<campaignFolderPath>/relationships.json` — where `campaignFolderPath` is the absolute path of the campaign's folder on disk (the same path already used for `campaign.json`, `scenes/`, and `characters/`).
 
 One file per campaign. Created on first save; absent file is treated as an empty graph (no relationships yet).
 
@@ -57,13 +57,13 @@ One file per campaign. Created on first save; absent file is treated as an empty
 
 ## 2. IPC Channels
 
-Three new channels following existing `noun:verb` naming conventions. All three use the **campaign folder path** (`campaignPath: string`) to identify the campaign, consistent with all existing campaign/character/session IPC handlers.
+Three new channels following existing `noun:verb` naming conventions. All three use the **campaign folder path** (`campaignPath: string`) to identify the campaign, consistent with all existing campaign/character/scene IPC handlers.
 
 | Channel | Direction | Payload | Returns | Purpose |
 |---|---|---|---|---|
 | `relationships:get` | invoke | `{ campaignPath: string, campaignId: string }` | `RelationshipGraph \| null` | Load graph from disk; validates `campaignId` matches stored graph if one exists |
 | `relationships:set` | invoke | `{ campaignPath: string, graph: RelationshipGraph }` | `void` | Save graph to disk |
-| `relationships:refresh` | invoke | `{ campaignPath: string, campaignId: string, characters: CharacterProfile[], sessions: Session[] }` | `RelationshipGraph` | LLM call to generate/update entries, returns merged result without saving |
+| `relationships:refresh` | invoke | `{ campaignPath: string, campaignId: string, characters: CharacterProfile[], scenes: Scene[] }` | `RelationshipGraph` | LLM call to generate/update entries, returns merged result without saving |
 
 All handlers live in `electron/main/index.ts` alongside existing campaign and settings handlers.
 
@@ -85,12 +85,12 @@ A single **non-streaming** request using the active server and model. Sent from 
 
 **Building the transcript:**
 
-For each session in the payload (oldest first), prepend the session's `rollingSummary` (if non-empty) before that session's `messages`. This ensures compressed older history is still available to the LLM even when older messages have been rolled up.
+For each scene in the payload (oldest first), prepend the scene's `rollingSummary` (if non-empty) before that scene's `messages`. This ensures compressed older history is still available to the LLM even when older messages have been rolled up.
 
-Format per session:
+Format per scene:
 ```
---- Session: {session.title} ---
-{session.rollingSummary if non-empty, prefixed with "Summary of earlier events:"}
+--- Scene: {scene.title} ---
+{scene.rollingSummary if non-empty, prefixed with "Summary of earlier events:"}
 
 {messages, one per line: [CharacterName] content}
 ```
@@ -117,7 +117,7 @@ Output only a valid JSON array. No explanation, no markdown, no wrapper text.
 Characters:
 {list of { id, name } pairs}
 
-Transcripts (all sessions, oldest first):
+Transcripts (all scenes, oldest first):
 {assembled transcript as described above}
 
 Generate relationship entries for all directed pairs where both characters appear in the transcripts.
@@ -171,9 +171,9 @@ Inside `buildSystemContext()` in `src/App.tsx`. The function signature gains an 
 
 ### When
 
-For each character in the session's enabled character list, look up all `RelationshipEntry` records where:
+For each character in the scene's enabled character list, look up all `RelationshipEntry` records where:
 - `fromCharacterId` matches this character's ID
-- `toCharacterId` is also in the enabled character list for this session
+- `toCharacterId` is also in the enabled character list for this scene
 
 Only entries satisfying both conditions are injected. If a character has no qualifying relationship entries, their prompt entry is unchanged.
 
@@ -194,7 +194,7 @@ Speaking Style: Clipped sentences, dry humour, rarely uses names directly
 Goals: Find her missing brother
 
 Relationships:
-→ Kael [trust: 18/100 | wary] Mira suspects Kael sold out their crew during the ambush. She hasn't confronted him directly but keeps her hand near her knife when he's close. [Note: Player considers this unresolved — do not resolve without explicit in-session action.]
+→ Kael [trust: 18/100 | wary] Mira suspects Kael sold out their crew during the ambush. She hasn't confronted him directly but keeps her hand near her knife when he's close. [Note: Player considers this unresolved — do not resolve without explicit in-scene action.]
 → Sera [trust: 74/100 | friendly] Mira respects Sera's calm under pressure and considers her the most reliable person in the group, though she'd never say it aloud.
 ```
 
@@ -208,7 +208,7 @@ Fields in the character block (`Description`, `Speaking Style`, `Goals`) are con
 
 ### 5a. DetailsPanel — Refresh Button
 
-A "Refresh Relationships" button added to the right panel below the active cast list. Visible whenever a campaign is open and at least two characters are active in the session.
+A "Refresh Relationships" button added to the right panel below the active cast list. Visible whenever a campaign is open and at least two characters are active in the scene.
 
 **New props added to `DetailsPanelProps`:**
 ```ts
@@ -290,7 +290,7 @@ No "Refresh" button in the Characters modal — refresh is only triggered from t
 ## 7. Out of Scope
 
 - Automatic relationship updates after every message (on-demand only)
-- Per-session relationship snapshots or divergence tracking
+- Per-scene relationship snapshots or divergence tracking
 - Relationship history / changelog
 - Exporting or importing relationship graphs
 - Automatic cleanup of orphaned entries when characters are deleted (manual deletion via CharactersModal only)

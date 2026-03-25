@@ -36,7 +36,7 @@ import type {
   ModelPreset,
   RelationshipGraph,
   ReusableCharacter,
-  Session,
+  Scene,
   TokenUsage,
   WindowControlsState,
 } from '../../src/types'
@@ -498,7 +498,7 @@ contextBridge.exposeInMainWorld('api', {
 
   /**
    * Generate a relationship-focused narrative summary (Pass 1 only).
-   * Used when rebuilding session summary to optionally add relationship context.
+   * Used when rebuilding scene summary to optionally add relationship context.
    *
    * @param campaignPath - Absolute path to the campaign folder.
    * @param campaignId - Campaign.id for context (not persisted).
@@ -510,7 +510,7 @@ contextBridge.exposeInMainWorld('api', {
     campaignPath: string,
     campaignId: string,
     characters: CharacterProfile[],
-    sessions: Session[],
+    sessions: Scene[],
   ): Promise<string> {
     return ipcRenderer.invoke('relationships:generate-narrative', campaignPath, campaignId, characters, sessions) as Promise<string>
   },
@@ -528,7 +528,7 @@ contextBridge.exposeInMainWorld('api', {
     campaignPath: string,
     campaignId: string,
     characters: CharacterProfile[],
-    sessions: Session[],
+    sessions: Scene[],
   ): Promise<RelationshipGraph> {
     return ipcRenderer.invoke('relationships:refresh', campaignPath, campaignId, characters, sessions) as Promise<RelationshipGraph>
   },

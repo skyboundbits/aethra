@@ -10,7 +10,7 @@ A **character** is a profile for any entity in your roleplay—heroes, NPCs, ant
 - **Avatar**: Optional circular profile image
 - **Control**: Either AI-controlled or user-controlled
 
-Characters are stored per campaign and can appear across multiple sessions.
+Characters are stored per campaign and can appear across multiple scenes.
 
 ## Character JSON Format
 
@@ -271,7 +271,7 @@ When you send a message as a character, Aethra **snapshots** their profile data:
 Characters are included when you export a campaign:
 
 1. Click **Menu (≡)** > **Export Campaign**
-2. All characters, avatars, and sessions are exported as JSON
+2. All characters, avatars, and scenes are exported as JSON
 
 You can also manually extract a character's data by:
 1. Opening the campaign JSON in a text editor
