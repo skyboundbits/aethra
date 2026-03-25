@@ -820,3 +820,94 @@ export function CheckIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/**
+ * ChessQueenIcon
+ * Chess queen piece icon based on the provided Lucide-style path definition.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function ChessQueenIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M4 20a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />
+      <path d="m12.474 5.943 1.567 5.34a1 1 0 0 0 1.75.328l2.616-3.402" />
+      <path d="m20 9-3 9" />
+      <path d="m5.594 8.209 2.615 3.403a1 1 0 0 0 1.75-.329l1.567-5.34" />
+      <path d="M7 18 4 9" />
+      <circle cx="12" cy="4" r="2" />
+      <circle cx="20" cy="7" r="2" />
+      <circle cx="4" cy="7" r="2" />
+    </svg>
+  )
+}
+
+/**
+ * ChessKingIcon
+ * Chess king piece icon based on the provided Lucide-style path definition.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function ChessKingIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M4 20a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />
+      <path d="m6.7 18-1-1C4.35 15.682 3 14.09 3 12a5 5 0 0 1 4.95-5c1.584 0 2.7.455 4.05 1.818C13.35 7.455 14.466 7 16.05 7A5 5 0 0 1 21 12c0 2.082-1.359 3.673-2.7 5l-1 1" />
+      <path d="M10 4h4" />
+      <path d="M12 2v6.818" />
+    </svg>
+  )
+}
+
+/**
+ * ChessRookIcon
+ * Chess rook piece icon based on the provided Lucide-style path definition.
+ *
+ * @param props - Standard SVG props forwarded to the root element.
+ */
+export function ChessRookIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M5 20a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+      <path d="M10 2v2" />
+      <path d="M14 2v2" />
+      <path d="m17 18-1-9" />
+      <path d="M6 2v5a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V2" />
+      <path d="M6 4h12" />
+      <path d="m7 18 1-9" />
+    </svg>
+  )
+}
+

@@ -6,10 +6,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Modal } from './Modal'
 import { ModalFooter, ModalWorkspaceLayout } from './ModalLayouts'
+import { ConfirmModal } from './ConfirmModal'
+import { SwordsIcon, ChessQueenIcon, ChessKingIcon, ChessRookIcon } from './icons'
 import '../styles/campaign-modal.css'
 import type { Campaign, CampaignSummary } from '../types'
 
-type CampaignModalTabId = 'current-campaign' | 'open-campaign'
+type CampaignModalTabId = 'current-campaign' | 'open-campaign' | 'new-campaign'
 
 /** Props accepted by the CampaignModal component. */
 interface CampaignModalProps {
@@ -29,6 +31,8 @@ interface CampaignModalProps {
   onSaveCurrent: (name: string, description: string) => void
   /** Called when the user wants to create a new campaign. */
   onCreateCampaign: () => void
+  /** Called when creating a new campaign with name and description. */
+  onCreateCampaignWithDetails: (name: string, description: string) => Promise<void>
   /** Called when the user wants to open a campaign via native file picker. */
   onOpenFromFile: () => void
   /** Called when the user opens a recent campaign. */
@@ -48,6 +52,7 @@ export function CampaignModal({
   onClose,
   onSaveCurrent,
   onCreateCampaign,
+  onCreateCampaignWithDetails,
   onOpenFromFile,
   onOpenRecent,
 }: CampaignModalProps) {
@@ -55,6 +60,11 @@ export function CampaignModal({
   const [name, setName] = useState(campaign?.name ?? '')
   const [description, setDescription] = useState(campaign?.description ?? '')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null)
+  const [newName, setNewName] = useState('')
+  const [newDescription, setNewDescription] = useState('')
+  const [newErrorMessage, setNewErrorMessage] = useState<string | null>(null)
+  const [showNewCampaignConfirm, setShowNewCampaignConfirm] = useState(false)
 
   useEffect(() => {
     setName(campaign?.name ?? '')
@@ -85,24 +95,142 @@ export function CampaignModal({
 
     setErrorMessage(null)
     onSaveCurrent(trimmedName, trimmedDescription)
+    setSaveSuccessMessage('Campaign saved')
+    const timeout = setTimeout(() => setSaveSuccessMessage(null), 3000)
+    return () => clearTimeout(timeout)
+  }
+
+  /**
+   * Handle the save button click from the footer.
+   */
+  function handleSaveClick(): void {
+    const trimmedName = name.trim()
+    const trimmedDescription = description.trim()
+
+    if (!trimmedName) {
+      setErrorMessage('Campaign name is required.')
+      return
+    }
+
+    setErrorMessage(null)
+    onSaveCurrent(trimmedName, trimmedDescription)
+    setSaveSuccessMessage('Campaign saved')
+    const timeout = setTimeout(() => setSaveSuccessMessage(null), 3000)
+  }
+
+  /**
+   * Validate and show confirmation dialog for creating a new campaign.
+   */
+  function handleCreateCampaignClick(): void {
+    const trimmedName = newName.trim()
+
+    if (!trimmedName) {
+      setNewErrorMessage('Campaign name is required.')
+      return
+    }
+
+    setNewErrorMessage(null)
+    setShowNewCampaignConfirm(true)
+  }
+
+  /**
+   * Create campaign and switch to it.
+   */
+  async function handleCreateAndSwitch(): Promise<void> {
+    setShowNewCampaignConfirm(false)
+    const name = newName.trim()
+    const description = newDescription.trim()
+    setNewName('')
+    setNewDescription('')
+    if (onCreateCampaignWithDetails) {
+      await onCreateCampaignWithDetails(name, description)
+    }
+    // Switch to current campaign tab to see the newly created campaign
+    setActiveTab('current-campaign')
+  }
+
+  /**
+   * Create campaign and stay on new campaign tab.
+   */
+  async function handleCreateAndStay(): Promise<void> {
+    setShowNewCampaignConfirm(false)
+    const name = newName.trim()
+    const description = newDescription.trim()
+    setNewName('')
+    setNewDescription('')
+    if (onCreateCampaignWithDetails) {
+      await onCreateCampaignWithDetails(name, description)
+    }
+  }
+
+  /**
+   * Validate the new campaign form and submit it.
+   *
+   * @param event - Form submission event.
+   */
+  function handleNewCampaignSubmit(event: React.FormEvent<HTMLFormElement>): void {
+    event.preventDefault()
+
+    const trimmedName = newName.trim()
+
+    if (!trimmedName) {
+      setNewErrorMessage('Campaign name is required.')
+      return
+    }
+
+    setNewErrorMessage(null)
+    setNewName('')
+    setNewDescription('')
+    onCreateCampaign()
   }
 
   return (
-    <Modal title="Campaign" onClose={onClose} variant="workspace" className="modal--campaign">
+    <>
+      <Modal title={(
+        <>
+          <SwordsIcon className="modal__title-icon" />
+          Campaign
+        </>
+      )} onClose={onClose} variant="workspace" className="modal--campaign">
       <ModalWorkspaceLayout
         nav={(
           <div className="campaign-modal__nav" aria-label="Campaign sections">
             <CampaignModalTab
               id="current-campaign"
-              label="Current Campaign"
-              description="Edit the active campaign details."
+              label={(
+                <>
+                  <span className="campaign-modal__nav-icon">
+                    <ChessQueenIcon />
+                  </span>
+                  <span className="campaign-modal__nav-label">Current Campaign</span>
+                </>
+              )}
               activeTab={activeTab}
               onSelect={setActiveTab}
             />
             <CampaignModalTab
               id="open-campaign"
-              label="Open Campaign"
-              description="Create a new campaign or switch to a recent one."
+              label={(
+                <>
+                  <span className="campaign-modal__nav-icon">
+                    <ChessKingIcon />
+                  </span>
+                  <span className="campaign-modal__nav-label">Open Campaign</span>
+                </>
+              )}
+              activeTab={activeTab}
+              onSelect={setActiveTab}
+            />
+            <CampaignModalTab
+              id="new-campaign"
+              label={(
+                <>
+                  <span className="campaign-modal__nav-icon">
+                    <ChessRookIcon />
+                  </span>
+                  <span className="campaign-modal__nav-label">New Campaign</span>
+                </>
+              )}
               activeTab={activeTab}
               onSelect={setActiveTab}
             />
@@ -110,7 +238,7 @@ export function CampaignModal({
         )}
         panel={(
           <div className="campaign-modal__panel">
-            {activeTab === 'current-campaign' ? (
+            {activeTab === 'current-campaign' && (
               <section className="campaign-modal__section">
                 <div className="campaign-modal__section-header">
                   <div>
@@ -152,16 +280,6 @@ export function CampaignModal({
                         {errorMessage}
                       </p>
                     ) : null}
-
-                    <div className="campaign-modal__actions">
-                      <button
-                        type="submit"
-                        className="campaign-modal__button campaign-modal__button--primary"
-                        disabled={isBusy}
-                      >
-                        {isBusy ? 'Saving...' : 'Save Current Campaign'}
-                      </button>
-                    </div>
                   </form>
                 ) : (
                   <p className="campaign-modal__empty-panel">
@@ -169,7 +287,8 @@ export function CampaignModal({
                   </p>
                 )}
               </section>
-            ) : (
+            )}
+            {activeTab === 'open-campaign' && (
               <section className="campaign-modal__section">
                 <div className="campaign-modal__section-header">
                   <div>
@@ -179,14 +298,6 @@ export function CampaignModal({
                 </div>
 
                 <div className="campaign-modal__actions">
-                  <button
-                    type="button"
-                    className="campaign-modal__button campaign-modal__button--primary"
-                    onClick={onCreateCampaign}
-                    disabled={isBusy}
-                  >
-                    New Campaign
-                  </button>
                   <button
                     type="button"
                     className="campaign-modal__button"
@@ -233,22 +344,106 @@ export function CampaignModal({
                 </div>
               </section>
             )}
+            {activeTab === 'new-campaign' && (
+              <section className="campaign-modal__section">
+                <div className="campaign-modal__section-header">
+                  <div>
+                    <p className="campaign-modal__eyebrow">New Campaign</p>
+                    <h2 className="campaign-modal__section-title">Create a new campaign</h2>
+                  </div>
+                </div>
+
+                <form className="campaign-modal__form" onSubmit={handleNewCampaignSubmit}>
+                  <label className="campaign-modal__field" htmlFor="new-campaign-name">
+                    <span className="campaign-modal__label">Name</span>
+                    <input
+                      id="new-campaign-name"
+                      className="campaign-modal__input"
+                      type="text"
+                      value={newName}
+                      onChange={(event) => setNewName(event.target.value)}
+                      placeholder="The Ember Court"
+                      autoFocus
+                      disabled={isBusy}
+                    />
+                  </label>
+
+                  <label className="campaign-modal__field" htmlFor="new-campaign-description">
+                    <span className="campaign-modal__label">Description</span>
+                    <textarea
+                      id="new-campaign-description"
+                      className="campaign-modal__textarea"
+                      value={newDescription}
+                      onChange={(event) => setNewDescription(event.target.value)}
+                      placeholder="Political intrigue in a decaying imperial capital."
+                      rows={5}
+                      disabled={isBusy}
+                    />
+                  </label>
+
+                  {newErrorMessage ? (
+                    <p className="campaign-modal__error" role="alert">
+                      {newErrorMessage}
+                    </p>
+                  ) : null}
+                </form>
+              </section>
+            )}
           </div>
         )}
         footer={(
           <ModalFooter
             status={
-              statusMessage ? (
+              saveSuccessMessage ? (
+                <p className="campaign-modal__status campaign-modal__status--success" role="status">
+                  {saveSuccessMessage}
+                </p>
+              ) : statusMessage ? (
                 <p className="campaign-modal__status" role="status">
                   {statusMessage}
                 </p>
               ) : undefined
             }
-            actions={<button type="button" className="modal-footer__button" onClick={onClose}>Close</button>}
+            actions={(
+              <>
+                <button type="button" className="modal-footer__button" onClick={onClose}>Close</button>
+                {activeTab === 'current-campaign' && campaign ? (
+                  <button
+                    type="button"
+                    className="modal-footer__button modal-footer__button--primary"
+                    onClick={handleSaveClick}
+                    disabled={isBusy}
+                  >
+                    {isBusy ? 'Saving...' : 'Save Campaign'}
+                  </button>
+                ) : null}
+                {activeTab === 'new-campaign' ? (
+                  <button
+                    type="button"
+                    className="modal-footer__button modal-footer__button--primary"
+                    onClick={handleCreateCampaignClick}
+                    disabled={isBusy}
+                  >
+                    {isBusy ? 'Creating...' : 'Create Campaign'}
+                  </button>
+                ) : null}
+              </>
+            )}
           />
         )}
       />
-    </Modal>
+      </Modal>
+      {showNewCampaignConfirm && (
+        <ConfirmModal
+          title="New Campaign Created"
+          message={`Campaign "${newName}" has been created. Do you want to switch to this campaign or remain on this tab?`}
+          confirmLabel="Switch to New Campaign"
+          cancelLabel="Stay Here"
+          onConfirm={handleCreateAndSwitch}
+          onCancel={handleCreateAndStay}
+        />
+      )}
+    </>
   )
 }
 
@@ -256,9 +451,9 @@ interface CampaignModalTabProps {
   /** Stable tab identifier. */
   id: CampaignModalTabId
   /** Primary label shown in the left navigation. */
-  label: string
+  label: React.ReactNode
   /** Supporting description shown below the label. */
-  description: string
+  description?: string
   /** Currently active tab identifier. */
   activeTab: CampaignModalTabId
   /** Called when the tab is selected. */
@@ -289,8 +484,10 @@ function CampaignModalTab({
       className={`campaign-modal__nav-item${activeTab === id ? ' campaign-modal__nav-item--active' : ''}`}
       onClick={handleClick}
     >
-      <span className="campaign-modal__nav-label">{label}</span>
-      <span className="campaign-modal__nav-description">{description}</span>
+      <span className="campaign-modal__nav-label-row">
+        {typeof label === 'string' ? <span className="campaign-modal__nav-label">{label}</span> : label}
+      </span>
+      {description && <span className="campaign-modal__nav-description">{description}</span>}
     </button>
   )
 }

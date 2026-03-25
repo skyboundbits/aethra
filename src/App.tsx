@@ -2717,6 +2717,27 @@ function syncStreamedAssistantMessages(
   }
 
   /**
+   * Create a new campaign from the CampaignModal without closing the modal.
+   *
+   * @param name - Campaign name entered by the user.
+   * @param description - Campaign description entered by the user.
+   */
+  async function handleCreateCampaignFromModal(name: string, description: string): Promise<void> {
+    setIsCampaignBusy(true)
+    setCampaignStatusMessage(null)
+
+    try {
+      await window.api.createCampaign(name, description)
+      await refreshCampaigns()
+    } catch (err) {
+      console.error('[Aethra] Could not create campaign:', err)
+      setCampaignStatusMessage(err instanceof Error ? err.message : 'Could not create campaign.')
+    } finally {
+      setIsCampaignBusy(false)
+    }
+  }
+
+  /**
    * Open an existing stored campaign and load it into the workspace.
    *
    * @param path - Absolute campaign folder path selected in the launcher.
@@ -6033,6 +6054,9 @@ function syncStreamedAssistantMessages(
             void handleSaveCurrentCampaign(name, description)
           }}
           onCreateCampaign={handleCreateCampaign}
+          onCreateCampaignWithDetails={(name, description) => {
+            void handleCreateCampaignFromModal(name, description)
+          }}
           onOpenFromFile={() => {
             void handleOpenCampaignFromFile()
           }}

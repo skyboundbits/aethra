@@ -6,6 +6,7 @@
 import { useState } from 'react'
 import { Modal } from './Modal'
 import { ModalFooter, ModalFormLayout } from './ModalLayouts'
+import { SwordsIcon } from './icons'
 import '../styles/create-campaign.css'
 
 /** Props accepted by the CreateCampaignModal component. */
@@ -52,13 +53,23 @@ export function CreateCampaignModal({
   }
 
   return (
-    <Modal title="New Campaign" onClose={onClose} variant="form" className="modal--create-campaign">
+    <Modal
+      title={(
+        <>
+          <SwordsIcon className="modal__title-icon" />
+          New Campaign
+        </>
+      )}
+      onClose={onClose}
+      variant="form"
+      className="modal--create-campaign"
+    >
       <form onSubmit={handleSubmit}>
         <ModalFormLayout
           body={(
             <div className="create-campaign">
               <p className="create-campaign__intro">
-                Aethra will create a dedicated folder for this campaign in the app data directory.
+                Create a new campaign.
               </p>
 
               <label className="create-campaign__field" htmlFor="campaign-name">

@@ -1821,7 +1821,7 @@ function createEmptyCampaign(name: string): Campaign {
     id: uid(),
     name,
     description: '',
-    sessions: [],
+    scenes: [],
     createdAt: now,
     updatedAt: now,
   }
