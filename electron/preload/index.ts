@@ -503,16 +503,16 @@ contextBridge.exposeInMainWorld('api', {
    * @param campaignPath - Absolute path to the campaign folder.
    * @param campaignId - Campaign.id for context (not persisted).
    * @param characters - Campaign character roster.
-   * @param sessions - Campaign sessions to analyze.
+   * @param scenes - Campaign scenes to analyze.
    * @returns Promise resolving to the narrative prose summary.
    */
   generateRelationshipNarrative(
     campaignPath: string,
     campaignId: string,
     characters: CharacterProfile[],
-    sessions: Scene[],
+    scenes: Scene[],
   ): Promise<string> {
-    return ipcRenderer.invoke('relationships:generate-narrative', campaignPath, campaignId, characters, sessions) as Promise<string>
+    return ipcRenderer.invoke('relationships:generate-narrative', campaignPath, campaignId, characters, scenes) as Promise<string>
   },
 
   /**
@@ -521,16 +521,16 @@ contextBridge.exposeInMainWorld('api', {
    * @param campaignPath - Absolute path to the campaign folder.
    * @param campaignId - Campaign.id written into the returned graph.
    * @param characters - Campaign character roster.
-   * @param sessions - All campaign sessions, oldest first.
+   * @param scenes - All campaign scenes, oldest first.
    * @returns Promise resolving to the merged graph for user review.
    */
   refreshRelationships(
     campaignPath: string,
     campaignId: string,
     characters: CharacterProfile[],
-    sessions: Scene[],
+    scenes: Scene[],
   ): Promise<RelationshipGraph> {
-    return ipcRenderer.invoke('relationships:refresh', campaignPath, campaignId, characters, sessions) as Promise<RelationshipGraph>
+    return ipcRenderer.invoke('relationships:refresh', campaignPath, campaignId, characters, scenes) as Promise<RelationshipGraph>
   },
 
   /**

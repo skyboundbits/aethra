@@ -2728,6 +2728,8 @@ function syncStreamedAssistantMessages(
 
     try {
       await window.api.createCampaign(name, description)
+      // Give file system time to write the campaign files
+      await new Promise(resolve => setTimeout(resolve, 100))
       await refreshCampaigns()
     } catch (err) {
       console.error('[Aethra] Could not create campaign:', err)
@@ -5651,6 +5653,15 @@ function syncStreamedAssistantMessages(
     })
   }
 
+  /**
+   * Refresh campaigns list when opening the CampaignModal.
+   */
+  useEffect(() => {
+    if (isCampaignModalOpen) {
+      void refreshCampaigns()
+    }
+  }, [isCampaignModalOpen])
+
   /* ── Render ─────────────────────────────────────────────────────────── */
 
   return (
@@ -6063,6 +6074,7 @@ function syncStreamedAssistantMessages(
           onOpenRecent={(path) => {
             void handleOpenCampaign(path)
           }}
+          onRefreshCampaigns={refreshCampaigns}
         />
       ) : null}
       {!isCampaignSwitchLoading && pendingDeleteMessageId ? (

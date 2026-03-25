@@ -37,6 +37,8 @@ interface CampaignModalProps {
   onOpenFromFile: () => void
   /** Called when the user opens a recent campaign. */
   onOpenRecent: (path: string) => void
+  /** Called to refresh the campaigns list. */
+  onRefreshCampaigns: () => Promise<void>
 }
 
 /**
@@ -55,6 +57,7 @@ export function CampaignModal({
   onCreateCampaignWithDetails,
   onOpenFromFile,
   onOpenRecent,
+  onRefreshCampaigns,
 }: CampaignModalProps) {
   const [activeTab, setActiveTab] = useState<CampaignModalTabId>('current-campaign')
   const [name, setName] = useState(campaign?.name ?? '')
@@ -71,6 +74,15 @@ export function CampaignModal({
     setDescription(campaign?.description ?? '')
     setErrorMessage(null)
   }, [campaign])
+
+  /**
+   * Refresh campaigns list when opening the modal or switching to open campaign tab.
+   */
+  useEffect(() => {
+    if (activeTab === 'open-campaign') {
+      void onRefreshCampaigns()
+    }
+  }, [activeTab, onRefreshCampaigns])
 
   const recentOptions = useMemo(
     () => recentCampaigns.filter((entry) => entry.path !== campaignPath),
@@ -144,9 +156,9 @@ export function CampaignModal({
     setNewDescription('')
     if (onCreateCampaignWithDetails) {
       await onCreateCampaignWithDetails(name, description)
+      // Switch to current campaign tab to see the newly created campaign
+      setTimeout(() => setActiveTab('current-campaign'), 100)
     }
-    // Switch to current campaign tab to see the newly created campaign
-    setActiveTab('current-campaign')
   }
 
   /**

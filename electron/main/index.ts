@@ -2548,6 +2548,7 @@ function listStoredCampaigns(): CampaignSummary[] {
       }
     })
     .sort((first, second) => second.updatedAt - first.updatedAt)
+    .slice(0, 5)
 }
 
 /**
