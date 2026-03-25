@@ -1870,7 +1870,7 @@ function normalizeCampaign(raw: unknown, fallbackName: string): Campaign {
 function normalizeCampaignRecord(
   raw: unknown,
   fallbackName: string,
-): Campaign & { sessions: Array<{ id: string, fileName: string }> } {
+): Omit<Campaign, 'scenes'> & { sessions: Array<{ id: string, fileName: string }> } {
   if (!isRecord(raw)) {
     throw new Error('Campaign file must contain a JSON object.')
   }
@@ -2402,7 +2402,7 @@ function saveCampaign(folderPath: string, campaign: Campaign): void {
     (existingMetadata?.sessions ?? []).map((scene) => [scene.id, scene.fileName]),
   )
 
-  const nextIndex = campaign.sessions.map((scene) => {
+  const nextIndex = campaign.scenes.map((scene) => {
     const fileName = existingIndex.get(scene.id) ?? allocateSessionFileName(folderPath, scene)
     writeFileSync(join(chatsPath, fileName), JSON.stringify(scene, null, 2), 'utf-8')
     existingIndex.delete(scene.id)
@@ -2501,7 +2501,7 @@ function loadCampaignFile(
 
     campaign = {
       ...campaignRecord,
-      sessions,
+      scenes: sessions,
     }
     characters = loadStoredCharactersWithProgress(folderPath, onProgress)
   } catch {
@@ -2541,7 +2541,7 @@ function listStoredCampaigns(): CampaignSummary[] {
           description: campaign.description,
           path: folderPath,
           updatedAt: campaign.updatedAt,
-          sceneCount: campaign.sessions.length,
+          sceneCount: campaign.scenes.length,
         }]
       } catch {
         return []
