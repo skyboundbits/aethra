@@ -5326,13 +5326,29 @@ function mergeRelationshipEntries(
     }
   })
 
-  // Add new pairs not already in the graph
+  // Add new pairs not already in the graph, and their inverse relationships
   for (const v of validated) {
     const exists = existingEntries.some(
       (e) => e.fromCharacterId === v.fromCharacterId && e.toCharacterId === v.toCharacterId,
     )
     if (!exists) {
       updated.push({ ...v, manualNotes: '', lastAiRefreshedAt: now })
+    }
+
+    // Add inverse relationship if it doesn't already exist
+    const inverseExists = updated.some(
+      (e) => e.fromCharacterId === v.toCharacterId && e.toCharacterId === v.fromCharacterId,
+    )
+    if (!inverseExists) {
+      updated.push({
+        fromCharacterId: v.toCharacterId,
+        toCharacterId: v.fromCharacterId,
+        trustScore: v.trustScore,
+        affinityLabel: v.affinityLabel,
+        summary: v.summary,
+        manualNotes: '',
+        lastAiRefreshedAt: now,
+      })
     }
   }
 

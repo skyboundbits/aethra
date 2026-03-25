@@ -76,7 +76,14 @@ export function CampaignModal({
   }, [campaign])
 
   /**
-   * Refresh campaigns list when opening the modal or switching to open campaign tab.
+   * Refresh campaigns list when opening the modal.
+   */
+  useEffect(() => {
+    void onRefreshCampaigns()
+  }, [onRefreshCampaigns])
+
+  /**
+   * Refresh campaigns list when switching to open campaign tab.
    */
   useEffect(() => {
     if (activeTab === 'open-campaign') {

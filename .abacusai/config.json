@@ -12,7 +12,17 @@
       "Bash(dir *)",
       "Bash(findstr *)",
       "Bash(find *)",
-      "Bash(head *)"
+      "Bash(head *)",
+      "Bash(cd *)",
+      "Bash(npm run typecheck *)",
+      "Bash(npm run 2>&1 *)",
+      "Bash(npm run lint *)",
+      "Bash(tail *)",
+      "Bash(npm run build *)",
+      "Bash(npm test 2>&1 *)",
+      "Bash(npm run *)",
+      "Bash(dir *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

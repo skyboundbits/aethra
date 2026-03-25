@@ -2353,12 +2353,16 @@ export default function App() {
    * @param msg       - Message to upsert.
    */
   function upsertMessage(sceneId: string, msg: Message): void {
+    const exists = campaignRef.current?.scenes.find((s) => s.id === sceneId)?.messages.some((m) => m.id === msg.id) ?? false
+    if (!exists) {
+      summaryDirtyScenesRef.current.add(sceneId)
+    }
     updateCampaign((prev) => ({
       ...prev,
       scenes: prev.scenes.map((s) => {
         if (s.id !== sceneId) return s
-        const exists = s.messages.some((m) => m.id === msg.id)
-        const messages = exists
+        const messageExists = s.messages.some((m) => m.id === msg.id)
+        const messages = messageExists
           ? s.messages.map((m) => (m.id === msg.id ? msg : m))
           : [...s.messages, msg]
         return { ...s, messages, updatedAt: Date.now() }
@@ -2380,6 +2384,7 @@ function syncStreamedAssistantMessages(
     bubbles: StreamedAssistantBubble[],
     timestamp: number,
   ): void {
+      summaryDirtyScenesRef.current.add(sceneId)
       updateCampaign((prev) => ({
         ...prev,
         scenes: prev.scenes.map((scene) => {
@@ -2719,7 +2724,7 @@ function syncStreamedAssistantMessages(
   }
 
   /**
-   * Create a new campaign from the CampaignModal without closing the modal.
+   * Create a new campaign from the CampaignModal and load it into the workspace.
    *
    * @param name - Campaign name entered by the user.
    * @param description - Campaign description entered by the user.
@@ -2727,11 +2732,23 @@ function syncStreamedAssistantMessages(
   async function handleCreateCampaignFromModal(name: string, description: string): Promise<void> {
     setIsCampaignBusy(true)
     setCampaignStatusMessage(null)
+    setCharacters([])
+    setActiveCharacterId(null)
+    setComposerCharacterId(null)
 
     try {
-      await window.api.createCampaign(name, description)
-      // Give file system time to write the campaign files
-      await new Promise(resolve => setTimeout(resolve, 100))
+      const created = await window.api.createCampaign(name, description)
+      const nextCharacters = restoreCharacterAvatarsFromLibrary(await window.api.listCharacters(created.path), reusableAvatars)
+      const hydratedCampaign = hydrateCampaignMessageCharacterIds(created.campaign, nextCharacters)
+      skipNextCharacterRefreshRef.current = true
+      setCharacters(nextCharacters)
+      setActiveCharacterId(nextCharacters[0]?.id ?? null)
+      setCampaign(hydratedCampaign)
+      setCampaignPath(created.path)
+      setActiveSceneId(hydratedCampaign.scenes[0]?.id ?? null)
+      setSelectedSceneId(hydratedCampaign.scenes[0]?.id ?? null)
+      lastSavedCampaignRef.current = hydratedCampaign
+      setIsCampaignModalOpen(false)
       await refreshCampaigns()
     } catch (err) {
       console.error('[Aethra] Could not create campaign:', err)
