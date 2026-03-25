@@ -661,6 +661,7 @@ export function CharactersModal({
   onDeleteRelationshipPair,
   appCharacters,
   appAvatars,
+  onUseAppCharacter,
 }: CharactersModalProps) {
   const { confirm, confirmState } = useConfirm()
   const initialDraft = createCampaignCharacterDraft()
@@ -674,6 +675,9 @@ export function CharactersModal({
   const [isSelectingAvatarForCharacter, setIsSelectingAvatarForCharacter] = useState(false)
   const [avatarReturnTab, setAvatarReturnTab] = useState<AvatarReturnTab>('new-character')
   const [selectedReusableAvatarId, setSelectedReusableAvatarId] = useState<string | null>(null)
+  const [selectedAppAvatarId, setSelectedAppAvatarId] = useState<string | null>(null)
+  const [selectedAppCharacterId, setSelectedAppCharacterId] = useState<string | null>(null)
+  const [isViewingAppCharacter, setIsViewingAppCharacter] = useState(false)
   const initialAvatarDraft = createEmptyAvatarDraft()
   const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>(initialAvatarDraft)
   const [savedAvatarDraftSnapshot, setSavedAvatarDraftSnapshot] = useState<string>(() => getAvatarDraftSnapshot(initialAvatarDraft))
@@ -1005,6 +1009,10 @@ export function CharactersModal({
       setIsSelectingAvatarForCharacter(false)
     }
 
+    if (tabId !== 'app-characters') {
+      setIsViewingAppCharacter(false)
+    }
+
     setActiveTab(tabId)
   }
 
@@ -1181,6 +1189,8 @@ export function CharactersModal({
     sortedCampaignCharacters.find((character) => character.id === selectedCampaignCharacterId) ?? null
   const selectedReusableCharacter =
     sortedReusableCharacters.find((character) => character.id === selectedReusableCharacterId) ?? null
+  const selectedAppCharacter =
+    appCharacters?.find((character) => character.id === selectedAppCharacterId) ?? null
   const selectedReusableAvatar =
     sortedReusableAvatars.find((avatar) => avatar.id === selectedReusableAvatarId) ?? null
   const isEditingCampaignCharacter = activeTab === 'existing-campaign-characters' && editorMode === 'edit-campaign'
@@ -1498,39 +1508,75 @@ export function CharactersModal({
                         New Avatar
                       </button>
                     </div>
-                    <div className="characters-modal__segment" role="tablist" aria-label="Avatar sections">
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={avatarSection === 'user-avatars'}
-                        className={`characters-modal__segment-btn${avatarSection === 'user-avatars' ? ' characters-modal__segment-btn--active' : ''}`}
-                        onClick={() => {
-                          setAvatarSection('user-avatars')
-                        }}
-                      >
-                        User Avatars
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={avatarSection === 'application-avatars'}
-                        className={`characters-modal__segment-btn${avatarSection === 'application-avatars' ? ' characters-modal__segment-btn--active' : ''}`}
-                        onClick={() => {
-                          setAvatarSection('application-avatars')
-                        }}
-                      >
-                        Application Avatars
-                      </button>
+                    <div className="characters-modal__segment-row">
+                      <div className="characters-modal__segment" role="tablist" aria-label="Avatar sections">
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={avatarSection === 'user-avatars'}
+                          className={`characters-modal__segment-btn${avatarSection === 'user-avatars' ? ' characters-modal__segment-btn--active' : ''}`}
+                          onClick={() => {
+                            setAvatarSection('user-avatars')
+                          }}
+                        >
+                          User Avatars
+                        </button>
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={avatarSection === 'application-avatars'}
+                          className={`characters-modal__segment-btn${avatarSection === 'application-avatars' ? ' characters-modal__segment-btn--active' : ''}`}
+                          onClick={() => {
+                            setAvatarSection('application-avatars')
+                          }}
+                        >
+                          Application Avatars
+                        </button>
+                      </div>
+                      {isSelectingAvatarForCharacter && (() => {
+                        const selectedAvatar = avatarSection === 'application-avatars'
+                          ? (appAvatars.find(a => a.id === selectedAppAvatarId) ?? null)
+                          : selectedReusableAvatar
+                        return selectedAvatar ? (
+                          <button
+                            type="button"
+                            className="characters-modal__footer-btn characters-modal__footer-btn--primary"
+                            onClick={() => applyAvatarToCurrentCharacter(selectedAvatar as unknown as ReusableAvatar)}
+                          >
+                            Use for Character
+                          </button>
+                        ) : null
+                      })()}
                     </div>
                     {avatarSection === 'application-avatars' ? (
-                      <div className="characters-modal__avatar-browser">
-                        <div className="characters-modal__blank">Application avatars are not available yet.</div>
-                        <aside className="characters-modal__avatar-sidebar" aria-label="Selected application avatar">
-                          <div className="characters-modal__blank">
-                            Built-in avatar preview will appear here when application avatars are added.
+                      appAvatars.length === 0 ? (
+                        <div className="characters-modal__blank">No application avatars available.</div>
+                      ) : (
+                        <div className="characters-modal__avatar-browser">
+                          <div className="characters-modal__gallery" role="list" aria-label="Application avatars">
+                            {appAvatars.map((avatar) => {
+                              const avatarOffsetScale = CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
+                              const avatarStyle = {
+                                backgroundImage: `url("${avatar.imageData}")`,
+                                backgroundPosition: `${avatar.crop.x * avatarOffsetScale}px ${avatar.crop.y * avatarOffsetScale}px`,
+                                backgroundSize: `${avatar.crop.scale * 100}%`,
+                              }
+                              return (
+                                <button
+                                  key={avatar.id}
+                                  type="button"
+                                  role="listitem"
+                                  className={`characters-modal__gallery-item${selectedAppAvatarId === avatar.id ? ' characters-modal__gallery-item--active' : ''}`}
+                                  onClick={() => setSelectedAppAvatarId(avatar.id)}
+                                >
+                                  <div className="characters-modal__gallery-avatar characters-modal__gallery-avatar--image" style={avatarStyle} />
+                                  <span className="characters-modal__gallery-name">{avatar.name}</span>
+                                </button>
+                              )
+                            })}
                           </div>
-                        </aside>
-                      </div>
+                        </div>
+                      )
                     ) : reusableAvatars.length === 0 ? (
                       <div className="characters-modal__blank">No saved avatars yet.</div>
                     ) : (
@@ -1563,95 +1609,117 @@ export function CharactersModal({
                             )
                           })}
                         </div>
-                        <aside className="characters-modal__avatar-sidebar" aria-label="Selected avatar">
-                          {selectedReusableAvatar ? (
-                            <>
-                              <div
-                                className="characters-modal__avatar-sidebar-preview"
-                                style={{ backgroundImage: `url("${selectedReusableAvatar.imageData}")` }}
-                                aria-hidden="true"
-                              />
-                              <div className="characters-modal__field">
-                                <h3 className="characters-modal__heading characters-modal__heading--section">
-                                  {selectedReusableAvatar.name}
-                                </h3>
-                              </div>
-                              {isSelectingAvatarForCharacter ? (
-                                <button
-                                  type="button"
-                                  className="characters-modal__footer-btn characters-modal__footer-btn--primary characters-modal__avatar-sidebar-action"
-                                  onClick={() => {
-                                    applyAvatarToCurrentCharacter(selectedReusableAvatar)
-                                  }}
-                                >
-                                  Use for Character
-                                </button>
-                              ) : null}
-                            </>
-                          ) : (
-                            <div className="characters-modal__blank">
-                              Select an avatar to preview it here.
-                            </div>
-                          )}
-                        </aside>
                       </div>
                     )}
                   </div>
                 )
-              ) : activeTab === 'app-characters' ? (
+              ) : activeTab === 'app-characters' && !isViewingAppCharacter ? (
                 <div className="characters-modal__library">
                   <div>
-                    <h2 className="characters-modal__heading">App Content</h2>
-                    <p className="characters-modal__subheading">Pre-authored characters and avatars from the application.</p>
+                    <h2 className="characters-modal__heading">App Characters</h2>
+                    <p className="characters-modal__subheading">Pre-authored characters included with the application.</p>
                   </div>
-                  {(appAvatars?.length ?? 0) === 0 && (appCharacters?.length ?? 0) === 0 ? (
-                    <div className="characters-modal__blank">No app content available.</div>
+                  {(appCharacters?.length ?? 0) === 0 ? (
+                    <div className="characters-modal__blank">No app characters available.</div>
                   ) : (
-                    <div>
-                      {(appAvatars?.length ?? 0) > 0 && (
-                        <div>
-                          <h3 className="characters-modal__heading--section">App Avatars</h3>
-                          <div className="characters-modal__gallery" role="list" aria-label="Application avatars">
-                            {appAvatars?.map(avatar => (
-                              <div key={avatar.id} role="listitem" className="characters-modal__gallery-item">
-                                <div
-                                  className="characters-modal__gallery-avatar characters-modal__gallery-avatar--image"
-                                  style={{ backgroundImage: `url(${avatar.imageData})` }}
-                                />
-                                <span className="characters-modal__gallery-name">{avatar.name}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {(appCharacters?.length ?? 0) > 0 && (
-                        <div>
-                          <h3 className="characters-modal__heading--section">App Characters</h3>
-                          {appCharacters?.map(character => (
-                            <div key={character.id} className="characters-modal__relationship-card">
-                              <div className="characters-modal__relationship-summary">
-                                <div
-                                  className="characters-modal__relationship-avatar characters-modal__relationship-avatar--image"
-                                  style={{ backgroundImage: `url(${character.avatarImageData})` }}
-                                />
-                                <div>
-                                  <div className="characters-modal__relationship-name">{character.name}</div>
-                                  <div className="characters-modal__relationship-subheading">{character.role}</div>
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                className="characters-modal__footer-btn characters-modal__footer-btn--primary"
-                                onClick={() => onUseAppCharacter?.(character)}
-                              >
-                                Use This Character
-                              </button>
+                    <div className="characters-modal__gallery" role="list" aria-label="App characters">
+                      {appCharacters?.map((character) => {
+                        const avatarOffsetScale = CHARACTER_LIBRARY_GALLERY_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
+                        const avatarStyle = character.avatarImageData
+                          ? {
+                            backgroundImage: `url("${character.avatarImageData}")`,
+                            backgroundPosition: `${character.avatarCrop.x * avatarOffsetScale}px ${character.avatarCrop.y * avatarOffsetScale}px`,
+                            backgroundSize: `${character.avatarCrop.scale * 100}%`,
+                          }
+                          : undefined
+
+                        return (
+                          <button
+                            key={character.id}
+                            type="button"
+                            role="listitem"
+                            className={`characters-modal__gallery-item${selectedAppCharacterId === character.id ? ' characters-modal__gallery-item--active' : ''}`}
+                            onClick={() => setSelectedAppCharacterId(character.id)}
+                          >
+                            <div className={`characters-modal__gallery-avatar${avatarStyle ? ' characters-modal__gallery-avatar--image' : ''}`} style={avatarStyle}>
+                              {avatarStyle ? null : character.name.slice(0, 2).toUpperCase()}
                             </div>
-                          ))}
-                        </div>
-                      )}
+                            <span className="characters-modal__gallery-name">{character.name}</span>
+                            <span className="characters-modal__gallery-summary">{character.role || 'No role yet.'}</span>
+                          </button>
+                        )
+                      })}
                     </div>
                   )}
+                </div>
+              ) : activeTab === 'app-characters' && isViewingAppCharacter && selectedAppCharacter ? (
+                <div className="characters-modal__editor">
+                  <div className="characters-modal__header">
+                    <div>
+                      <h2 className="characters-modal__heading">{selectedAppCharacter.name}</h2>
+                      <p className="characters-modal__subheading">Read-only preview. Add to campaign to edit.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="characters-modal__footer-btn"
+                      onClick={() => setIsViewingAppCharacter(false)}
+                    >
+                      Back To Library
+                    </button>
+                  </div>
+                  <div className="characters-modal__identity">
+                    {(() => {
+                      const avatarOffsetScale = CHARACTER_EDITOR_AVATAR_SIZE / CHARACTER_EDITOR_AVATAR_SIZE
+                      const viewAvatarStyle = selectedAppCharacter.avatarImageData
+                        ? {
+                          backgroundImage: `url("${selectedAppCharacter.avatarImageData}")`,
+                          backgroundPosition: `${selectedAppCharacter.avatarCrop.x * avatarOffsetScale}px ${selectedAppCharacter.avatarCrop.y * avatarOffsetScale}px`,
+                          backgroundSize: `${selectedAppCharacter.avatarCrop.scale * 100}%`,
+                        }
+                        : undefined
+                      return (
+                        <div
+                          className={`characters-modal__identity-avatar${viewAvatarStyle ? ' characters-modal__identity-avatar--image' : ''}`}
+                          style={viewAvatarStyle}
+                          aria-hidden="true"
+                        >
+                          {viewAvatarStyle ? null : <span>{selectedAppCharacter.name.trim().slice(0, 2).toUpperCase() || 'AV'}</span>}
+                        </div>
+                      )
+                    })()}
+                    <div className="characters-modal__identity-copy">
+                      <label className="characters-modal__label">Character Name</label>
+                      <input className="characters-modal__input" type="text" value={selectedAppCharacter.name} readOnly />
+                    </div>
+                  </div>
+                  <div className="characters-modal__field">
+                    <label className="characters-modal__label">Role</label>
+                    <input className="characters-modal__input" type="text" value={selectedAppCharacter.role} readOnly />
+                  </div>
+                  <div className="characters-modal__field">
+                    <label className="characters-modal__label">Gender</label>
+                    <input className="characters-modal__input" type="text" value={selectedAppCharacter.gender} readOnly />
+                  </div>
+                  <div className="characters-modal__field">
+                    <label className="characters-modal__label">Pronouns</label>
+                    <input className="characters-modal__input" type="text" value={selectedAppCharacter.pronouns} readOnly />
+                  </div>
+                  <div className="characters-modal__field">
+                    <label className="characters-modal__label">Description</label>
+                    <textarea className="characters-modal__textarea characters-modal__textarea--compact" value={selectedAppCharacter.description} readOnly />
+                  </div>
+                  <div className="characters-modal__field">
+                    <label className="characters-modal__label">Personality</label>
+                    <textarea className="characters-modal__textarea characters-modal__textarea--compact" value={selectedAppCharacter.personality} readOnly />
+                  </div>
+                  <div className="characters-modal__field">
+                    <label className="characters-modal__label">Speaking Style</label>
+                    <textarea className="characters-modal__textarea characters-modal__textarea--compact" value={selectedAppCharacter.speakingStyle} readOnly />
+                  </div>
+                  <div className="characters-modal__field characters-modal__field--grow">
+                    <label className="characters-modal__label">Goals</label>
+                    <textarea className="characters-modal__textarea" value={selectedAppCharacter.goals} readOnly />
+                  </div>
                 </div>
               ) : activeTab === 'existing-campaign-characters' && !isEditingCampaignCharacter ? (
                 <div className="characters-modal__library">
@@ -1943,6 +2011,47 @@ export function CharactersModal({
                         Edit Character
                       </button>
                     </>
+                  ) : null}
+                  {activeTab === 'app-characters' && !isViewingAppCharacter ? (
+                    <>
+                      <button
+                        type="button"
+                        className="modal-footer__button"
+                        disabled={!selectedAppCharacter}
+                        onClick={() => {
+                          if (selectedAppCharacter) {
+                            setIsViewingAppCharacter(true)
+                          }
+                        }}
+                      >
+                        View Details
+                      </button>
+                      <button
+                        type="button"
+                        className="modal-footer__button modal-footer__button--primary"
+                        disabled={!selectedAppCharacter || isBusy}
+                        onClick={() => {
+                          if (selectedAppCharacter) {
+                            onUseAppCharacter?.(selectedAppCharacter)
+                          }
+                        }}
+                      >
+                        Add To Campaign
+                      </button>
+                    </>
+                  ) : activeTab === 'app-characters' && isViewingAppCharacter ? (
+                    <button
+                      type="button"
+                      className="modal-footer__button modal-footer__button--primary"
+                      disabled={!selectedAppCharacter || isBusy}
+                      onClick={() => {
+                        if (selectedAppCharacter) {
+                          onUseAppCharacter?.(selectedAppCharacter)
+                        }
+                      }}
+                    >
+                      Add To Campaign
+                    </button>
                   ) : null}
                   {activeTab === 'existing-characters' && !isEditingReusableCharacter ? (
                     <>

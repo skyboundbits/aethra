@@ -5362,7 +5362,7 @@ ipcMain.handle('settings:set', (_event, settings: AppSettings): void => {
  */
 ipcMain.handle('appContent:get', async () => {
   try {
-    const resourcesPath = join(__dirname, '..', 'resources', 'app-content')
+    const resourcesPath = join(app.getAppPath(), 'electron', 'resources', 'app-content')
 
     let avatars: unknown[] = []
     let characters: unknown[] = []

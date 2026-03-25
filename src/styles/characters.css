@@ -151,6 +151,13 @@
   gap: var(--space-2);
 }
 
+.characters-modal__segment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
 .characters-modal__segment {
   display: inline-flex;
   gap: var(--space-1);
@@ -325,10 +332,7 @@ select.characters-modal__input {
 }
 
 .characters-modal__avatar-browser {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
-  gap: var(--space-4);
-  align-items: start;
+  display: block;
 }
 
 .characters-modal__avatar-sidebar {
@@ -549,12 +553,3 @@ select.characters-modal__input {
   }
 }
 
-@media (max-width: 960px) {
-  .characters-modal__avatar-browser {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .characters-modal__avatar-sidebar {
-    position: static;
-  }
-}

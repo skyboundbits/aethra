@@ -36,7 +36,7 @@ interface AvatarCropEditorProps {
  * @returns Sanitized zoom value.
  */
 function clampAvatarScale(scale: number): number {
-  return Math.min(3, Math.max(1, Number(scale.toFixed(2))))
+  return Math.min(3, Math.max(0.25, Number(scale.toFixed(2))))
 }
 
 /**
