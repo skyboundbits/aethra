@@ -4651,6 +4651,42 @@ function syncStreamedAssistantMessages(
   }
 
   /**
+   * Copy an app character into the active campaign as a new campaign-scoped character.
+   * Generates a unique ID, creates a CharacterProfile from the template, and persists it.
+   *
+   * @param appCharacter - The pre-authored app character to copy.
+   */
+  async function handleUseAppCharacter(appCharacter: typeof appCharacters[0]): Promise<void> {
+    if (!campaignPath) {
+      console.warn('[Aethra] No active campaign; cannot copy character')
+      return
+    }
+
+    try {
+      const { createCharacterFromAppTemplate } = await import('./utils/appContentUtils')
+      const newCharProfile = createCharacterFromAppTemplate(appCharacter)
+
+      // Generate ID and folder name
+      const characterId = `char-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+      const folderName = appCharacter.name.toLowerCase().replace(/\s+/g, '-')
+
+      // Create full CharacterProfile
+      const character: CharacterProfile = {
+        id: characterId,
+        folderName: folderName,
+        ...newCharProfile,
+      }
+
+      // Save to campaign using existing handler
+      await handleSaveCharacter(character)
+    } catch (error) {
+      console.error('[Aethra] Failed to copy app character:', error)
+      setCharactersStatusKind('error')
+      setCharactersStatusMessage('Failed to copy character.')
+    }
+  }
+
+  /**
    * Persist one reusable avatar in the global avatar library.
    *
    * @param avatar - Avatar to save.
@@ -5841,6 +5877,7 @@ function syncStreamedAssistantMessages(
           onDeleteRelationshipPair={handleDeleteRelationshipPair}
           appCharacters={appCharacters}
           appAvatars={appAvatars}
+          onUseAppCharacter={handleUseAppCharacter}
         />
       ) : null}
       {!isCampaignSwitchLoading && isNewSessionModalOpen ? (

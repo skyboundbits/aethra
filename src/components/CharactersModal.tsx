@@ -264,6 +264,20 @@ interface CharactersModalProps {
     imageData: string
     crop: { x: number; y: number; scale: number }
   }>
+  /** Copy an app character into the active campaign. */
+  onUseAppCharacter?: (character: Array<{
+    id: string
+    name: string
+    role: string
+    gender: 'male' | 'female' | 'non-specific'
+    pronouns: 'he/him' | 'she/her' | 'they/them'
+    description: string
+    personality: string
+    speakingStyle: string
+    goals: string
+    avatarImageData: string
+    avatarCrop: { x: number; y: number; scale: number }
+  }>[number]) => Promise<void>
 }
 
 function createCampaignCharacterDraft(): CharacterProfile {
@@ -1628,9 +1642,7 @@ export function CharactersModal({
                               <button
                                 type="button"
                                 className="characters-modal__footer-btn characters-modal__footer-btn--primary"
-                                onClick={() => {
-                                  // TODO: Implement copy-on-use (next task)
-                                }}
+                                onClick={() => onUseAppCharacter?.(character)}
                               >
                                 Use This Character
                               </button>
