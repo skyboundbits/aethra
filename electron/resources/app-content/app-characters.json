@@ -33,6 +33,57 @@
         "y": 0,
         "scale": 1
       }
+    },
+    {
+      "id": "app-char-003",
+      "name": "Thoros the Rogue",
+      "role": "Thief",
+      "gender": "male",
+      "pronouns": "he/him",
+      "description": "A nimble thief with quick fingers and quicker wit. Scarred cheeks hint at a dangerous past. Moves with practiced stealth despite his confidence.",
+      "personality": "Charming but unpredictable. Uses humor to deflect from his troubled history. Secretly generous but would never admit it. Trusts no one completely.",
+      "speakingStyle": "Casual, full of slang and street dialect. Makes jokes to break tension. Occasionally drops formal speech when caught off-guard or emotional.",
+      "goals": "Earn enough coin for a legitimate business. Prove he's more than his past. Find redemption without losing his edge.",
+      "avatarImageData": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "avatarCrop": {
+        "x": 0,
+        "y": 0,
+        "scale": 1
+      }
+    },
+    {
+      "id": "app-char-004",
+      "name": "Sister Meira",
+      "role": "Cleric",
+      "gender": "female",
+      "pronouns": "she/her",
+      "description": "A devoted cleric with silver-threaded hair and gentle hands. Her robes bear the symbol of her order. Despite her kindness, there's steel beneath the compassion.",
+      "personality": "Serene and patient. Speaks with wisdom earned through decades of service. Struggles with doubt but hides it behind faith. Fiercely protective of those she cares for.",
+      "speakingStyle": "Thoughtful and deliberate. Often references faith and philosophy. Uses formal, measured speech. Listens more than she speaks.",
+      "goals": "Heal the sick and suffering. Restore faith where it's been lost. Understand why the gods test their servants so harshly.",
+      "avatarImageData": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "avatarCrop": {
+        "x": 0,
+        "y": 0,
+        "scale": 1
+      }
+    },
+    {
+      "id": "app-char-005",
+      "name": "Grok Stonefist",
+      "role": "Barbarian",
+      "gender": "male",
+      "pronouns": "he/him",
+      "description": "A massive warrior with stone-grey skin and tusks that mark his orcish heritage. Countless scars crisscross his arms. Despite his fearsome appearance, his eyes are thoughtful.",
+      "personality": "Violent in combat but gentle in peace. Struggles with the prejudice directed at his kind. Drinks heavily to numb old wounds. Shows unexpected kindness to the weak.",
+      "speakingStyle": "Speaks little but with surprising eloquence. Grunts often. Uses short sentences but chooses words carefully. Grows more articulate when drunk.",
+      "goals": "Prove his worth to a world that judges by appearance. Find a place where he belongs. Reclaim honor stolen by those who fear him.",
+      "avatarImageData": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "avatarCrop": {
+        "x": 0,
+        "y": 0,
+        "scale": 1
+      }
     }
   ]
 }
