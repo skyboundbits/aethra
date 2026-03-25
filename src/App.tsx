@@ -527,7 +527,7 @@ function getSessionDisabledCharacterIds(scene: Scene | null): string[] {
  * @param characters - Campaign roster.
  * @returns Characters enabled for that scene.
  */
-function getEnabledSessionCharacters(
+function getEnabledSceneCharacters(
   scene: Scene | null,
   characters: CharacterProfile[],
 ): CharacterProfile[] {
@@ -551,7 +551,7 @@ function getEnabledSessionCharacters(
  */
 function disableCharacterInExistingSessions(campaign: Campaign, characterId: string): Campaign {
   let didChange = false
-  const nextSessions = campaign.scenes.map((scene) => {
+  const nextScenes = campaign.scenes.map((scene) => {
     const activeCharacterIds = getSessionActiveCharacterIds(scene)
     if (activeCharacterIds) {
       return scene
@@ -574,7 +574,7 @@ function disableCharacterInExistingSessions(campaign: Campaign, characterId: str
   return didChange
     ? {
       ...campaign,
-      scenes: nextSessions,
+      scenes: nextScenes,
     }
     : campaign
 }
@@ -1201,8 +1201,8 @@ function hydrateCampaignMessageCharacterIds(campaign: Campaign, characters: Char
   )
 
   let didChange = false
-  const nextSessions = campaign.scenes.map((scene) => {
-    let sessionChanged = false
+  const nextScenes = campaign.scenes.map((scene) => {
+    let sceneChanged = false
     const storedActiveCharacterIds = getSessionActiveCharacterIds(scene)
     const nextActiveCharacterIds = storedActiveCharacterIds
       ? storedActiveCharacterIds
@@ -1223,13 +1223,13 @@ function hydrateCampaignMessageCharacterIds(campaign: Campaign, characters: Char
       ? scene.messages.map((message) => {
         const nextMessage = hydrateMessageCharacterId(message, charactersById, charactersByName)
         if (nextMessage !== message) {
-          sessionChanged = true
+          sceneChanged = true
         }
         return nextMessage
       })
       : scene.messages
 
-    if (!sessionChanged && !activeIdsChanged && !disabledIdsChanged) {
+    if (!sceneChanged && !activeIdsChanged && !disabledIdsChanged) {
       return scene
     }
 
@@ -1245,7 +1245,7 @@ function hydrateCampaignMessageCharacterIds(campaign: Campaign, characters: Char
   return didChange
     ? {
       ...campaign,
-      scenes: nextSessions,
+      scenes: nextScenes,
     }
     : campaign
 }
@@ -1462,7 +1462,7 @@ export default function App() {
   /** True while the system prompt editor modal is open. */
   const [isCharactersOpen, setIsCharactersOpen] = useState(false)
   /** True while the scene character management modal is open. */
-  const [isSceneCharactersOpen, setIsSessionCharactersOpen] = useState(false)
+  const [isSceneCharactersOpen, setIsSceneCharactersOpen] = useState(false)
   /** True while the current scene summary modal is open. */
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false)
   /** True while the current summary is being rebuilt manually. */
@@ -1516,7 +1516,7 @@ export default function App() {
   /** Message currently awaiting delete confirmation. */
   const [pendingDeleteMessageId, setPendingDeleteMessageId] = useState<string | null>(null)
   /** Scene currently awaiting delete confirmation. */
-  const [pendingDeleteSceneId, setPendingDeleteSessionId] = useState<string | null>(null)
+  const [pendingDeleteSceneId, setPendingDeleteSceneId] = useState<string | null>(null)
 
   /** Status message shown in the characters modal. */
   const [charactersStatusMessage, setCharactersStatusMessage] = useState<string | null>(null)
@@ -1852,7 +1852,7 @@ export default function App() {
   /**
    * Cancel any scheduled scene activation that has not executed yet.
    */
-  function clearScheduledSessionSwitch(): void {
+  function clearScheduledSceneSwitch(): void {
     if (sceneSwitchFrameRef.current == null) {
       return
     }
@@ -1877,33 +1877,33 @@ export default function App() {
    * Stage a scene switch so the loading affordance can paint before a large
    * transcript render blocks the renderer for a moment.
    *
-   * @param nextSessionId - Scene to activate.
+   * @param nextSceneId - Scene to activate.
    */
-  function scheduleSessionActivation(nextSessionId: string): void {
-    if (nextSessionId === activeSceneId) {
+  function scheduleSceneActivation(nextSceneId: string): void {
+    if (nextSceneId === activeSceneId) {
       clearScheduledChatReveal()
       chatLoadingStartedAtRef.current = null
-      setSelectedSceneId(nextSessionId)
+      setSelectedSceneId(nextSceneId)
       setIsChatLoading(false)
       return
     }
 
-    clearScheduledSessionSwitch()
+    clearScheduledSceneSwitch()
     clearScheduledChatReveal()
-    setSelectedSceneId(nextSessionId)
+    setSelectedSceneId(nextSceneId)
     chatLoadingStartedAtRef.current = Date.now()
     setIsChatLoading(true)
 
     sceneSwitchFrameRef.current = window.requestAnimationFrame(() => {
       sceneSwitchFrameRef.current = window.requestAnimationFrame(() => {
         sceneSwitchFrameRef.current = null
-        setActiveSceneId(nextSessionId)
+        setActiveSceneId(nextSceneId)
       })
     })
   }
 
   const enabledSceneCharacters = useMemo(
-    () => getEnabledSessionCharacters(activeScene, characters),
+    () => getEnabledSceneCharacters(activeScene, characters),
     [activeScene, characters],
   )
 
@@ -2192,7 +2192,7 @@ export default function App() {
    */
   useEffect(() => {
     return () => {
-      clearScheduledSessionSwitch()
+      clearScheduledSceneSwitch()
       clearScheduledChatReveal()
     }
   }, [])
@@ -2218,14 +2218,14 @@ export default function App() {
       return
     }
 
-    const hasActiveSession = campaign.scenes.some((scene) => scene.id === activeSceneId)
-    if (!hasActiveSession) {
+    const hasActiveScene = campaign.scenes.some((scene) => scene.id === activeSceneId)
+    if (!hasActiveScene) {
       setActiveSceneId(campaign.scenes[0].id)
     }
 
-    const hasSelectedSession = campaign.scenes.some((scene) => scene.id === selectedSceneId)
-    if (!hasSelectedSession) {
-      setSelectedSceneId(hasActiveSession ? activeSceneId : campaign.scenes[0].id)
+    const hasSelectedScene = campaign.scenes.some((scene) => scene.id === selectedSceneId)
+    if (!hasSelectedScene) {
+      setSelectedSceneId(hasActiveScene ? activeSceneId : campaign.scenes[0].id)
     }
   }, [activeSceneId, campaign, selectedSceneId])
 
@@ -2350,7 +2350,7 @@ export default function App() {
    * @param sessionId - Target scene.
    * @param msg       - Message to upsert.
    */
-  function upsertMessage(sessionId: string, msg: Message): void {
+  function upsertMessage(sceneId: string, msg: Message): void {
     updateCampaign((prev) => ({
       ...prev,
       scenes: prev.scenes.map((s) => {
@@ -2434,7 +2434,7 @@ function syncStreamedAssistantMessages(
   /**
    * Create a new empty scene, add it to the list, and make it active.
    */
-  function handleNewSession(): void {
+  function handleNewScene(): void {
     setNewSceneStatusKind(null)
     setNewSceneStatusMessage(null)
     setIsNewSceneModalOpen(true)
@@ -2444,8 +2444,8 @@ function syncStreamedAssistantMessages(
    * Switch the active scene.
    * @param id - ID of the scene to activate.
    */
-  function handleSelectSession(id: string) {
-    scheduleSessionActivation(id)
+  function handleSelectScene(id: string) {
+    scheduleSceneActivation(id)
   }
 
   /**
@@ -2482,7 +2482,7 @@ function syncStreamedAssistantMessages(
    *
    * @param characterId - Character being toggled.
    */
-  async function handleToggleSessionCharacter(characterId: string): Promise<void> {
+  async function handleToggleSceneCharacter(characterId: string): Promise<void> {
     if (!activeScene || !campaign) {
       return
     }
@@ -2560,7 +2560,7 @@ function syncStreamedAssistantMessages(
    *
    * @param sessionId - ID of the scene to remove.
    */
-  function handleDeleteSession(sessionId: string): void {
+  function handleDeleteScene(sceneId: string): void {
     if (!campaign || isStreaming) {
       return
     }
@@ -2570,14 +2570,14 @@ function syncStreamedAssistantMessages(
       return
     }
 
-    setPendingDeleteSessionId(sessionId)
+    setPendingDeleteSceneId(sessionId)
   }
 
   /**
    * Close the scene deletion confirmation dialog.
    */
   function handleCancelDeleteSession(): void {
-    setPendingDeleteSessionId(null)
+    setPendingDeleteSceneId(null)
     setComposerFocusRequestKey((prev) => prev + 1)
   }
 
@@ -2591,11 +2591,11 @@ function syncStreamedAssistantMessages(
 
     const sessionIndex = campaign.scenes.findIndex((scene) => scene.id === pendingDeleteSceneId)
     if (sessionIndex === -1) {
-      setPendingDeleteSessionId(null)
+      setPendingDeleteSceneId(null)
       return
     }
 
-    const remainingSessions = campaign.scenes.filter((candidate) => candidate.id !== pendingDeleteSceneId)
+    const remainingScenes = campaign.scenes.filter((candidate) => candidate.id !== pendingDeleteSceneId)
     clearSummaryTimer(pendingDeleteSceneId)
     summaryInFlightRef.current.delete(pendingDeleteSceneId)
     summaryRerunRef.current.delete(pendingDeleteSceneId)
@@ -2606,12 +2606,12 @@ function syncStreamedAssistantMessages(
     }))
 
     if (activeSceneId === pendingDeleteSceneId) {
-      const nextSession = remainingSessions[sessionIndex] ?? remainingSessions[sessionIndex - 1] ?? null
+      const nextSession = remainingScenes[sessionIndex] ?? remainingScenes[sessionIndex - 1] ?? null
       setActiveSceneId(nextSession?.id ?? null)
       setSelectedSceneId(nextSession?.id ?? null)
     }
 
-    setPendingDeleteSessionId(null)
+    setPendingDeleteSceneId(null)
     setComposerFocusRequestKey((prev) => prev + 1)
   }
 
@@ -2872,12 +2872,12 @@ function syncStreamedAssistantMessages(
     setCampaignLoadProgress(null)
     setCampaignLauncherLoadingState(null)
     setPendingDeleteMessageId(null)
-    setPendingDeleteSessionId(null)
+    setPendingDeleteSceneId(null)
     setIsSettingsOpen(false)
     setIsScenesOpen(false)
     setIsLoreBookOpen(false)
     setIsCharactersOpen(false)
-    setIsSessionCharactersOpen(false)
+    setIsSceneCharactersOpen(false)
     setIsSummaryModalOpen(false)
     setIsCreateCampaignOpen(false)
     setIsCampaignModalOpen(false)
@@ -2905,7 +2905,7 @@ function syncStreamedAssistantMessages(
     refreshStartedAtRef.current = startedAt
     setRefreshStartedAt(startedAt)
     try {
-      const sessionCharacters = getEnabledSessionCharacters(activeScene, characters)
+      const sessionCharacters = getEnabledSceneCharacters(activeScene, characters)
       const merged = await window.api.refreshRelationships(
         campaignPath,
         campaign.id,
@@ -3047,14 +3047,14 @@ function syncStreamedAssistantMessages(
    * Open the scene character management modal.
    */
   function handleOpenSceneCharacters(): void {
-    setIsSessionCharactersOpen(true)
+    setIsSceneCharactersOpen(true)
   }
 
   /**
    * Close the scene character management modal.
    */
   function handleCloseSessionCharacters(): void {
-    setIsSessionCharactersOpen(false)
+    setIsSceneCharactersOpen(false)
     setComposerFocusRequestKey((prev) => prev + 1)
   }
 
@@ -3126,7 +3126,7 @@ function syncStreamedAssistantMessages(
       if (appSettingsRef.current.enableRollingRelationshipSummaries && campaign && campaignPath) {
         try {
           setSummaryModalStatusMessage('Generating relationship summary...')
-          const sessionCharacters = getEnabledSessionCharacters(activeScene, characters)
+          const sessionCharacters = getEnabledSceneCharacters(activeScene, characters)
           const narrative = await window.api.generateRelationshipNarrative(
             campaignPath,
             campaign.id,
@@ -4711,9 +4711,9 @@ function syncStreamedAssistantMessages(
       setComposerCharacterId((prev) => prev === characterId ? null : prev)
       if (removedSessionIds.size > 0) {
         const survivingSessions = campaign.scenes.filter((scene) => !removedSessionIds.has(scene.id))
-        const nextSessionId = survivingSessions[0]?.id ?? null
-        setActiveSceneId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSessionId)
-        setSelectedSceneId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSessionId)
+        const nextSceneId = survivingSessions[0]?.id ?? null
+        setActiveSceneId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSceneId)
+        setSelectedSceneId((prev) => prev && !removedSessionIds.has(prev) ? prev : nextSceneId)
       }
       setCharactersStatusKind('success')
       setCharactersStatusMessage(
@@ -5186,7 +5186,7 @@ function syncStreamedAssistantMessages(
     if (!sceneId) {
       return
     }
-    const targetSession = options.sceneOverride
+    const targetScene = options.sceneOverride
       ?? currentCampaign.scenes.find((scene) => scene.id === sceneId)
       ?? null
 
@@ -5208,8 +5208,8 @@ function syncStreamedAssistantMessages(
 
     // Snapshot the message history *before* appending the user message so we
     // can build the API payload without relying on stale state.
-    const sessionForPrompt: Scene = targetSession ?? {
-      id: sessionId,
+    const sceneForPrompt: Scene = targetScene ?? {
+      id: sceneId,
       title: 'New Chat',
       sceneSetup: '',
       openingNotes: '',
@@ -5223,7 +5223,7 @@ function syncStreamedAssistantMessages(
       updatedAt: userMessage.timestamp,
     }
 
-    upsertMessage(sessionId, userMessage)
+    upsertMessage(sceneId, userMessage)
     if (options.clearComposer !== false) {
       setInputValue('')
     }
@@ -5240,37 +5240,37 @@ function syncStreamedAssistantMessages(
       content:   '',
       timestamp: assistantTimestamp,
     }
-    upsertMessage(sessionId, assistantMessage)
+    upsertMessage(sceneId, assistantMessage)
 
-    let latestSessionForPrompt = sessionForPrompt
+    let latestSceneForPrompt = sceneForPrompt
 
     try {
-      const summaryReadySession = options.sceneOverride
-        ? sessionForPrompt
+      const summaryReadyScene = options.sceneOverride
+        ? sceneForPrompt
         : await catchUpRollingSummaryBeforeSend(sceneId)
-      latestSessionForPrompt = summaryReadySession ?? sessionForPrompt
+      latestSceneForPrompt = summaryReadyScene ?? sceneForPrompt
 
       // Generate relationship narrative alongside the summary (catchUpRollingSummaryBeforeSend already rebuilt the summary)
       if (
         appSettingsRef.current.enableRollingSummaries
         && appSettingsRef.current.enableRollingRelationshipSummaries
-        && latestSessionForPrompt
+        && latestSceneForPrompt
         && campaign
         && campaignPath
       ) {
         try {
-          const sessionCharacters = getEnabledSessionCharacters(latestSessionForPrompt, characters)
+          const sessionCharacters = getEnabledSceneCharacters(latestSceneForPrompt, characters)
           const relationshipNarrative = await window.api.generateRelationshipNarrative(
             campaignPath,
             campaign.id,
             sessionCharacters,
-            [latestSessionForPrompt],
+            [latestSceneForPrompt],
           )
           // Update scene with relationship narrative
           updateCampaign((prev) => ({
             ...prev,
             scenes: prev.scenes.map((scene) =>
-              scene.id === sessionId
+              scene.id === sceneId
                 ? {
                   ...scene,
                   relationshipNarrativeSummary: relationshipNarrative,
@@ -5288,7 +5288,7 @@ function syncStreamedAssistantMessages(
       updateCampaign((prev) => ({
         ...prev,
         scenes: prev.scenes.map((scene) => {
-          if (scene.id !== sessionId) {
+          if (scene.id !== sceneId) {
             return scene
           }
 
@@ -5318,12 +5318,12 @@ function syncStreamedAssistantMessages(
     let revealTimeoutId: number | null = null
     let canRenderAssistantText = false
     let streamFinished = false
-    let requestSession = latestSessionForPrompt
+    let requestScene = latestSceneForPrompt
     let baseHistorySnapshot = buildRequestMessages(
       currentCampaign,
       enabledSceneCharacters,
       appSettingsRef.current,
-      requestSession,
+      requestScene,
       [userMessage],
       undefined,
       relationshipGraph,
@@ -5375,7 +5375,7 @@ function syncStreamedAssistantMessages(
         assistantIds.push(uid())
       }
 
-      syncStreamedAssistantMessages(sessionId, assistantIds, segments, assistantTimestamp)
+      syncStreamedAssistantMessages(sceneId, assistantIds, segments, assistantTimestamp)
     }
 
     /**
@@ -5407,14 +5407,14 @@ function syncStreamedAssistantMessages(
       const hasNamedBubble = hasNamedAssistantBubble(finalSegments)
 
       if (!hasNamedBubble && attemptNumber < MAX_UNTAGGED_ASSISTANT_ATTEMPTS) {
-        syncStreamedAssistantMessages(sessionId, assistantIds, [{ content: '' }], assistantTimestamp)
+        syncStreamedAssistantMessages(sceneId, assistantIds, [{ content: '' }], assistantTimestamp)
         streamAssistantAttempt(attemptNumber + 1)
         return
       }
 
       isStreamingRef.current = false
       setIsStreaming(false)
-      scheduleRollingSummary(sessionId)
+      scheduleRollingSummary(sceneId)
     }
 
     /**
@@ -5468,7 +5468,7 @@ function syncStreamedAssistantMessages(
      * @param attemptNumber - 1-based attempt counter for malformed replies.
      */
     function streamAssistantAttempt(attemptNumber: number): void {
-      if (!currentCampaign || !campaignPath || !sessionId) return
+      if (!currentCampaign || !campaignPath || !sceneId) return
 
       accumulated = ''
       streamFinished = false
@@ -5478,7 +5478,7 @@ function syncStreamedAssistantMessages(
           currentCampaign,
           enabledSceneCharacters,
           appSettingsRef.current,
-          requestSession,
+          requestScene,
           [userMessage],
           [{
             role: 'user',
@@ -5521,7 +5521,7 @@ function syncStreamedAssistantMessages(
           updateCampaign((prev) => ({
             ...prev,
             scenes: prev.scenes.map((scene) => {
-              if (scene.id !== sessionId) {
+              if (scene.id !== sceneId) {
                 return scene
               }
 
@@ -5679,9 +5679,9 @@ function syncStreamedAssistantMessages(
             remainingTokensIsExact={remainingTokensIsExact}
             scenes={scenes}
             activeSceneId={selectedSceneId}
-            onSelectScene={handleSelectSession}
-            onDeleteScene={handleDeleteSession}
-            onNewScene={handleNewSession}
+            onSelectScene={handleSelectScene}
+            onDeleteScene={handleDeleteScene}
+            onNewScene={handleNewScene}
             isBusy={isStreaming || isStartingScene}
           />
 
@@ -5980,7 +5980,7 @@ function syncStreamedAssistantMessages(
         <SceneCharactersModal
           activeScene={activeScene}
           characters={characters}
-          onToggleCharacter={handleToggleSessionCharacter}
+          onToggleCharacter={handleToggleSceneCharacter}
           onClose={handleCloseSessionCharacters}
         />
       ) : null}
